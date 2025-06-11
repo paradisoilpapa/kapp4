@@ -405,9 +405,10 @@ if st.button("スコア計算実行"):
     }
     
     # --- 3. 補正スコアの生成（7選手分、下限付き） ---
-    metabolism_scores = [
-        max(get_age_correction(ages[i]) * correction_factor.get(race_class, 1.0), -0.3)
-
+    metabolism_scores = []
+for i in range(7):
+    score = max(get_age_correction(ages[i]) * correction_factor.get(race_class, 1.0), -0.3)
+    metabolism_scores.append(score)
 
 
 import streamlit as st
