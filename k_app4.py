@@ -345,46 +345,14 @@ if st.button("スコア計算実行"):
             return 0.3
         return 0.0
 
- # ライン構成取得
-# --- ライン構成入力欄（UI＋セッション登録） ---
-a_line = st.text_input("Aライン（例：13）", max_chars=7, key="a_line_input")
-b_line = st.text_input("Bライン（例：25）", max_chars=7, key="b_line_input")
-c_line = st.text_input("Cライン（例：47）", max_chars=7, key="c_line_input")
-solo_line = st.text_input("単騎枠（例：6）", max_chars=7, key="solo_line_input")
 
-def extract_car_list(input_str):
-    return [int(c) for c in input_str if c.isdigit()]
 
-# --- セッションにライン構成を格納（即時反映） ---
-if a_line or b_line or c_line or solo_line:
-    st.session_state["line_def"] = {
-        'A': extract_car_list(a_line),
-        'B': extract_car_list(b_line),
-        'C': extract_car_list(c_line),
-        '単騎': extract_car_list(solo_line)
-    }
+    # スコア計算
+    tenscore_score = score_from_tenscore_list(rating)
+    score_parts = []
 
-line_def = st.session_state.get("line_def", {'A': [], 'B': [], 'C': [], '単騎': []})
-
-if not line_def or all(len(v) == 0 for v in line_def.values()):
-    st.error("⚠️ ライン構成が未入力です。上部フォームから入力してください。")
-    st.stop()
-
-# --- ダミー風補正関数（未定義エラー対策） ---
-def wind_straight_combo_adjust(kaku, wind_dir, wind_speed, straight_length, line_position):
-    return 0.0  # 必要に応じて具体的ロジックへ置換
-
-# --- rating 未定義対策 ---
-# 使用しないので削除または無効化
-# rating = [st.session_state.get(f"rating_{i+1}", 0.0) for i in range(7)]
-# tenscore_score = score_from_tenscore_list(rating)
-
-# --- 2. スコア計算ループ ---
-score_parts = []
-
-for i in range(7):
-    try:
-        if i >= len(tairetsu) or not tairetsu[i].isdigit():
+    for i in range(9):
+        if not tairetsu[i].isdigit():
             continue
 
         num = i + 1
@@ -399,147 +367,38 @@ for i in range(7):
             line_order[i]
         )
 
+        chaku_values = chaku_inputs[i]
         kasai = convert_chaku_to_score(chaku_inputs[i]) or 0.0
-        rating_score = 0.0  # 評価スコアを未使用に
+        rating_score = tenscore_score[i]
         rain_corr = lap_adjust(kaku, laps)
-        s_count = st.session_state.get(f"s_point_{num}", 0)
-        b_count = st.session_state.get(f"b_point_{num}", 0)
-
-        s_bonus = min(0.05 * s_count, 0.15)
-        b_bonus = min(0.05 * b_count, 0.15)
-
+        s_bonus = 0.05 * st.session_state.get(f"s_point_{num}", 0)
+        b_bonus = 0.05 * st.session_state.get(f"b_point_{num}", 0)
         symbol_score = s_bonus + b_bonus
         line_bonus = line_member_bonus(line_order[i])
         bank_bonus = bank_character_bonus(kaku, bank_angle, straight_length)
         length_bonus = bank_length_adjust(kaku, bank_length)
-        meta_score = metabolism_scores[i]
 
-        total = base + wind + kasai + rating_score + rain_corr + symbol_score + line_bonus + bank_bonus + length_bonus + meta_score
+        total = base + wind + kasai + rating_score + rain_corr + symbol_score + line_bonus + bank_bonus + length_bonus
 
         score_parts.append([
             num, kaku, base, wind, kasai, rating_score,
-            rain_corr, symbol_score, line_bonus, bank_bonus, length_bonus,
-            meta_score,
-            total
+            rain_corr, symbol_score, line_bonus, bank_bonus, length_bonus, total
         ])
-    except Exception as e:
-        st.warning(f"{num}番のスコア計算エラー: {e}")
 
-if len(score_parts) == 0:
-    st.error("⚠️ スコアデータが空です。入力ミスや前提条件の欠落がないか確認してください。")
-    st.stop()
 
-# --- グループ補正関数の追加 ---
-def compute_group_bonus(score_parts, line_def):
-    group_totals = {k: [] for k in line_def}
+    # グループ補正
+    group_bonus_map = compute_group_bonus(score_parts, line_def)
+    final_score_parts = []
     for row in score_parts:
-        car_no = row[0]
-        score = row[-1]
-        for group, members in line_def.items():
-            if car_no in members:
-                group_totals[group].append(score)
-                break
-    return {k: (sum(v) / len(v)) if v else 0.0 for k, v in group_totals.items()}
+        group_corr = get_group_bonus(row[0], line_def, group_bonus_map)
+        new_total = row[-1] + group_corr
+        final_score_parts.append(row[:-1] + [group_corr, new_total])
 
-def get_group_bonus(car_no, line_def, group_bonus_map):
-    for group in ['A', 'B', 'C']:
-        if car_no in line_def[group]:
-            return group_bonus_map.get(group, 0.0)
-    if '単騎' in line_def and car_no in line_def['単騎']:
-        return group_bonus_map.get('単騎', 0.0)
-    return 0.0
 
-# --- グループ補正の適用 ---
-group_bonus_map = compute_group_bonus(score_parts, line_def)
-final_score_parts = []
-for row in score_parts:
-    group_corr = get_group_bonus(row[0], line_def, group_bonus_map)
-    new_total = row[-1] + group_corr
-    final_score_parts.append(row[:-1] + [group_corr, new_total])
-
-# --- ◎選出と平均比較による軸判定 ---
-sorted_scores = sorted(final_score_parts, key=lambda x: x[-1], reverse=True)
-anchor_row = sorted_scores[0]
-anchor_car = anchor_row[0]
-anchor_score = anchor_row[-1]
-avg_score = sum(row[-1] for row in final_score_parts) / len(final_score_parts)
-include_anchor = (anchor_score - avg_score) >= 0.1
-
-# --- 表示 ---
-df = pd.DataFrame(final_score_parts, columns=[
-    '車番', '脚質', '基本', '風補正', '着順補正', '得点補正',
-    '周回補正', 'SB印補正', 'ライン補正', 'バンク補正', '周長補正',
-    '代謝補正', '合計スコア', 'グループ補正', '補正後スコア'
-])
-st.dataframe(df.sort_values(by='補正後スコア', ascending=False).reset_index(drop=True))
-
-# --- グループスコアによるライン判別 ---
-def get_line_by_group_bonus(car_no, score_parts, group_bonus_map):
-    # スコアから該当車番のグループスコアを調べる
-    for row in score_parts:
-        if row[0] == car_no:
-            car_score = row[-2]  # グループ補正値
-            break
-    else:
-        return None
-
-    # 同じグループ補正値のグループ名を取得
-    for group, bonus in group_bonus_map.items():
-        if abs(bonus - car_score) < 1e-4:
-            return group
-    return None
-    
-    
-# --- スコア差に基づく買い方提案（逆張りロジックを反映） ---
-sorted_scores = sorted(final_score_parts, key=lambda x: x[-1], reverse=True)
-anchor_row = sorted_scores[0]
-second_row = sorted_scores[1]
-lowest_row = sorted_scores[-1]
-
-gap_1_2 = anchor_row[-1] - second_row[-1]
-gap_1_low = anchor_row[-1] - lowest_row[-1]
-
-# --- グループ補正値からライン判定 ---
-def get_line_by_group_bonus(car_no, final_score_parts):
-    for row in final_score_parts:
-        if row[0] == car_no:
-            return row[-2]  # グループ補正値の列
-    return None
-
-anchor_line_score = get_line_by_group_bonus(anchor_row[0], final_score_parts)
-
-st.markdown("## 🔍 買い方提案")
-
-if gap_1_2 >= 0.25 and gap_1_low > 1.0:
-    st.success(f"◎（{anchor_row[0]}）は抜けた存在。堅軸として信頼できます。")
-    
-    partners = [row[0] for row in sorted_scores[1:] 
-                if get_line_by_group_bonus(row[0], final_score_parts) == anchor_line_score][:3]
-    
-    if len(partners) < 3:
-        partners += [row[0] for row in sorted_scores[1:] if row[0] not in partners and row[0] != anchor_row[0]][:3 - len(partners)]
-
-    st.markdown("**📌 推奨：三連複◎軸固定＋相手3名（3点）**")
-    st.markdown(f"- ◎：{anchor_row[0]}  相手：{', '.join(map(str, partners))}")
-
-elif gap_1_2 < 0.25 and gap_1_low > 1.0:
-    st.info(f"◎（{anchor_row[0]}）は微差リード。BOX向きの混戦です。")
-    box_targets = [row[0] for row in sorted_scores[:4]]
-    st.markdown("**📌 推奨：三連複4車BOX（4点）**")
-    st.markdown(f"- 対象：{', '.join(map(str, box_targets))}")
-
-else:
-    st.warning(f"スコア全体が拮抗（トップと最下位差 {gap_1_low:.2f}）しており、団子状態です。")
-    
-    low_anchor = lowest_row[0]
-    low_anchor_line = get_line_by_group_bonus(low_anchor, final_score_parts)
-    
-    same_line_members = [row[0] for row in final_score_parts 
-                         if get_line_by_group_bonus(row[0], final_score_parts) == low_anchor_line and row[0] != low_anchor]
-    
-    cross_line_highs = [row[0] for row in sorted_scores 
-                        if get_line_by_group_bonus(row[0], final_score_parts) != low_anchor_line][:2]
-    
-    trio = [low_anchor] + same_line_members[:1] + cross_line_highs[:2 - len(same_line_members[:1])]
-    st.markdown("**📌 推奨：三連複逆張りBOX（スコア最下位＋同ライン＋他ライン上位）**")
-    st.markdown(f"- 対象：{', '.join(map(str, trio))}")
+    # 表示
+    df = pd.DataFrame(final_score_parts, columns=[
+        '車番', '脚質', '基本', '風補正', '着順補正', '得点補正',
+        '周回補正', 'SB印補正', 'ライン補正', 'バンク補正', '周長補正',
+        'グループ補正', '合計スコア'
+    ])
+    st.dataframe(df.sort_values(by='合計スコア', ascending=False).reset_index(drop=True))
