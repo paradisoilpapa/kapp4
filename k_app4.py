@@ -488,6 +488,27 @@ for i in range(7):
         rain_corr, symbol_score, line_bonus, bank_bonus, length_bonus, meta_score, total
     ])
 
+
+def compute_group_bonus(score_parts, line_def):
+    # 各グループごとのスコア平均を計算
+    group_scores = {k: [] for k in ['A', 'B', 'C']}
+
+    for row in score_parts:
+        car_no = row[0]  # 車番
+        for group, members in line_def.items():
+            if car_no in members and group in group_scores:
+                group_scores[group].append(row[-1])  # 合計スコアを追加
+
+    # 各グループの平均スコアを計算
+    group_avg = {}
+    for group, scores in group_scores.items():
+        if scores:
+            group_avg[group] = sum(scores) / len(scores)
+        else:
+            group_avg[group] = 0.0
+
+    return group_avg
+
 # --- グループ補正適用 ---
 group_bonus_map = compute_group_bonus(score_parts, line_def)
 final_score_parts = []
