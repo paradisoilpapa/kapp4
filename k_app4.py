@@ -436,6 +436,6 @@ elif 0.1 <= score_gap < 0.3:
     st.markdown(f"- 対象：{', '.join(str(row[0]) for row in sorted_scores[:4])}")
 else:
     st.warning(f"◎（{anchor_row[0]}）は団子状態（{score_gap:.2f}差）で過剰人気の可能性。")
-    st.markdown("**📌 推奨：三連複スコア下位BOX（例：5〜8位付近から）**")
+    st.markdown("**📌 推奨：三連複スコア下位BOX（例：下位から）**")
     low_rankers = sorted(final_score_parts, key=lambda x: x[-1])[:4]
     st.markdown(f"- 対象：{', '.join(str(row[0]) for row in low_rankers)}")
