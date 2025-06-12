@@ -1,4 +1,4 @@
-.import streamlit as st
+import streamlit as st
 import pandas as pd
 
 # --- ページ設定 ---
@@ -28,7 +28,7 @@ position_multipliers = {
 
 
 # --- 基本スコア（脚質ごとの基準値） ---
-base_score = {'逃': 4.7, '両': 4.9, '追': 5.1}
+base_score = {'逃': 4.7, '両': 4.8, '追': 5.0}
 
 # --- 状態保持 ---
 if "selected_wind" not in st.session_state:
@@ -345,6 +345,17 @@ if st.button("スコア計算実行"):
             return 0.3
         return 0.0
 
+ # ライン構成取得
+    line_def = {
+        'A': extract_car_list(a_line),
+        'B': extract_car_list(b_line),
+        'C': extract_car_list(c_line),
+        'D': extract_car_list(c_line),
+        '単騎': extract_car_list(solo_line)  # tanki → solo_line に合わせて
+        }
+
+    line_order_map = build_line_position_map()
+    line_order = [line_order_map.get(i + 1, 0) for i in range(9)]
 
 
     # スコア計算
@@ -371,7 +382,7 @@ if st.button("スコア計算実行"):
         kasai = convert_chaku_to_score(chaku_inputs[i]) or 0.0
         rating_score = tenscore_score[i]
         rain_corr = lap_adjust(kaku, laps)
-        s_bonus = 0.05 * st.session_state.get(f"s_point_{num}", 0)
+        s_bonus = -0.01 * st.session_state.get(f"s_point_{num}", 0)
         b_bonus = 0.05 * st.session_state.get(f"b_point_{num}", 0)
         symbol_score = s_bonus + b_bonus
         line_bonus = line_member_bonus(line_order[i])
