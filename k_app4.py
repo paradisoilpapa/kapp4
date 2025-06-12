@@ -426,12 +426,30 @@ lowest_row = sorted_scores[-1]
 gap_1_2 = anchor_row[-1] - second_row[-1]
 gap_1_low = anchor_row[-1] - lowest_row[-1]
 
+st.markdown("## 🔍 買い方提案")
+
 if gap_1_2 >= 0.25 and gap_1_low > 1.0:
     st.success(f"◎（{anchor_row[0]}）は抜けた存在。堅軸として信頼できます。")
-    # 三連複◎軸
+    # 同ライン優先の3車を選定
+    anchor_line = get_line(anchor_row[0], line_def)
+    partners = [row[0] for row in sorted_scores[1:] if get_line(row[0], line_def) == anchor_line][:3]
+    if len(partners) < 3:
+        partners += [row[0] for row in sorted_scores[1:] if row[0] not in partners][:3 - len(partners)]
+    st.markdown("**📌 推奨：三連複◎軸固定＋相手3名（3点）**")
+    st.markdown(f"- ◎：{anchor_row[0]}  相手：{', '.join(map(str, partners))}")
+
 elif gap_1_2 < 0.25 and gap_1_low > 1.0:
     st.info(f"◎（{anchor_row[0]}）は微差リード。BOX向きの混戦です。")
-    # 三連複BOX
+    box_targets = [row[0] for row in sorted_scores[:4]]
+    st.markdown("**📌 推奨：三連複4車BOX（4点）**")
+    st.markdown(f"- 対象：{', '.join(map(str, box_targets))}")
+
 else:
     st.warning(f"スコア全体が拮抗（トップと最下位差 {gap_1_low:.2f}）しており、団子状態です。")
-    # 逆張りBOX or 下位軸＋同ライン相手
+    low_anchor = lowest_row[0]
+    low_line = get_line(low_anchor, line_def)
+    same_line_members = [row[0] for row in final_score_parts if get_line(row[0], line_def) == low_line and row[0] != low_anchor]
+    cross_line_highs = [row[0] for row in sorted_scores if get_line(row[0], line_def) != low_line][:2]
+    trio = [low_anchor] + same_line_members[:1] + cross_line_highs[:2 - len(same_line_members[:1])]
+    st.markdown("**📌 推奨：三連複逆張りBOX（スコア最下位＋同ライン＋他ライン上位）**")
+    st.markdown(f"- 対象：{', '.join(map(str, trio))}")
