@@ -413,3 +413,27 @@ if st.button("スコア計算実行"):
         'グループ補正', '合計スコア'
     ])
     st.dataframe(df.sort_values(by='合計スコア', ascending=False).reset_index(drop=True))
+    
+    
+    # --- スコア差に基づく買い方アドバイス（買い目は出さない） ---
+sorted_scores = sorted(final_score_parts, key=lambda x: x[-1], reverse=True)
+anchor_row = sorted_scores[0]
+second_row = sorted_scores[1]
+lowest_row = sorted_scores[-1]
+
+gap_1_2 = anchor_row[-1] - second_row[-1]
+gap_1_low = anchor_row[-1] - lowest_row[-1]
+
+st.markdown("## 🔍 買い方アドバイス")
+
+if gap_1_2 >= 0.25 and gap_1_low > 1.0:
+    st.success(f"◎（{anchor_row[0]}）は抜けた存在。堅軸として信頼できます。")
+    st.markdown("- フォーメーションの軸に据えるのが有力です。")
+
+elif gap_1_2 < 0.25 and gap_1_low > 1.0:
+    st.info(f"◎（{anchor_row[0]}）は微差リード。BOX向きの混戦模様です。")
+    st.markdown("- 頭を固定せず、BOX型の買い方が適している可能性があります。")
+
+else:
+    st.warning(f"スコア全体が拮抗（トップと最下位差 {gap_1_low:.2f}）。団子状態です。")
+    st.markdown("- 積極的な勝負は避け、見送りや小点数が妥当な局面です。")
