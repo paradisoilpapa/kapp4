@@ -382,7 +382,7 @@ if st.button("スコア計算実行"):
         kasai = convert_chaku_to_score(chaku_inputs[i]) or 0.0
         rating_score = tenscore_score[i]
         rain_corr = lap_adjust(kaku, laps)
-        s_bonus = 0.05 * st.session_state.get(f"s_point_{num}", 0)
+        s_bonus = -0.06 * st.session_state.get(f"s_point_{num}", 0)
         b_bonus = 0.05 * st.session_state.get(f"b_point_{num}", 0)
         symbol_score = s_bonus + b_bonus
         line_bonus = line_member_bonus(line_order[i])
@@ -420,22 +420,18 @@ if st.button("スコア計算実行"):
 # --- スコア差に基づく買い方提案（逆張りロジックを反映） ---
 sorted_scores = sorted(final_score_parts, key=lambda x: x[-1], reverse=True)
 anchor_row = sorted_scores[0]
-anchor_score = anchor_row[-1]
-second_score = sorted_scores[1][-1]
-score_gap = anchor_score - second_score
+second_row = sorted_scores[1]
+lowest_row = sorted_scores[-1]
 
-st.markdown("## 🔍 買い方提案")
+gap_1_2 = anchor_row[-1] - second_row[-1]
+gap_1_low = anchor_row[-1] - lowest_row[-1]
 
-if score_gap >= 0.3:
-    st.success(f"◎（{anchor_row[0]}）は2位と0.30以上差があり、堅軸です。")
-    st.markdown("**📌 推奨：三連複◎軸固定＋相手3名（3点）**")
-    st.markdown(f"- ◎：{anchor_row[0]}  相手：{sorted_scores[1][0]}, {sorted_scores[2][0]}, {sorted_scores[3][0]}")
-elif 0.1 <= score_gap < 0.3:
-    st.info(f"◎（{anchor_row[0]}）は2位と微差（{score_gap:.2f}差）です。")
-    st.markdown("**📌 推奨：三連複4車BOX（4点）**")
-    st.markdown(f"- 対象：{', '.join(str(row[0]) for row in sorted_scores[:4])}")
+if gap_1_2 >= 0.25 and gap_1_low > 1.0:
+    st.success(f"◎（{anchor_row[0]}）は抜けた存在。堅軸として信頼できます。")
+    # 三連複◎軸
+elif gap_1_2 < 0.25 and gap_1_low > 1.0:
+    st.info(f"◎（{anchor_row[0]}）は微差リード。BOX向きの混戦です。")
+    # 三連複BOX
 else:
-    st.warning(f"◎（{anchor_row[0]}）は団子状態（{score_gap:.2f}差）で過剰人気の可能性。")
-    st.markdown("**📌 推奨：三連複スコア下位BOX（例：下位から）**")
-    low_rankers = sorted(final_score_parts, key=lambda x: x[-1])[:4]
-    st.markdown(f"- 対象：{', '.join(str(row[0]) for row in low_rankers)}")
+    st.warning(f"スコア全体が拮抗（トップと最下位差 {gap_1_low:.2f}）しており、団子状態です。")
+    # 逆張りBOX or 下位軸＋同ライン相手
