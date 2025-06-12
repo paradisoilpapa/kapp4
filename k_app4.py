@@ -433,25 +433,43 @@ except NameError:
     st.stop()
     
     
-    # --- スコア差に基づく買い方アドバイス（買い目は出さない） ---
-sorted_scores = sorted(final_score_parts, key=lambda x: x[-1], reverse=True)
-anchor_row = sorted_scores[0]
-second_row = sorted_scores[1]
-lowest_row = sorted_scores[-1]
+# --- フォーメーション提案（補正スクリーニング） ---
+st.markdown("### 🎯 フォーメーション提案")
 
-gap_1_2 = anchor_row[-1] - second_row[-1]
-gap_1_low = anchor_row[-1] - lowest_row[-1]
+# スコア上位（◎＝anchor_row）は決定済み（anchor_row = sorted_scores[0]）
+anchor_index = anchor_row[0]  # 車番
+anchor_score = anchor_row[-1]
 
-st.markdown("## 🔍 買い方アドバイス")
+# DataFrame復元
+df = pd.DataFrame(final_score_parts, columns=[
+    "車番", "脚質", "基本", "風補正", "着順補正", "得点補正", "周回補正", 
+    "SB印補正", "ライン補正", "バンク補正", "周長補正", "グループ補正", "合計スコア"
+])
 
-if gap_1_2 >= 0.25 and gap_1_low > 1.0:
-    st.success(f"◎（{anchor_row[0]}）は抜けた存在。堅軸として信頼できます。")
-    st.markdown("- フォーメーションの軸に据えるのが有力です。")
-
-elif gap_1_2 < 0.25 and gap_1_low > 1.0:
-    st.info(f"◎（{anchor_row[0]}）は微差リード。BOX向きの混戦模様です。")
-    st.markdown("- 頭を固定せず、BOX型の買い方が適している可能性があります。")
-
+# 補正上位抽出
+top2_sb = df["SB印補正"].nlargest(2).values
+sorted_chakujun = df["着順補正"].sort_values(ascending=False).values
+if sorted_chakujun[3] == sorted_chakujun[4]:
+    top_chaku = sorted_chakujun[:5]
 else:
-    st.warning(f"スコア全体が拮抗（トップと最下位差 {gap_1_low:.2f}）。団子状態です。")
-    st.markdown("- 積極的な勝負は避け、見送りや小点数が妥当な局面です。")
+    top_chaku = sorted_chakujun[:4]
+
+# ◎が補正該当してるか
+anchor_row_df = df[df["車番"] == anchor_index].iloc[0]
+anchor_eval = ""
+if anchor_row_df["SB印補正"] in top2_sb and anchor_row_df["着順補正"] in top_chaku:
+    anchor_eval = "◎＝SB上位2車＝着順補正上位4（または5）車"
+
+# 相手候補抽出（補正）
+candidate_rows = df[
+    (df["車番"] != anchor_index) & (
+        (df["SB印補正"].isin(top2_sb)) | 
+        (df["着順補正"].isin(top_chaku))
+    )
+]
+
+# フォーメ出力
+pair_candidates = sorted(candidate_rows["車番"].tolist())
+st.markdown(f"- ◎{anchor_index} - {', '.join(map(str, pair_candidates))} のフォーメーションが有効です。")
+if anchor_eval:
+    st.markdown(f"- ※評価補足：{anchor_eval}")
