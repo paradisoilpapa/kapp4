@@ -417,21 +417,25 @@ if st.button("スコア計算実行"):
     
     
 # --- 判定処理（安全なスコープ内で） ---
-if 'final_score_parts' in locals() and len(final_score_parts) > 0:
-    sorted_scores = sorted(final_score_parts, key=lambda x: x[-1], reverse=True)
-    anchor_row = sorted_scores[0]
-    anchor_score = anchor_row[-1]
-    avg_score = sum(row[-1] for row in final_score_parts) / len(final_score_parts)
+# --- スコア差に基づく買い方提案（逆張りロジックを反映） ---
+sorted_scores = sorted(final_score_parts, key=lambda x: x[-1], reverse=True)
+anchor_row = sorted_scores[0]
+anchor_score = anchor_row[-1]
+second_score = sorted_scores[1][-1]
+score_gap = anchor_score - second_score
 
-    score_diffs = [anchor_score - row[-1] for row in sorted_scores[1:]]
-    num_close = sum(1 for d in score_diffs if d < 0.1)
-    num_gap = sum(1 for d in score_diffs if d > 0.3)
+st.markdown("## 🔍 買い方提案")
 
-    if (anchor_score - avg_score) >= 0.1 and num_gap >= 2:
-        st.warning(f"⚠️ スコア1位（{anchor_row[0]}）から買うのは危険かもしれません。下位に妙味がある可能性。")
-    elif num_close >= 3:
-        st.success(f"✅ スコア1位（{anchor_row[0]}）は他と差が少なく、安定して軸にできます。")
-    else:
-        st.info(f"ℹ️ スコア1位（{anchor_row[0]}）は買う価値あり。ただし過信は禁物。")
+if score_gap >= 0.3:
+    st.success(f"◎（{anchor_row[0]}）は2位と0.30以上差があり、堅軸です。")
+    st.markdown("**📌 推奨：三連複◎軸固定＋相手3名（3点）**")
+    st.markdown(f"- ◎：{anchor_row[0]}  相手：{sorted_scores[1][0]}, {sorted_scores[2][0]}, {sorted_scores[3][0]}")
+elif 0.1 <= score_gap < 0.3:
+    st.info(f"◎（{anchor_row[0]}）は2位と微差（{score_gap:.2f}差）です。")
+    st.markdown("**📌 推奨：三連複4車BOX（4点）**")
+    st.markdown(f"- 対象：{', '.join(str(row[0]) for row in sorted_scores[:4])}")
 else:
-    st.stop()  # ない場合は処理中止
+    st.warning(f"◎（{anchor_row[0]}）は団子状態（{score_gap:.2f}差）で過剰人気の可能性。")
+    st.markdown("**📌 推奨：三連複スコア下位BOX（例：5〜8位付近から）**")
+    low_rankers = sorted(final_score_parts, key=lambda x: x[-1])[:4]
+    st.markdown(f"- 対象：{', '.join(str(row[0]) for row in low_rankers)}")
