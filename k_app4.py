@@ -432,6 +432,24 @@ import pandas as pd
 
 # --- スコア計算：代謝補正追加（オリジナル復元） ---
 
+def score_from_tenscore_list(tenscore_list):
+    import pandas as pd
+    df = pd.DataFrame({"得点": tenscore_list})
+    df["順位"] = df["得点"].rank(ascending=False, method="min").astype(int)
+
+    # 基準点：2～6位の平均
+    baseline = df[df["順位"].between(2, 6)]["得点"].mean()
+
+    def apply_targeted_correction(row):
+        if row["順位"] in [2, 3, 4]:
+            correction = abs(baseline - row["得点"]) * 0.03
+            return round(correction, 3)
+        else:
+            return 0.0
+
+    df["最終補正値"] = df.apply(apply_targeted_correction, axis=1)
+    return df["最終補正値"].tolist()
+
 tenscore_score = score_from_tenscore_list(rating)
 score_parts = []
 
