@@ -432,11 +432,46 @@ import pandas as pd
 
 # --- スコア計算：代謝補正追加（オリジナル復元） ---
 
-if st.button("スコア計算実行"):
+# --- 必要な関数定義（グローバルでOK） ---
+def score_from_tenscore_list(tenscore_list):
+    import pandas as pd
+    df = pd.DataFrame({"得点": tenscore_list})
+    df["順位"] = df["得点"].rank(ascending=False, method="min").astype(int)
+    baseline = df[df["順位"].between(2, 6)]["得点"].mean()
+
+    def apply_targeted_correction(row):
+        if row["順位"] in [2, 3, 4]:
+            correction = abs(baseline - row["得点"]) * 0.03
+            return round(correction, 3)
+        else:
+            return 0.0
+
+    df["最終補正値"] = df.apply(apply_targeted_correction, axis=1)
+    return df["最終補正値"].tolist()
+
+def compute_group_bonus(score_parts, line_def):
+    group_scores = {k: [] for k in ['A', 'B', 'C']}
+    for row in score_parts:
+        car_no = row[0]
+        for group, members in line_def.items():
+            if car_no in members and group in group_scores:
+                group_scores[group].append(row[-1])
+    group_avg = {
+        group: (sum(scores) / len(scores)) if scores else 0.0
+        for group, scores in group_scores.items()
+    }
+    return group_avg
+
+# --- ボタン内部にすべての処理を統合（ラベルは明確に区別） ---
+if st.button("スコア一括再計算"):  # ← 重複を避けてユニーク化
 
     tenscore_score = score_from_tenscore_list(rating)
-    score_parts = []
+    metabolism_scores = [
+        max(get_metabolism_score(ages[i], race_class) * correction_factor.get(race_class, 1.0), -0.3)
+        for i in range(7)
+    ]
 
+    score_parts = []
     for i in range(7):
         if not tairetsu[i].isdigit():
             continue
@@ -487,5 +522,4 @@ if st.button("スコア計算実行"):
         "雨補正", "印補正", "着順補正", "バンク補正", "周長補正",
         "代謝補正", "グループ補正", "合計スコア"
     ])
-
     st.dataframe(df.sort_values(by="合計スコア", ascending=False).reset_index(drop=True))
