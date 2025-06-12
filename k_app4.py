@@ -414,9 +414,13 @@ if st.button("スコア計算実行"):
     ])
     st.dataframe(df.sort_values(by='合計スコア', ascending=False).reset_index(drop=True))
     
+try:
     if not final_score_parts:
         st.warning("スコアが計算されていません。入力や処理を確認してください。")
         st.stop()
+except NameError:
+    st.warning("スコアデータが定義されていません。入力に問題がある可能性があります。")
+    st.stop()
     
     
     # --- スコア差に基づく買い方アドバイス（買い目は出さない） ---
