@@ -404,10 +404,8 @@ if st.button("スコア計算実行"):
         "S級":        0.5
     }
     
-    # --- 3. 補正スコアの生成（7選手分、下限付き） ---
-    metabolism_scores = []
-for i in range(7):
-    metabolism_scores = [
+# --- 3. 補正スコアの生成（7選手分、下限付き） ---
+metabolism_scores = [
     max(get_metabolism_score(ages[i], race_class) * correction_factor.get(race_class, 1.0), -0.3)
     for i in range(7)
 ]
