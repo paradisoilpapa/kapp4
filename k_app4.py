@@ -432,43 +432,37 @@ except NameError:
     st.warning("スコアデータが定義されていません。入力に問題がある可能性があります。")
     st.stop()
     
-    
-# --- フォーメーション提案（補正スクリーニング） ---
+# --- フォーメーション提案（視覚的三連複構成） ---
 st.markdown("### 🎯 フォーメーション提案")
 
-# ◎（合計スコア最大）の選手
+# DataFrame（final_score_parts から構成）
 df = pd.DataFrame(final_score_parts, columns=[
     "車番", "脚質", "基本", "風補正", "着順補正", "得点補正", "周回補正",
     "SB印補正", "ライン補正", "バンク補正", "周長補正", "グループ補正", "合計スコア"
 ])
+
+# ◎：スコア1位
 anchor_row = df.loc[df["合計スコア"].idxmax()]
 anchor_index = anchor_row["車番"]
 
-# 補正上位抽出：SB補正（値比較）＋着順補正（index管理）
-top2_sb = df["SB印補正"].nlargest(2).values
+# ◎以外を抽出
+others = df[df["車番"] != anchor_index]
 
-# 着順補正 index抽出
-sorted_chakujun = df["着順補正"].sort_values(ascending=False)
-top_chaku_idx = sorted_chakujun.index[:4]
-if sorted_chakujun.iloc[3] == sorted_chakujun.iloc[4]:
-    top_chaku_idx = sorted_chakujun.index[:5]
+# --- 着順補正上位2名（同点なら3名）
+sorted_chaku = others.sort_values("着順補正", ascending=False)
+if sorted_chaku["着順補正"].iloc[1] == sorted_chaku["着順補正"].iloc[2]:
+    top_chaku = sorted_chaku.head(3)["車番"].tolist()
+else:
+    top_chaku = sorted_chaku.head(2)["車番"].tolist()
 
-# ◎評価コメント（補正に該当するか）
-anchor_row_df = df[df["車番"] == anchor_index].iloc[0]
-anchor_eval = ""
-if anchor_row_df["SB印補正"] in top2_sb and anchor_row_df.name in top_chaku_idx:
-    anchor_eval = f"◎＝SB上位2車＝着順補正上位{len(top_chaku_idx)}車"
+# --- SB補正上位4名（同点なら5名）
+sorted_sb = others.sort_values("SB印補正", ascending=False)
+if sorted_sb["SB印補正"].iloc[3] == sorted_sb["SB印補正"].iloc[4]:
+    top_sb = sorted_sb.head(5)["車番"].tolist()
+else:
+    top_sb = sorted_sb.head(4)["車番"].tolist()
 
-# 相手候補：◎以外で補正に該当する車
-candidate_rows = df[
-    (df["車番"] != anchor_index) & (
-        (df["SB印補正"].isin(top2_sb)) |
-        (df.index.isin(top_chaku_idx))
-    )
-]
-pair_candidates = sorted(candidate_rows["車番"].tolist())
-
-# 出力
-st.markdown(f"- ◎{anchor_index} - {', '.join(map(str, pair_candidates))} のフォーメーションが有効です。")
-if anchor_eval:
-    st.markdown(f"- ※評価補足：{anchor_eval}")
+# --- 表示：視覚的に「三連複構成」に見える出力
+st.markdown(f"◎：{anchor_index}")
+st.markdown(f"着順補正上位：{', '.join(map(str, top_chaku))}")
+st.markdown(f"SB補正上位：{', '.join(map(str, top_sb))}")
