@@ -432,98 +432,60 @@ import pandas as pd
 
 # --- スコア計算：代謝補正追加（オリジナル復元） ---
 
-def score_from_tenscore_list(tenscore_list):
-    import pandas as pd
-    df = pd.DataFrame({"得点": tenscore_list})
-    df["順位"] = df["得点"].rank(ascending=False, method="min").astype(int)
+if st.button("スコア計算実行"):
 
-    # 基準点：2～6位の平均
-    baseline = df[df["順位"].between(2, 6)]["得点"].mean()
+    tenscore_score = score_from_tenscore_list(rating)
+    score_parts = []
 
-    def apply_targeted_correction(row):
-        if row["順位"] in [2, 3, 4]:
-            correction = abs(baseline - row["得点"]) * 0.03
-            return round(correction, 3)
-        else:
-            return 0.0
+    for i in range(7):
+        if not tairetsu[i].isdigit():
+            continue
 
-    df["最終補正値"] = df.apply(apply_targeted_correction, axis=1)
-    return df["最終補正値"].tolist()
+        num = i + 1
+        kaku = car_to_kakushitsu.get(num, "追")
+        base = base_score[kaku]
 
-tenscore_score = score_from_tenscore_list(rating)
-score_parts = []
+        wind = wind_straight_combo_adjust(
+            kaku,
+            st.session_state.selected_wind,
+            wind_speed,
+            straight_length,
+            line_order[i]
+        )
 
-for i in range(7):
-    if not tairetsu[i].isdigit():
-        continue
+        chaku_values = chaku_inputs[i]
+        kasai = convert_chaku_to_score(chaku_inputs[i]) or 0.0
+        rating_score = tenscore_score[i]
+        rain_corr = lap_adjust(kaku, laps)
 
-    num = i + 1
-    kaku = car_to_kakushitsu.get(num, "追")
-    base = base_score[kaku]
+        s_bonus = 0.05 * st.session_state.get(f"s_point_{num}", 0)
+        b_bonus = 0.05 * st.session_state.get(f"b_point_{num}", 0)
+        symbol_score = s_bonus + b_bonus
 
-    wind = wind_straight_combo_adjust(
-        kaku,
-        st.session_state.selected_wind,
-        wind_speed,
-        straight_length,
-        line_order[i]
-    )
+        line_bonus = line_member_bonus(line_order[i])
+        bank_bonus = bank_character_bonus(kaku, bank_angle, straight_length)
+        length_bonus = bank_length_adjust(kaku, bank_length)
+        meta_score = metabolism_scores[i]
 
-    chaku_values = chaku_inputs[i]
-    kasai = convert_chaku_to_score(chaku_inputs[i]) or 0.0
-    rating_score = tenscore_score[i]
-    rain_corr = lap_adjust(kaku, laps)
-    s_bonus = 0.05 * st.session_state.get(f"s_point_{num}", 0)
-    b_bonus = 0.05 * st.session_state.get(f"b_point_{num}", 0)
-    symbol_score = s_bonus + b_bonus
-    line_bonus = line_member_bonus(line_order[i])
-    bank_bonus = bank_character_bonus(kaku, bank_angle, straight_length)
-    length_bonus = bank_length_adjust(kaku, bank_length)
-    meta_score = metabolism_scores[i]
+        total = base + wind + kasai + rating_score + rain_corr + symbol_score + line_bonus + bank_bonus + length_bonus + meta_score
 
-    total = base + wind + kasai + rating_score + rain_corr + symbol_score + line_bonus + bank_bonus + length_bonus + meta_score
+        score_parts.append([
+            num, kaku, base, wind, kasai, rating_score,
+            rain_corr, symbol_score, line_bonus, bank_bonus, length_bonus, meta_score, total
+        ])
 
-    score_parts.append([
-        num, kaku, base, wind, kasai, rating_score,
-        rain_corr, symbol_score, line_bonus, bank_bonus, length_bonus, meta_score, total
-    ])
-
-
-def compute_group_bonus(score_parts, line_def):
-    # 各グループごとのスコア平均を計算
-    group_scores = {k: [] for k in ['A', 'B', 'C']}
+    group_bonus_map = compute_group_bonus(score_parts, line_def)
+    final_score_parts = []
 
     for row in score_parts:
-        car_no = row[0]  # 車番
-        for group, members in line_def.items():
-            if car_no in members and group in group_scores:
-                group_scores[group].append(row[-1])  # 合計スコアを追加
+        group_corr = get_group_bonus(row[0], line_def, group_bonus_map)
+        new_total = row[-1] + group_corr
+        final_score_parts.append(row[:-1] + [group_corr, new_total])
 
-    # 各グループの平均スコアを計算
-    group_avg = {}
-    for group, scores in group_scores.items():
-        if scores:
-            group_avg[group] = sum(scores) / len(scores)
-        else:
-            group_avg[group] = 0.0
+    df = pd.DataFrame(final_score_parts, columns=[
+        "車番", "脚質", "基本", "風補正", "着順補正", "得点補正",
+        "雨補正", "印補正", "着順補正", "バンク補正", "周長補正",
+        "代謝補正", "グループ補正", "合計スコア"
+    ])
 
-    return group_avg
-
-print("compute_group_bonus =", compute_group_bonus)
-
-
-# --- グループ補正適用 ---
-group_bonus_map = compute_group_bonus(score_parts, line_def)
-final_score_parts = []
-for row in score_parts:
-    group_corr = get_group_bonus(row[0], line_def, group_bonus_map)
-    new_total = row[-1] + group_corr
-    final_score_parts.append(row[:-1] + [group_corr, new_total])
-
-# --- DataFrame表示のみ ---
-df = pd.DataFrame(final_score_parts, columns=[
-    '車番', '脚質', '基本', '風補正', '着順補正', '得点補正',
-    '周回補正', 'SB印補正', 'ライン補正', 'バンク補正', '周長補正',
-    '代謝補正', 'グループ補正', '合計スコア'
-])
-st.dataframe(df.sort_values(by='合計スコア', ascending=False).reset_index(drop=True))
+    st.dataframe(df.sort_values(by="合計スコア", ascending=False).reset_index(drop=True))
