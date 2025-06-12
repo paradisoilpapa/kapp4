@@ -413,3 +413,23 @@ if st.button("スコア計算実行"):
         'グループ補正', '合計スコア'
     ])
     st.dataframe(df.sort_values(by='合計スコア', ascending=False).reset_index(drop=True))
+    
+    
+    
+# --- ◎から買うべきか、それ以外からかの判定 ---
+sorted_scores = sorted(final_score_parts, key=lambda x: x[-1], reverse=True)
+anchor_row = sorted_scores[0]
+anchor_score = anchor_row[-1]
+avg_score = sum(row[-1] for row in final_score_parts) / len(final_score_parts)
+
+score_diffs = [anchor_score - row[-1] for row in sorted_scores[1:]]
+num_close = sum(1 for d in score_diffs if d < 0.1)
+num_gap = sum(1 for d in score_diffs if d > 0.3)
+
+if (anchor_score - avg_score) >= 0.1 and num_gap >= 2:
+    st.warning(f"⚠️ スコア1位（{anchor_row[0]}）から買うのは危険かもしれません。下位に妙味がある可能性。")
+elif num_close >= 3:
+    st.success(f"✅ スコア1位（{anchor_row[0]}）は他と差が少なく、安定して軸にできます。")
+else:
+    st.info(f"ℹ️ スコア1位（{anchor_row[0]}）は買う価値あり。ただし過信は禁物。")
+    
