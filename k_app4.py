@@ -463,7 +463,7 @@ def compute_group_bonus(score_parts, line_def):
     return group_avg
 
 # --- ボタン内部にすべての処理を統合（ラベルは明確に区別） ---
-if st.button("スコア一括再計算"):  # ← 重複を避けてユニーク化
+if st.button("スコア再計算"):
 
     tenscore_score = score_from_tenscore_list(rating)
     metabolism_scores = [
@@ -480,12 +480,13 @@ if st.button("スコア一括再計算"):  # ← 重複を避けてユニーク�
         kaku = car_to_kakushitsu.get(num, "追")
         base = base_score[kaku]
 
+        # ✅ 引数を既存の定義に合わせて修正（direction, speed, straight, pos）
         wind = wind_straight_combo_adjust(
             kaku,
-            st.session_state.selected_wind,
-            wind_speed,
-            straight_length,
-            line_order[i]
+            st.session_state.selected_wind,  # direction
+            wind_speed,                      # speed
+            straight_length,                 # straight
+            line_order[i]                    # pos
         )
 
         chaku_values = chaku_inputs[i]
@@ -522,4 +523,5 @@ if st.button("スコア一括再計算"):  # ← 重複を避けてユニーク�
         "雨補正", "印補正", "着順補正", "バンク補正", "周長補正",
         "代謝補正", "グループ補正", "合計スコア"
     ])
+
     st.dataframe(df.sort_values(by="合計スコア", ascending=False).reset_index(drop=True))
