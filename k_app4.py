@@ -432,7 +432,14 @@ except NameError:
     st.warning("スコアデータが定義されていません。入力に問題がある可能性があります。")
     st.stop()
     
-# --- ◎以外を抽出（個性補正付き）
+# --- 着順＋SB補正の合算スコア列を追加（個性補正） ---
+df["個性補正"] = df["着順補正"] + df["SB印補正"]
+
+# ✅ ここでまず anchor_index を定義（◎を確定）
+anchor_row = df.loc[df["合計スコア"].idxmax()]
+anchor_index = anchor_row["車番"]
+
+# ✅ anchor_index が決まったあとで others を作成
 others = df[df["車番"] != anchor_index]
 
 # --- 着順補正上位2名（同点なら3名）
@@ -461,4 +468,3 @@ st.markdown(f"◎：{anchor_index}")
 st.markdown(f"着順補正上位：{', '.join(map(str, top_chaku))}")
 st.markdown(f"SB補正上位：{', '.join(map(str, top_sb))}")
 st.markdown(f"【着順＋SB補正の上位】：{', '.join(map(str, top_indiv))}")
-
