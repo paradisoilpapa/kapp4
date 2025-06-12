@@ -463,15 +463,18 @@ def compute_group_bonus(score_parts, line_def):
     return group_avg
 
 # --- ボタン内部にすべての処理を統合（ラベルは明確に区別） ---
-if st.button("スコア再計算"):
+
+if st.button("スコア再計算"):  # ← ボタンは1つだけ
 
     tenscore_score = score_from_tenscore_list(rating)
+
     metabolism_scores = [
         max(get_metabolism_score(ages[i], race_class) * correction_factor.get(race_class, 1.0), -0.3)
         for i in range(7)
     ]
 
     score_parts = []
+
     for i in range(7):
         if not tairetsu[i].isdigit():
             continue
@@ -480,7 +483,6 @@ if st.button("スコア再計算"):
         kaku = car_to_kakushitsu.get(num, "追")
         base = base_score[kaku]
 
-        # ✅ 引数を既存の定義に合わせて修正（direction, speed, straight, pos）
         wind = wind_straight_combo_adjust(
             kaku,
             st.session_state.selected_wind,  # direction
