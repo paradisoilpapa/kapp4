@@ -432,20 +432,7 @@ except NameError:
     st.warning("スコアデータが定義されていません。入力に問題がある可能性があります。")
     st.stop()
     
-# --- フォーメーション提案（視覚的三連複構成） ---
-st.markdown("### 🎯 フォーメーション提案")
-
-# DataFrame（final_score_parts から構成）
-df = pd.DataFrame(final_score_parts, columns=[
-    "車番", "脚質", "基本", "風補正", "着順補正", "得点補正", "周回補正",
-    "SB印補正", "ライン補正", "バンク補正", "周長補正", "グループ補正", "合計スコア"
-])
-
-# ◎：スコア1位
-anchor_row = df.loc[df["合計スコア"].idxmax()]
-anchor_index = anchor_row["車番"]
-
-# ◎以外を抽出
+# --- ◎以外を抽出（個性補正付き）
 others = df[df["車番"] != anchor_index]
 
 # --- 着順補正上位2名（同点なら3名）
@@ -462,7 +449,16 @@ if sorted_sb["SB印補正"].iloc[3] == sorted_sb["SB印補正"].iloc[4]:
 else:
     top_sb = sorted_sb.head(4)["車番"].tolist()
 
-# --- 表示：視覚的に「三連複構成」に見える出力
+# --- 個性補正（着順＋SB）上位4名（同点なら5名）
+sorted_indiv = others.sort_values("個性補正", ascending=False)
+if sorted_indiv["個性補正"].iloc[3] == sorted_indiv["個性補正"].iloc[4]:
+    top_indiv = sorted_indiv.head(5)["車番"].tolist()
+else:
+    top_indiv = sorted_indiv.head(4)["車番"].tolist()
+
+# --- 出力（視覚的に三連複構成を見せる）---
 st.markdown(f"◎：{anchor_index}")
 st.markdown(f"着順補正上位：{', '.join(map(str, top_chaku))}")
 st.markdown(f"SB補正上位：{', '.join(map(str, top_sb))}")
+st.markdown(f"【着順＋SB補正の上位】：{', '.join(map(str, top_indiv))}")
+
