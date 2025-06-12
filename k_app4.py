@@ -509,6 +509,9 @@ def compute_group_bonus(score_parts, line_def):
 
     return group_avg
 
+print("compute_group_bonus =", compute_group_bonus)
+
+
 # --- グループ補正適用 ---
 group_bonus_map = compute_group_bonus(score_parts, line_def)
 final_score_parts = []
