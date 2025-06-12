@@ -437,8 +437,9 @@ except NameError:
 st.markdown("### 🎯 フォーメーション提案")
 
 # スコア上位（◎＝anchor_row）は決定済み（anchor_row = sorted_scores[0]）
-anchor_index = anchor_row[0]  # 車番
-anchor_score = anchor_row[-1]
+anchor_row = df.loc[df["合計スコア"].idxmax()]
+anchor_index = anchor_row["車番"]
+anchor_score = anchor_row["合計スコア"]
 
 # DataFrame復元
 df = pd.DataFrame(final_score_parts, columns=[
