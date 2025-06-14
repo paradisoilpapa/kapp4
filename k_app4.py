@@ -463,4 +463,4 @@ final_candidates = [anchor_index] + ([line_pick] if line_pick else []) + top_ind
 st.markdown("### 🎯 フォーメーション構成")
 st.markdown(f"◎（合計スコア1位）：{anchor_index}")
 st.markdown(f"【個性補正（SB+ライン型）上位3名（同ライン1名含む）】：{', '.join(map(str, final_candidates[1:]))}")
-st.markdown(f"👉 三連複4点：BOX（{', '.join(map(str, final_candidates))}）")
+st.markdown(f"👉 2車複6点：BOX（{', '.join(map(str, final_candidates))}）")
