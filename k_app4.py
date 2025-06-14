@@ -435,28 +435,12 @@ anchor_row = df.loc[df["合計スコア"].idxmax()]
 anchor_index = anchor_row["車番"]
 others = df[df["車番"] != anchor_index].copy()
 
-# --- 順位 → signalスコア変換 ---
-def rank_to_signal(rank):
-    if rank == 1: return 1.00
-    elif rank == 2: return 0.80
-    elif rank == 3: return 0.65
-    elif rank == 4: return 0.50
-    elif rank == 5: return 0.30
-    elif rank == 6: return 0.15
-    else: return 0.0
-
-# --- 各補正に対する順位を算出 ---
-others["着順順位"]   = others["着順補正"].rank(ascending=False, method="min")
-others["SB順位"]     = others["SB印補正"].rank(ascending=False, method="min")
-others["ライン順位"] = others["ライン補正"].rank(ascending=False, method="min")
-others["グループ順位"] = others["グループ補正"].rank(ascending=False, method="min")
-
-# --- 個性補正をsignal_scoreで加重算出 ---
+# --- signalスコアによる個性補正を数値ベースで加重算出 ---
 others["個性補正"] = (
-    others["着順順位"].apply(rank_to_signal) * 0.8 +
-    others["SB順位"].apply(rank_to_signal) * 1.2 +
-    others["ライン順位"].apply(rank_to_signal) * 0.5 +
-    others["グループ順位"].apply(rank_to_signal) * 0.3
+    others["着順補正"] * 0.8 +
+    others["SB印補正"] * 1.2 +
+    others["ライン補正"] * 0.5 +
+    others["グループ補正"] * 0.3
 )
 
 # --- anchor_index のライン取得 ---
@@ -489,5 +473,5 @@ final_candidates = [anchor_index] + ([line_pick] if line_pick else []) + top_ind
 # --- 表示 ---
 st.markdown("### 🎯 フォーメーション構成")
 st.markdown(f"◎（合計スコア1位）：{anchor_index}")
-st.markdown(f"【個性補正（signal_score）上位3名（うち同ライン1名保障）】：{', '.join(map(str, final_candidates[1:]))}")
-st.markdown(f"👉 2車複4点：BOX（{', '.join(map(str, final_candidates))}）")
+st.markdown(f"【個性補正（score-based）上位3名（うち同ライン1名保障）】：{', '.join(map(str, final_candidates[1:]))}")
+st.markdown(f"👉 三連複4点：BOX（{', '.join(map(str, final_candidates))}）")
