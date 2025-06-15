@@ -435,8 +435,8 @@ import streamlit as st
 # --- B回数列の統一（バック → B回数）---
 df.rename(columns={"バック": "B回数"}, inplace=True)
 
-# --- ユーザー入力されたB回数（バック回数）をdfへ格納 ---
-b_list = [st.session_state.get(f"b_point_{i+1}", 0) for i in range(7)]
+# --- ユーザー入力B回数をdfの行数に合わせて取得（7車でも9車でもOK）
+b_list = [st.session_state.get(f"b_point_{i+1}", 0) for i in range(len(df))]
 df["B回数"] = b_list
 
 # --- ◎（合計スコア1位）抽出 ---
