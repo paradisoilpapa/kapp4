@@ -1,12 +1,17 @@
+# app.py
+# ヴェロビ 完全版（5〜9車対応 / 2連対率・3連対率 / 欠車対応 / 男子・ガールズ分岐 / note出力）
+# pip install streamlit pandas numpy
+
+from __future__ import annotations
 import streamlit as st
 import pandas as pd
 import numpy as np
 import re, unicodedata
 
-st.set_page_config(page_title="ヴェロビ 完全版（2連対率・3連対率対応 / note出力）", layout="wide")
+st.set_page_config(page_title="ヴェロビ 完全版（5〜9車対応）", layout="wide")
 
 """
-ヴェロビ（欠車対応・統一版 / 7車立て固定 / 男子・ガールズ分岐 + note出力）
+ヴェロビ（欠車対応・統一版 / 5〜9車立て対応 / 男子・ガールズ分岐 + note出力）
 — 前走/前々走の着順入力を廃止し、2連対率・3連対率で“着内実力”を反映 —
 """
 
@@ -19,6 +24,7 @@ WIND_COEFF = {
     "左下": +0.035, "下": +0.05, "右下": +0.035
 }
 BASE_SCORE = {'逃': 1.577, '両': 1.628, '追': 1.796}
+DAY_DELTA = {1: 1, 2: 2, 3: 3}
 
 KEIRIN_DATA = {
     "函館": {"bank_angle": 30.6, "straight_length": 51.3, "bank_length": 400},
@@ -65,40 +71,27 @@ KEIRIN_DATA = {
     "熊本": {"bank_angle": 34.3, "straight_length": 60.3, "bank_length": 400},
     "手入力": {"bank_angle": 30.0, "straight_length": 52.0, "bank_length": 400},
 }
-DAY_DELTA = {1: 1, 2: 2, 3: 3}
 
 # =========================================================
 # 補助関数
 # =========================================================
-def wind_straight_combo_adjust(kakushitsu, wind_direction, wind_speed, straight_length, line_order):
-    if wind_direction == "無風" or wind_speed == 0:
-        return 0.0
-    wind_adj = WIND_COEFF.get(wind_direction, 0.0)
-    pos_multi_map = {0:0.30, 1:0.32, 2:0.30, 3:0.25, 4:0.20}
-    pos_multi = pos_multi_map.get(line_order, 0.30)
-    coeff = {'逃': 1.0, '両': 0.7, '追': 0.4}.get(kakushitsu, 0.5)
-    total = wind_speed * wind_adj * coeff * pos_multi
-    return round(max(min(total, 0.05), -0.05), 3)
+def _parse_float_flexible(s: str) -> float | None:
+    if s is None:
+        return None
+    s = unicodedata.normalize("NFKC", str(s)).replace(",", "").strip()
+    if not re.fullmatch(r"[+-]?\d+(\.\d+)?", s):
+        return None
+    try:
+        return float(s)
+    except Exception:
+        return None
 
-def lap_adjust(kaku, laps):
-    delta = max(int(laps) - 2, 0)
-    return {'逃': round(-0.1 * delta, 1), '追': round(+0.05 * delta, 1), '両': 0.0}.get(kaku, 0.0)
-
-def line_member_bonus(line_order):
-    bonus_map = {0:0.03, 1:0.05, 2:0.04, 3:0.03, 4:0.02}
-    return bonus_map.get(line_order, 0.0)
-
-def bank_character_bonus(kakushitsu, bank_angle, straight_length):
-    straight_factor = (float(straight_length) - 40.0) / 10.0
-    angle_factor = (float(bank_angle) - 25.0) / 5.0
-    total_factor = -0.1 * straight_factor + 0.1 * angle_factor
-    total_factor = max(min(total_factor, 0.05), -0.05)
-    return round({'逃': +total_factor, '追': -total_factor, '両': +0.25 * total_factor}.get(kakushitsu, 0.0), 2)
-
-def bank_length_adjust(kakushitsu, bank_length):
-    delta = (float(bank_length) - 411.0) / 100.0
-    delta = max(min(delta, 0.05), -0.05)
-    return round({'逃': 1.0 * delta, '両': 2.0 * delta, '追': 3.0 * delta}.get(kakushitsu, 0.0), 2)
+def _zscore_clip(s, clip=2.5):
+    s = pd.Series(s).astype(float)
+    m, sd = s.mean(), s.std(ddof=0)
+    if sd == 0 or np.isnan(sd):
+        return pd.Series(0.0, index=s.index)
+    return ((s - m) / sd).clip(-clip, clip)
 
 def extract_car_list(input_data):
     if isinstance(input_data, str):
@@ -118,16 +111,35 @@ def build_line_position_map(lines):
                 line_order_map[car] = pos
     return line_order_map
 
-def _zscore_clip(s, clip=2.5):
-    s = pd.Series(s).astype(float)
-    m, sd = s.mean(), s.std(ddof=0)
-    if sd == 0 or np.isnan(sd):
-        z = pd.Series(0.0, index=s.index)
-    else:
-        z = (s - m) / sd
-    return z.clip(-clip, clip)
+def wind_straight_combo_adjust(kakushitsu, wind_direction, wind_speed, straight_length, line_order, pos_multi_map):
+    if wind_direction == "無風" or wind_speed == 0:
+        return 0.0
+    wind_adj = WIND_COEFF.get(wind_direction, 0.0)
+    pos_multi = pos_multi_map.get(line_order, 0.30)
+    coeff = {'逃': 1.0, '両': 0.7, '追': 0.4}.get(kakushitsu, 0.5)
+    total = wind_speed * wind_adj * coeff * pos_multi
+    return round(max(min(total, 0.05), -0.05), 3)
 
-def score_from_tenscore_list_dynamic(tenscore_list, upper_k=6):
+def lap_adjust(kaku, laps):
+    delta = max(int(laps) - 2, 0)
+    return {'逃': round(-0.1 * delta, 1), '追': round(+0.05 * delta, 1), '両': 0.0}.get(kaku, 0.0)
+
+def line_member_bonus(line_order, bonus_map):
+    return bonus_map.get(line_order, 0.0)
+
+def bank_character_bonus(kakushitsu, bank_angle, straight_length):
+    straight_factor = (float(straight_length) - 40.0) / 10.0
+    angle_factor = (float(bank_angle) - 25.0) / 5.0
+    total_factor = -0.1 * straight_factor + 0.1 * angle_factor
+    total_factor = max(min(total_factor, 0.05), -0.05)
+    return round({'逃': +total_factor, '追': -total_factor, '両': +0.25 * total_factor}.get(kakushitsu, 0.0), 2)
+
+def bank_length_adjust(kakushitsu, bank_length):
+    delta = (float(bank_length) - 411.0) / 100.0
+    delta = max(min(delta, 0.05), -0.05)
+    return round({'逃': 1.0 * delta, '両': 2.0 * delta, '追': 3.0 * delta}.get(kakushitsu, 0.0), 2)
+
+def score_from_tenscore_list_dynamic(tenscore_list, upper_k=8):
     n_local = len(tenscore_list)
     if n_local <= 2:
         return [0.0] * n_local
@@ -138,6 +150,18 @@ def score_from_tenscore_list_dynamic(tenscore_list, upper_k=6):
     def corr(row):
         return round(abs(baseline - row["得点"]) * 0.03, 3) if row["順位"] in [2,3,4] else 0.0
     return (df.apply(corr, axis=1)).tolist()
+
+def dynamic_params(n:int):
+    # 人数に応じた係数
+    if n <= 7:
+        line_bonus = {0:0.03, 1:0.05, 2:0.04, 3:0.03, 4:0.02}
+        pos_multi_map = {0:0.30, 1:0.32, 2:0.30, 3:0.25, 4:0.20}
+        upper_k = 6 if n >= 6 else n
+    else:
+        line_bonus = {0:0.03, 1:0.05, 2:0.04, 3:0.03, 4:0.02, 5:0.015}
+        pos_multi_map = {0:0.30, 1:0.32, 2:0.30, 3:0.25, 4:0.20, 5:0.18}
+        upper_k = 8
+    return line_bonus, pos_multi_map, upper_k
 
 def compute_group_bonus(score_parts, line_def, n):
     if not line_def: return {}
@@ -235,8 +259,9 @@ def pick_girls_anchor_second(velobi_sorted, comp_points_rank):
 # =========================================================
 # Streamlit UI
 # =========================================================
-st.title("⭐ ヴェロビ 完全版（2連対率・3連対率 対応 / note記事用）⭐")
+st.title("⭐ ヴェロビ 完全版（5〜9車対応 / note記事用）⭐")
 mode = st.radio("開催種別を選択", ["男子", "ガールズ"], horizontal=True)
+N_MAX = st.slider("出走車数（5〜9）", 5, 9, 7, 1)
 
 # 風・バンク
 if "selected_wind" not in st.session_state:
@@ -265,7 +290,7 @@ with c8:
 with c9:
     if st.button("右下"): st.session_state.selected_wind = "右下"
 
-selected_track = st.selectbox("競輪場（自動プリセット）", list(KEIRIN_DATA.keys()))
+selected_track = st.selectbox("競輪場（プリセット）", list(KEIRIN_DATA.keys()))
 info = KEIRIN_DATA[selected_track]
 wind_speed = st.number_input("風速(m/s)", 0.0, 30.0, 3.0, 0.1)
 straight_length = st.number_input("みなし直線(m)", 30.0, 80.0, float(info["straight_length"]), 0.1)
@@ -279,39 +304,24 @@ day_label = st.selectbox("開催日（疲労補正：初日+1 / 2日目+2 / 最�
 day_idx = day_label_to_idx[day_label]
 eff_laps = int(base_laps) + DAY_DELTA.get(day_idx, 1)
 
-# ===== 7車固定 =====
-N_MAX = 7
-
-# 入力：脚質（位置）
+# =========================
+# 選手データ入力
+# =========================
 st.header("【選手データ入力】")
 st.subheader("▼ 位置（脚質）：逃＝先頭／両＝番手／追＝3番手以降＆単騎（車番を半角数字で入力）")
-kakushitsu_inputs = {}
+car_to_kakushitsu = {}
 c = st.columns(3)
 for i, k in enumerate(['逃','両','追']):
     with c[i]:
-        kakushitsu_inputs[k] = st.text_input(f"{k}", key=f"kaku_{k}", max_chars=14)
-
-car_to_kakushitsu = {}
-for k, val in kakushitsu_inputs.items():
-    for ch in val:
+        s = st.text_input(f"{k}", key=f"kaku_{k}", max_chars=18)
+    for ch in s:
         if ch.isdigit():
             n = int(ch)
             if 1 <= n <= N_MAX:
                 car_to_kakushitsu[n] = k
 
-# 入力：競争得点
+# 競争得点
 st.subheader("▼ 競争得点")
-def _parse_float_flexible(s: str) -> float | None:
-    if s is None:
-        return None
-    s = unicodedata.normalize("NFKC", str(s)).replace(",", "").strip()
-    if not re.fullmatch(r"[+-]?\d+(\.\d+)?", s):
-        return None
-    try:
-        return float(s)
-    except Exception:
-        return None
-
 rating: list[float] = []
 invalid_inputs: list[int] = []
 for i in range(N_MAX):
@@ -328,24 +338,32 @@ for i in range(N_MAX):
     else:
         st.session_state[key_val] = float(v)
     rating.append(float(v))
-
 abnormal = [(i+1, v) for i, v in enumerate(rating) if v < 20.0 or v > 120.0]
 if invalid_inputs:
     st.error("数値として解釈できない得点入力があったため、前回の有効値に戻しました: " + ", ".join(map(str, invalid_inputs)))
 if abnormal:
     st.warning("競争得点の想定外の値があります: " + ", ".join([f"{no}:{val:.1f}" for no, val in abnormal]))
 
-# 入力：隊列順位（欠は空欄）
+# 2連対率 / 3連対率
+st.subheader("▼ 2連対率 / 3連対率（％で入力：例 37 → 37%）")
+P2_list, P3_list = [], []
+for i in range(N_MAX):
+    p2 = st.number_input(f"{i+1}番 2連対率(%)", 0.0, 100.0, 0.0, 0.1, key=f"p2_{i+1}")
+    p3 = st.number_input(f"{i+1}番 3連対率(%)", 0.0, 100.0, 0.0, 0.1, key=f"p3_{i+1}")
+    P2_list.append(p2 / 100.0)  # 0-1
+    P3_list.append(p3 / 100.0)  # 0-1
+
+# 隊列（欠車は空欄）
 st.subheader("▼ 予想隊列（数字、欠は空欄）")
 tairetsu = [st.text_input(f"{i+1}番 隊列順位", key=f"tai_{i}") for i in range(N_MAX)]
 
-# 入力：S・B 回数
+# S・B 回数
 st.subheader("▼ S・B 回数")
 for i in range(N_MAX):
     st.number_input(f"{i+1}番 S回数", 0, 99, 0, key=f"s_{i+1}")
     st.number_input(f"{i+1}番 B回数", 0, 99, 0, key=f"b_{i+1}")
 
-# 入力：ライン構成（最大7：単騎も1ライン）
+# ライン構成（最大7、単騎も1ライン）
 st.subheader("▼ ライン構成（最大7：単騎も1ライン）")
 line_inputs = [
     st.text_input("ライン1（例：4）", key="line_1", max_chars=9),
@@ -360,72 +378,53 @@ lines = [extract_car_list(x) for x in line_inputs if str(x).strip()]
 line_order_map = build_line_position_map(lines)
 line_order = [line_order_map.get(i+1, 0) for i in range(N_MAX)]
 
-# 入力：2連対率 / 3連対率（％）
-st.subheader("▼ 2連対率 / 3連対率（％で入力：例 37 → 37%）")
-P2_list = []
-P3_list = []
-for i in range(N_MAX):
-    p2 = st.number_input(f"{i+1}番 2連対率(%)", 0.0, 100.0, 0.0, 0.1, key=f"p2_{i+1}")
-    p3 = st.number_input(f"{i+1}番 3連対率(%)", 0.0, 100.0, 0.0, 0.1, key=f"p3_{i+1}")
-    P2_list.append(p2 / 100.0)
-    P3_list.append(p3 / 100.0)
-
-# 人数と動的パラメータ
-active_idx = [i for i in range(N_MAX) if str(tairetsu[i]).isdigit()]
-n_cars = len(active_idx)
-
-def choose_upper_k(n:int)->int:
-    if n <= 3: return 0
-    if n == 4: return 4
-    if n == 5: return 5
-    if n == 6: return 6
-    if n == 7: return 6
-    return 6
-
 # ===============================
 # スコア計算（activeのみ）
 # ===============================
+active_idx = [i for i in range(N_MAX) if str(tairetsu[i]).isdigit()]
+n_cars = len(active_idx)
+LINE_BONUS, POS_MULTI_MAP, UPPER_K = dynamic_params(n_cars)
+
+# 得点補正（順位差による微補正）
 ratings_active = [rating[i] for i in active_idx]
-corr_active = score_from_tenscore_list_dynamic(ratings_active, upper_k=choose_upper_k(n_cars))
+corr_active = score_from_tenscore_list_dynamic(ratings_active, upper_k=UPPER_K)
 tenscore_score = [0.0] * N_MAX
 for j, k in enumerate(active_idx):
     tenscore_score[k] = corr_active[j]
 
-# 新：着内実力（R_place）→ z正規化 → α/クリップ → 1/3適用
+# 着内実力（P2/P3）→ z正規化 → α / クリップ → 補正部のみ1/3
 R_place = [0.6 * P2_list[i] + 0.4 * P3_list[i] for i in range(N_MAX)]
-Z_R = pd.Series([R_place[i] for i in active_idx])
-Z_R = _zscore_clip(Z_R, clip=2.5) if len(Z_R) else pd.Series(dtype=float)
+Z_R = _zscore_clip([R_place[i] for i in active_idx]) if active_idx else pd.Series(dtype=float)
+alpha, cap = 0.30, 0.60
+Place_Delta = [0.0] * N_MAX
+for j, i in enumerate(active_idx):
+    delta = float(Z_R.iloc[j]) if len(Z_R) > j else 0.0
+    Place_Delta[i] = round(np.clip(alpha * delta, -cap, cap) / 3.0, 3)
 
-alpha, cap = 0.30, 0.60  # αゲイン & クリップ
-Delta_used = [0.0] * N_MAX
-for idx_local, i in enumerate(active_idx):
-    delta = float(Z_R.iloc[idx_local]) if len(Z_R) else 0.0
-    delta = np.clip(alpha * delta, -cap, cap) / 3.0  # 補正部のみ1/3
-    Delta_used[i] = round(delta, 3)
-
-# 各種スコア合成
+# パーツ合成
 score_parts = []
 for i in active_idx:
     num = i + 1
     kaku = car_to_kakushitsu.get(num, "追")
     base = BASE_SCORE.get(kaku, 0.0)
+
     wind = wind_straight_combo_adjust(
-        kaku, st.session_state.selected_wind, wind_speed, straight_length, line_order[i]
+        kaku, st.session_state.selected_wind, wind_speed, straight_length, line_order[i], POS_MULTI_MAP
     )
     rating_score = tenscore_score[i]
-    rain_corr = lap_adjust(kaku, int(base_laps) + DAY_DELTA.get(day_idx, 1))
+    rain_corr = lap_adjust(kaku, eff_laps)
     s_bonus = min(0.1 * st.session_state.get(f"s_{num}", 0), 0.5)
     b_bonus = min(0.1 * st.session_state.get(f"b_{num}", 0), 0.5)
     sb_bonus = s_bonus + b_bonus
-    line_b = line_member_bonus(line_order[i])
+    line_b = line_member_bonus(line_order[i], LINE_BONUS)
     bank_b = bank_character_bonus(kaku, bank_angle, straight_length)
     length_b = bank_length_adjust(kaku, bank_length)
-    place_delta = Delta_used[i]  # 新規：着内Δ（P2/P3由来）
+    place_delta = Place_Delta[i]  # 新規：P2/P3由来
 
     total = base + wind + rating_score + rain_corr + sb_bonus + line_b + bank_b + length_b + place_delta
     score_parts.append([num, kaku, base, wind, rating_score, rain_corr, sb_bonus, line_b, bank_b, length_b, place_delta, total])
 
-# ライン補正（グループ補正 A優遇）
+# ライングループ補正
 labels = ["A","B","C","D","E","F","G"]
 line_def = {labels[idx]: line for idx, line in enumerate(lines) if line}
 car_to_group = {car: g for g, members in line_def.items() for car in members}
@@ -458,6 +457,7 @@ else:
     df_rank = df.sort_values(by='合計スコア', ascending=False).reset_index(drop=True)
     velobi_sorted = list(zip(df_rank['車番'].tolist(), df_rank['合計スコア'].round(1).tolist()))
 
+    # 得点順位（印補助用）
     points_df = pd.DataFrame({"車番": [i + 1 for i in active_idx], "得点": [rating[i] for i in active_idx]})
     if not points_df.empty:
         points_df["順位"] = points_df["得点"].rank(ascending=False, method="min").astype(int)
@@ -518,6 +518,7 @@ else:
         for m, n in zip([m for m in marks_order if m not in result_marks], rest):
             result_marks[m] = n
 
+    # 重複排除＆埋め
     def finalize_marks_unique(result_marks: dict, velobi_sorted: list):
         order = ["◎","〇","▲","△","×","α","β"]
         used = set(); final = {}
@@ -534,6 +535,7 @@ else:
 
     result_marks = finalize_marks_unique(result_marks, velobi_sorted)
 
+    # 表示
     rows = []
     for r, (no, sc) in enumerate(velobi_sorted, start=1):
         mark = [m for m, v in result_marks.items() if v == no]
@@ -544,10 +546,11 @@ else:
     st.dataframe(view_df, use_container_width=True)
 
     st.markdown("### 🧩 補正内訳（合計スコア高い順）")
-    df_rank = df_rank[['車番','脚質','基本','風補正','得点補正','周回補正','SB印補正','ライン補正','バンク補正','周長補正','着内Δ','グループ補正','合計スコア','競争得点','2連対率(%)','3連対率(%)']]
+    cols_show = ['車番','脚質','基本','風補正','得点補正','周回補正','SB印補正','ライン補正','バンク補正','周長補正','着内Δ','グループ補正','合計スコア','競争得点','2連対率(%)','3連対率(%)']
+    df_rank = df_rank[ [c for c in cols_show if c in df_rank.columns] ]
     st.dataframe(df_rank, use_container_width=True)
 
-    tag = f"開催日補正 +{DAY_DELTA.get(day_idx,1)}（有効周回={eff_laps}） / 風向:{st.session_state.selected_wind}"
+    tag = f"開催日補正 +{DAY_DELTA.get(day_idx,1)}（有効周回={eff_laps}） / 風向:{st.session_state.selected_wind} / 出走:{n_cars}車（入力:{N_MAX}枠）"
     st.caption(tag)
 
     # note記事用
