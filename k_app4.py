@@ -591,38 +591,31 @@ else:
     tag = f"開催日補正 +{DAY_DELTA.get(day_idx,1)}（有効周回={eff_laps}） / 風向:{st.session_state.selected_wind} / 出走:{n_cars}車（入力:{N_MAX}枠）"
     st.caption(tag)
 
-    # =====================================================
     # note記事用（コピー可）
-    # =====================================================
-    st.markdown("### 📋 note記事用（コピー可 / 上下2行＋スコア順）")
+    st.markdown("### 📋 note記事用（コピー可）")
     line_text = "　".join([x for x in line_inputs if str(x).strip()])
     score_order_text = " ".join(str(no) for no, _ in velobi_sorted)
     marks_order = ["◎","〇","▲","△","×","α","β"]
     marks_line = " ".join(f"{m}{result_marks[m]}" for m in marks_order if m in result_marks)
+    
+    # コピー対象はこの3行だけ
     note_text = f"ライン　{line_text}\nスコア順　{score_order_text}\n{marks_line}"
-
-    st.text_area("note貼り付け用（この枠の内容をそのままコピー）", note_text, height=120)
-
-    # クリップボードコピー（1クリック）
-    copy_clicked = st.button("📋 クリップボードにコピー")
-    if copy_clicked:
+    
+    # 表示
+    st.text_area("note貼り付け用", note_text, height=100)
+    
+    # コピー用ボタン（note_textのみコピー）
+    if st.button("📋 この内容をコピー"):
         st.session_state["_copy_text"] = note_text
         st.session_state["_copy_nonce"] = st.session_state.get("_copy_nonce", 0) + 1
-
+    
     if "_copy_text" in st.session_state:
-        # 直近クリックでのみ実行（連打や再描画対策）
         if st.session_state.get("_copy_nonce", 0) > st.session_state.get("_copy_done", -1):
             payload = json.dumps(st.session_state["_copy_text"])
             st.markdown(f"""
             <script>
-            (function(){{
-              const txt = {payload};
-              navigator.clipboard.writeText(txt).then(() => {{
-                console.log("copied");
-              }}).catch(e => console.log(e));
-            }})();
+            navigator.clipboard.writeText({payload});
             </script>
             """, unsafe_allow_html=True)
             st.success("コピーしました ✅")
             st.session_state["_copy_done"] = st.session_state["_copy_nonce"]
-
