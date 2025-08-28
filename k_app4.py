@@ -86,6 +86,24 @@ def _parse_float_flexible(s: str) -> float | None:
     except Exception:
         return None
 
+def _parse_percent_flexible(s: str) -> float:
+    """
+    入力例: '7', '7.5', '７', '１２．５', '7%', '12.5 %' などOK
+    戻り値: 0.0〜1.0 の小数（例 7% -> 0.07）
+    """
+    if s is None:
+        return 0.0
+    t = unicodedata.normalize("NFKC", str(s)).strip()
+    t = t.replace("％", "%").replace(",", "")
+    if t.endswith("%"):
+        t = t[:-1].strip()
+    if not re.fullmatch(r"\d+(\.\d+)?", t):
+        return 0.0
+    v = float(t)
+    if v < 0: v = 0.0
+    if v > 100: v = 100.0
+    return v / 100.0
+
 def _zscore_clip(s, clip=2.5):
     s = pd.Series(s).astype(float)
     m, sd = s.mean(), s.std(ddof=0)
@@ -320,7 +338,7 @@ for i, k in enumerate(['逃','両','追']):
             if 1 <= n <= N_MAX:
                 car_to_kakushitsu[n] = k
 
-# 競争得点
+# 競争得点（柔軟パース）
 st.subheader("▼ 競争得点")
 rating: list[float] = []
 invalid_inputs: list[int] = []
@@ -344,14 +362,18 @@ if invalid_inputs:
 if abnormal:
     st.warning("競争得点の想定外の値があります: " + ", ".join([f"{no}:{val:.1f}" for no, val in abnormal]))
 
-# 2連対率 / 3連対率
-st.subheader("▼ 2連対率 / 3連対率（％で入力：例 37 → 37%）")
+# 2連対率 / 3連対率（テキスト入力＋柔軟パース）
+st.subheader("▼ 2連対率 / 3連対率（％で入力：7 / 12.5 / ７ / 12.5% すべてOK）")
 P2_list, P3_list = [], []
 for i in range(N_MAX):
-    p2 = st.number_input(f"{i+1}番 2連対率(%)", 0.0, 100.0, 0.0, 0.1, key=f"p2_{i+1}")
-    p3 = st.number_input(f"{i+1}番 3連対率(%)", 0.0, 100.0, 0.0, 0.1, key=f"p3_{i+1}")
-    P2_list.append(p2 / 100.0)  # 0-1
-    P3_list.append(p3 / 100.0)  # 0-1
+    key_p2_txt = f"p2_txt_{i+1}"
+    key_p3_txt = f"p3_txt_{i+1}"
+    default_p2 = st.session_state.get(key_p2_txt, "")
+    default_p3 = st.session_state.get(key_p3_txt, "")
+    s2 = st.text_input(f"{i+1}番 2連対率(%)", value=str(default_p2), key=key_p2_txt)
+    s3 = st.text_input(f"{i+1}番 3連対率(%)", value=str(default_p3), key=key_p3_txt)
+    P2_list.append(_parse_percent_flexible(s2))  # 0〜1
+    P3_list.append(_parse_percent_flexible(s3))  # 0〜1
 
 # 隊列（欠車は空欄）
 st.subheader("▼ 予想隊列（数字、欠は空欄）")
