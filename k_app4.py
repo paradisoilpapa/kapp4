@@ -452,109 +452,58 @@ else:
         for m, n in zip(fill_marks, rest):
             result_marks[m] = n
     else:
-        # --- 男子：◎をΔ≤5.0の母集団から決定 ---
-        # 候補（スコア順に並んだvelobi_sortedの順序を尊重）
-        candidates = [no for no, _ in velobi_sorted if delta_map.get(no, 99) <= 5.0]
-        if not candidates:
-            # 保険：母集団が空ならスコア上位3から
-            candidates = [no for no, _ in velobi_sorted[:3]]
-
-        # 候補内で最上位スコアを◎（= velobi_sortedの先頭で候補に入っている車）
-        anchor_no = None
-        for no, _ in velobi_sorted:
-            if no in candidates:
-                anchor_no = no; break
-        if anchor_no is None:
-            anchor_no = velobi_sorted[0][0]
-
-        result_marks["◎"] = anchor_no
-        reasons[anchor_no] = f"本命(Δ≤5候補内)" if len(candidates) > 1 else "本命(得点独走)"
-
-        # 以下は従来通り：同ライン優先→得点上位を相手へ
+    # --- 男子：◎・〇・▲を Δ≤5.0 の母集団からスコア順で決定 ---
+    # 1) 母集団C（Δ≤5.0）
+    C = [no for no, _ in velobi_sorted if delta_map.get(no, 99) <= 5.0]
+    # 足りないケースの保険（2頭以下なら少し緩める → Δ≤7.0）
+    if len(C) <= 2:
+        C = [no for no, _ in velobi_sorted if delta_map.get(no, 99) <= 7.0]
+    # それでも空ならスコア上位3頭
+    if not C:
+        C = [no for no, _ in velobi_sorted[:3]]
+    
+    # 2) 母集団内スコア順（velobi_sortedの順＝合計スコア降順）
+    ordered_C = [no for no, _ in velobi_sorted if no in C]
+    
+    result_marks, reasons = {}, {}
+    
+    # 僅差時の同ライン優先（弱いタイブレーク）
+    def _tie_break_same_line(base_no, cand_list):
+        if not cand_list:
+            return cand_list
         car_to_group = {car: g for g, members in line_def.items() for car in members}
-        anchor_group = car_to_group.get(anchor_no, None)
-        same_line_exists = anchor_group and any((car_to_group.get(no) == anchor_group and no != anchor_no) for no, _ in velobi_sorted)
-
-        def pick_A_B_for_anchor(anchor_no, velobi_sorted, comp_points_rank, car_to_group):
-            A = None
-            anchor_group = car_to_group.get(anchor_no, None)
-            for no, sc in velobi_sorted:
-                if no == anchor_no: continue
-                if anchor_group and car_to_group.get(no, None) == anchor_group:
-                    A = (no, sc, "同ライン")
-                    break
-            B = None
-            for no, sc in velobi_sorted:
-                if no == anchor_no: continue
-                if comp_points_rank.get(no, 99) <= 4:
-                    B = (no, sc, "得点上位")
-                    break
-            return A, B
-
-        def pick_for_single_anchor(anchor_no, velobi_sorted, comp_points_rank, car_to_group):
-            O = None
-            for no, sc in velobi_sorted:
-                if no == anchor_no: continue
-                if comp_points_rank.get(no, 99) <= 4:
-                    O = (no, sc, "得点上位")
-                    break
-            if not O:
-                return None, None, None
-            o_no, o_sc, _ = O
-            o_group = car_to_group.get(o_no, None)
-            A2 = B2 = None
-            for no, sc in velobi_sorted:
-                if no in [anchor_no, o_no]: continue
-                if o_group and car_to_group.get(no, None) == o_group and not A2:
-                    A2 = (no, sc, "○同ライン")
-                if comp_points_rank.get(no, 99) <= 4 and not B2:
-                    B2 = (no, sc, "得点上位")
-            if A2 and B2:
-                if A2[1] >= B2[1]:
-                    return O, A2, B2
-                else:
-                    return O, B2, A2
-            elif A2:
-                return O, A2, None
-            elif B2:
-                return O, B2, None
-            else:
-                return O, None, None
-
-        if same_line_exists:
-            A, B = pick_A_B_for_anchor(anchor_no, velobi_sorted, comp_points_rank, car_to_group)
-            if A and B:
-                if A[1] >= B[1]:
-                    result_marks["〇"] = A[0]; reasons[A[0]] = "同ライン"
-                    result_marks["▲"] = B[0]; reasons[B[0]] = "得点上位"
-                else:
-                    result_marks["〇"] = B[0]; reasons[B[0]] = "得点上位"
-                    result_marks["▲"] = A[0]; reasons[A[0]] = "同ライン"
-            elif A:
-                result_marks["〇"] = A[0]; reasons[A[0]] = "同ライン"
-            elif B:
-                result_marks["〇"] = B[0]; reasons[B[0]] = "得点上位"
-        else:
-            O, A2, B2 = pick_for_single_anchor(anchor_no, velobi_sorted, comp_points_rank, car_to_group)
-            if O:
-                result_marks["〇"] = O[0]; reasons[O[0]] = "得点上位"
-            if A2 and B2:
-                if A2[1] >= B2[1]:
-                    result_marks["▲"] = A2[0]; reasons[A2[0]] = A2[2]
-                    result_marks["△"] = B2[0]; reasons[B2[0]] = B2[2]
-                else:
-                    result_marks["▲"] = B2[0]; reasons[B2[0]] = B2[2]
-                    result_marks["△"] = A2[0]; reasons[A2[0]] = A2[2]
-            elif A2:
-                result_marks["▲"] = A2[0]; reasons[A2[0]] = A2[2]
-            elif B2:
-                result_marks["▲"] = B2[0]; reasons[B2[0]] = B2[2]
-
-        # 残りの印を埋める
-        used = set(result_marks.values())
-        rest = [no for no, _ in velobi_sorted if no not in used]
-        for m, n in zip([m for m in marks_order if m not in result_marks], rest):
-            result_marks[m] = n
+        g_anchor = car_to_group.get(base_no)
+        if not g_anchor:
+            return cand_list
+        vmap = dict(velobi_sorted)  # 車→合計スコア
+        def keyfn(no):
+            near = abs(vmap.get(base_no, -9e9) - vmap.get(no, -9e9)) < 0.1
+            same = (car_to_group.get(no) == g_anchor)
+            return (not (near and same), )  # False(=優先)が先に来る
+       return sorted(cand_list, key=keyfn)
+    
+    # ◎
+    anchor_no = ordered_C[0]
+    result_marks["◎"] = anchor_no
+    reasons[anchor_no] = "本命(Δ≤5母集団・スコア首位)" if delta_map.get(anchor_no, 99) <= 5.0 else "本命(保険)"
+    
+    # 〇・▲（◎以外の母集団）
+    rest_C = [no for no in ordered_C if no != anchor_no]
+    rest_C = _tie_break_same_line(anchor_no, rest_C)
+    
+    if rest_C:
+        result_marks["〇"] = rest_C[0]
+        reasons[rest_C[0]] = "対抗(Δ≤5母集団・スコア2位)" if delta_map.get(rest_C[0], 99) <= 5.0 else "対抗(保険)"
+    if len(rest_C) >= 2:
+        result_marks["▲"] = rest_C[1]
+        reasons[rest_C[1]] = "単穴(Δ≤5母集団・スコア3位)" if delta_map.get(rest_C[1], 99) <= 5.0 else "単穴(保険)"
+    
+    # 残り（△ × α β）はスコア順で埋める
+    marks_order_tail = ["△","×","α","β"]
+    used = set(result_marks.values())
+    tail = [no for no, _ in velobi_sorted if no not in used]
+    for m, n in zip(marks_order_tail, tail):
+        result_marks[m] = n
 
     # 重複排除＆埋め
     def finalize_marks_unique(result_marks: dict, velobi_sorted: list):
