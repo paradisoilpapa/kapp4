@@ -1,12 +1,12 @@
 # app.py
-# ヴェロビ 完全版（5〜9車対応 / 2連対率・3連対率 / 欠車対応 / 男子・ガールズ分岐 / note出力）
+# ヴェロビ 完全版（5〜9車対応 / 2連対率・3連対率 / 欠車対応 / 男子・ガールズ分岐 / note出力＋コピー）
 # pip install streamlit pandas numpy
 
 from __future__ import annotations
 import streamlit as st
 import pandas as pd
 import numpy as np
-import re, unicodedata
+import re, unicodedata, json
 
 st.set_page_config(page_title="ヴェロビ 完全版（5〜9車対応）", layout="wide")
 
@@ -170,7 +170,6 @@ def score_from_tenscore_list_dynamic(tenscore_list, upper_k=8):
     return (df.apply(corr, axis=1)).tolist()
 
 def dynamic_params(n:int):
-    # 人数に応じた係数
     if n <= 7:
         line_bonus = {0:0.03, 1:0.05, 2:0.04, 3:0.03, 4:0.02}
         pos_multi_map = {0:0.30, 1:0.32, 2:0.30, 3:0.25, 4:0.20}
@@ -209,60 +208,8 @@ def get_group_bonus(car_no, line_def, bonus_map, a_head_bonus=True):
     return 0.0
 
 # =========================================================
-# 印選定補助
+# 印選定補助（ガールズ用のまま）
 # =========================================================
-def pick_anchor(velobi_sorted, comp_points_rank):
-    for no, sc in velobi_sorted:
-        if comp_points_rank.get(no, 99) <= 4:
-            return no, sc
-    return velobi_sorted[0]
-
-def pick_A_B_for_anchor(anchor_no, velobi_sorted, comp_points_rank, car_to_group):
-    A = None
-    anchor_group = car_to_group.get(anchor_no, None)
-    for no, sc in velobi_sorted:
-        if no == anchor_no: continue
-        if anchor_group and car_to_group.get(no, None) == anchor_group:
-            A = (no, sc, "同ライン")
-            break
-    B = None
-    for no, sc in velobi_sorted:
-        if no == anchor_no: continue
-        if comp_points_rank.get(no, 99) <= 4:
-            B = (no, sc, "得点上位")
-            break
-    return A, B
-
-def pick_for_single_anchor(anchor_no, velobi_sorted, comp_points_rank, car_to_group):
-    O = None
-    for no, sc in velobi_sorted:
-        if no == anchor_no: continue
-        if comp_points_rank.get(no, 99) <= 4:
-            O = (no, sc, "得点上位")
-            break
-    if not O:
-        return None, None, None
-    o_no, o_sc, _ = O
-    o_group = car_to_group.get(o_no, None)
-    A2 = B2 = None
-    for no, sc in velobi_sorted:
-        if no in [anchor_no, o_no]: continue
-        if o_group and car_to_group.get(no, None) == o_group and not A2:
-            A2 = (no, sc, "○同ライン")
-        if comp_points_rank.get(no, 99) <= 4 and not B2:
-            B2 = (no, sc, "得点上位")
-    if A2 and B2:
-        if A2[1] >= B2[1]:
-            return O, A2, B2
-        else:
-            return O, B2, A2
-    elif A2:
-        return O, A2, None
-    elif B2:
-        return O, B2, None
-    else:
-        return O, None, None
-
 def pick_girls_anchor_second(velobi_sorted, comp_points_rank):
     anchor = second = None
     for no, sc in velobi_sorted:
@@ -470,7 +417,7 @@ except Exception:
     pass
 
 # =========================================================
-# 印決定（男子/ガールズ分岐）
+# 印決定（男子/ガールズ分岐） — ◎にΔ≤5pt（混戦）ルール適用
 # =========================================================
 st.markdown("### 📊 合計スコア順（印・スコア・競争得点・理由）")
 if df.empty:
@@ -484,13 +431,16 @@ else:
     if not points_df.empty:
         points_df["順位"] = points_df["得点"].rank(ascending=False, method="min").astype(int)
         comp_points_rank = dict(zip(points_df["車番"], points_df["順位"]))
+        max_pt = float(points_df["得点"].max())
+        delta_map = {int(r.車番): round(max_pt - float(r.得点), 2) for r in points_df.itertuples()}
     else:
-        comp_points_rank = {}
+        comp_points_rank, delta_map = {}, {}
 
     marks_order = ["◎","〇","▲","△","×","α","β"]
     result_marks, reasons = {}, {}
 
     if mode == "ガールズ":
+        # 既存ロジック（得点1-4から本命/対抗）を維持
         a, b = pick_girls_anchor_second(velobi_sorted, comp_points_rank)
         if a:
             result_marks["◎"] = a[0]; reasons[a[0]] = "本命(得点1-4)"
@@ -502,10 +452,75 @@ else:
         for m, n in zip(fill_marks, rest):
             result_marks[m] = n
     else:
-        anchor_no, _ = pick_anchor(velobi_sorted, comp_points_rank)
-        result_marks["◎"] = anchor_no; reasons[anchor_no] = "本命(得点1-4内最高スコア)"
+        # --- 男子：◎をΔ≤5.0の母集団から決定 ---
+        # 候補（スコア順に並んだvelobi_sortedの順序を尊重）
+        candidates = [no for no, _ in velobi_sorted if delta_map.get(no, 99) <= 5.0]
+        if not candidates:
+            # 保険：母集団が空ならスコア上位3から
+            candidates = [no for no, _ in velobi_sorted[:3]]
+
+        # 候補内で最上位スコアを◎（= velobi_sortedの先頭で候補に入っている車）
+        anchor_no = None
+        for no, _ in velobi_sorted:
+            if no in candidates:
+                anchor_no = no; break
+        if anchor_no is None:
+            anchor_no = velobi_sorted[0][0]
+
+        result_marks["◎"] = anchor_no
+        reasons[anchor_no] = f"本命(Δ≤5候補内)" if len(candidates) > 1 else "本命(得点独走)"
+
+        # 以下は従来通り：同ライン優先→得点上位を相手へ
+        car_to_group = {car: g for g, members in line_def.items() for car in members}
         anchor_group = car_to_group.get(anchor_no, None)
         same_line_exists = anchor_group and any((car_to_group.get(no) == anchor_group and no != anchor_no) for no, _ in velobi_sorted)
+
+        def pick_A_B_for_anchor(anchor_no, velobi_sorted, comp_points_rank, car_to_group):
+            A = None
+            anchor_group = car_to_group.get(anchor_no, None)
+            for no, sc in velobi_sorted:
+                if no == anchor_no: continue
+                if anchor_group and car_to_group.get(no, None) == anchor_group:
+                    A = (no, sc, "同ライン")
+                    break
+            B = None
+            for no, sc in velobi_sorted:
+                if no == anchor_no: continue
+                if comp_points_rank.get(no, 99) <= 4:
+                    B = (no, sc, "得点上位")
+                    break
+            return A, B
+
+        def pick_for_single_anchor(anchor_no, velobi_sorted, comp_points_rank, car_to_group):
+            O = None
+            for no, sc in velobi_sorted:
+                if no == anchor_no: continue
+                if comp_points_rank.get(no, 99) <= 4:
+                    O = (no, sc, "得点上位")
+                    break
+            if not O:
+                return None, None, None
+            o_no, o_sc, _ = O
+            o_group = car_to_group.get(o_no, None)
+            A2 = B2 = None
+            for no, sc in velobi_sorted:
+                if no in [anchor_no, o_no]: continue
+                if o_group and car_to_group.get(no, None) == o_group and not A2:
+                    A2 = (no, sc, "○同ライン")
+                if comp_points_rank.get(no, 99) <= 4 and not B2:
+                    B2 = (no, sc, "得点上位")
+            if A2 and B2:
+                if A2[1] >= B2[1]:
+                    return O, A2, B2
+                else:
+                    return O, B2, A2
+            elif A2:
+                return O, A2, None
+            elif B2:
+                return O, B2, None
+            else:
+                return O, None, None
+
         if same_line_exists:
             A, B = pick_A_B_for_anchor(anchor_no, velobi_sorted, comp_points_rank, car_to_group)
             if A and B:
@@ -535,6 +550,7 @@ else:
             elif B2:
                 result_marks["▲"] = B2[0]; reasons[B2[0]] = B2[2]
 
+        # 残りの印を埋める
         used = set(result_marks.values())
         rest = [no for no, _ in velobi_sorted if no not in used]
         for m, n in zip([m for m in marks_order if m not in result_marks], rest):
@@ -563,7 +579,7 @@ else:
         mark = [m for m, v in result_marks.items() if v == no]
         reason = reasons.get(no, "")
         pt = df.loc[df['車番'] == no, '競争得点'].iloc[0] if '競争得点' in df.columns else None
-        rows.append({"順": r, "印": "".join(mark), "車": no, "合計スコア": sc, "競争得点": pt, "理由": reason})
+        rows.append({"順": r, "印": "".join(mark), "車": no, "合計スコア": sc, "競争得点": pt, "理由": reason, "Δ得点": delta_map.get(no, None)})
     view_df = pd.DataFrame(rows)
     st.dataframe(view_df, use_container_width=True)
 
@@ -575,11 +591,38 @@ else:
     tag = f"開催日補正 +{DAY_DELTA.get(day_idx,1)}（有効周回={eff_laps}） / 風向:{st.session_state.selected_wind} / 出走:{n_cars}車（入力:{N_MAX}枠）"
     st.caption(tag)
 
-    # note記事用
+    # =====================================================
+    # note記事用（コピー可）
+    # =====================================================
     st.markdown("### 📋 note記事用（コピー可 / 上下2行＋スコア順）")
     line_text = "　".join([x for x in line_inputs if str(x).strip()])
     score_order_text = " ".join(str(no) for no, _ in velobi_sorted)
     marks_order = ["◎","〇","▲","△","×","α","β"]
     marks_line = " ".join(f"{m}{result_marks[m]}" for m in marks_order if m in result_marks)
     note_text = f"ライン　{line_text}\nスコア順　{score_order_text}\n{marks_line}"
+
     st.text_area("note貼り付け用（この枠の内容をそのままコピー）", note_text, height=120)
+
+    # クリップボードコピー（1クリック）
+    copy_clicked = st.button("📋 クリップボードにコピー")
+    if copy_clicked:
+        st.session_state["_copy_text"] = note_text
+        st.session_state["_copy_nonce"] = st.session_state.get("_copy_nonce", 0) + 1
+
+    if "_copy_text" in st.session_state:
+        # 直近クリックでのみ実行（連打や再描画対策）
+        if st.session_state.get("_copy_nonce", 0) > st.session_state.get("_copy_done", -1):
+            payload = json.dumps(st.session_state["_copy_text"])
+            st.markdown(f"""
+            <script>
+            (function(){{
+              const txt = {payload};
+              navigator.clipboard.writeText(txt).then(() => {{
+                console.log("copied");
+              }}).catch(e => console.log(e));
+            }})();
+            </script>
+            """, unsafe_allow_html=True)
+            st.success("コピーしました ✅")
+            st.session_state["_copy_done"] = st.session_state["_copy_nonce"]
+
