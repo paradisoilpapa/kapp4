@@ -242,7 +242,7 @@ c4,c5,c6 = st.columns(3)
 with c4:
     if st.button("左"): st.session_state.selected_wind = "左"
 with c5:
-    st.write(f"✅ 風向：{st.session_state.selected_w風}")
+    st.write(f"✅ 風向：{st.session_state.get('selected_wind', '無風')}")
 with c6:
     if st.button("右"): st.session_state.selected_wind = "右"
 c7,c8,c9 = st.columns(3)
