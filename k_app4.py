@@ -1,5 +1,5 @@
 # app.py
-# ヴェロビ 完全版（5〜9車対応 / 2連対率・3連対率 / 欠車対応 / 男子・ガールズ分岐 / note出力＋コピー）
+# ヴェロビ 完全版（5〜9車対応 / 2連対率・3連対率 / 欠車対応 / 男子・ガールズ分岐 / Δ≤5印統一 / note3行コピー）
 # pip install streamlit pandas numpy
 
 from __future__ import annotations
@@ -13,6 +13,7 @@ st.set_page_config(page_title="ヴェロビ 完全版（5〜9車対応）", layo
 """
 ヴェロビ（欠車対応・統一版 / 5〜9車立て対応 / 男子・ガールズ分岐 + note出力）
 — 前走/前々走の着順入力を廃止し、2連対率・3連対率で“着内実力”を反映 —
+— ◎・〇・▲は「競争得点1位との差 Δ≤5pt の母集団」内のスコア順で統一 —
 """
 
 # =========================================================
@@ -207,9 +208,6 @@ def get_group_bonus(car_no, line_def, bonus_map, a_head_bonus=True):
             return bonus_map.get(g, 0.0) + add
     return 0.0
 
-# =========================================================
-# 印選定補助（ガールズ用のまま）
-# =========================================================
 def pick_girls_anchor_second(velobi_sorted, comp_points_rank):
     anchor = second = None
     for no, sc in velobi_sorted:
@@ -244,7 +242,7 @@ c4,c5,c6 = st.columns(3)
 with c4:
     if st.button("左"): st.session_state.selected_wind = "左"
 with c5:
-    st.write(f"✅ 風向：{st.session_state.selected_wind}")
+    st.write(f"✅ 風向：{st.session_state.selected_w風}")
 with c6:
     if st.button("右"): st.session_state.selected_wind = "右"
 c7,c8,c9 = st.columns(3)
@@ -388,7 +386,7 @@ for i in active_idx:
     line_b = line_member_bonus(line_order[i], LINE_BONUS)
     bank_b = bank_character_bonus(kaku, bank_angle, straight_length)
     length_b = bank_length_adjust(kaku, bank_length)
-    place_delta = Place_Delta[i]  # 新規：P2/P3由来
+    place_delta = Place_Delta[i]
 
     total = base + wind + rating_score + rain_corr + sb_bonus + line_b + bank_b + length_b + place_delta
     score_parts.append([num, kaku, base, wind, rating_score, rain_corr, sb_bonus, line_b, bank_b, length_b, place_delta, total])
@@ -417,7 +415,7 @@ except Exception:
     pass
 
 # =========================================================
-# 印決定（男子/ガールズ分岐） — ◎にΔ≤5pt（混戦）ルール適用
+# 印決定（男子/ガールズ分岐） — 男子は◎〇▲をΔ≤5母集団から
 # =========================================================
 st.markdown("### 📊 合計スコア順（印・スコア・競争得点・理由）")
 if df.empty:
@@ -426,7 +424,7 @@ else:
     df_rank = df.sort_values(by='合計スコア', ascending=False).reset_index(drop=True)
     velobi_sorted = list(zip(df_rank['車番'].tolist(), df_rank['合計スコア'].round(1).tolist()))
 
-    # 得点順位（印補助用）
+    # 得点順位・Δ（1位との差）
     points_df = pd.DataFrame({"車番": [i + 1 for i in active_idx], "得点": [rating[i] for i in active_idx]})
     if not points_df.empty:
         points_df["順位"] = points_df["得点"].rank(ascending=False, method="min").astype(int)
@@ -440,7 +438,6 @@ else:
     result_marks, reasons = {}, {}
 
     if mode == "ガールズ":
-        # 既存ロジック（得点1-4から本命/対抗）を維持
         a, b = pick_girls_anchor_second(velobi_sorted, comp_points_rank)
         if a:
             result_marks["◎"] = a[0]; reasons[a[0]] = "本命(得点1-4)"
@@ -452,58 +449,49 @@ else:
         for m, n in zip(fill_marks, rest):
             result_marks[m] = n
     else:
-    # --- 男子：◎・〇・▲を Δ≤5.0 の母集団からスコア順で決定 ---
-    # 1) 母集団C（Δ≤5.0）
-    C = [no for no, _ in velobi_sorted if delta_map.get(no, 99) <= 5.0]
-    # 足りないケースの保険（2頭以下なら少し緩める → Δ≤7.0）
-    if len(C) <= 2:
-        C = [no for no, _ in velobi_sorted if delta_map.get(no, 99) <= 7.0]
-    # それでも空ならスコア上位3頭
-    if not C:
-        C = [no for no, _ in velobi_sorted[:3]]
-    
-    # 2) 母集団内スコア順（velobi_sortedの順＝合計スコア降順）
-    ordered_C = [no for no, _ in velobi_sorted if no in C]
-    
-    result_marks, reasons = {}, {}
-    
-    # 僅差時の同ライン優先（弱いタイブレーク）
-    def _tie_break_same_line(base_no, cand_list):
-        if not cand_list:
-            return cand_list
-        car_to_group = {car: g for g, members in line_def.items() for car in members}
-        g_anchor = car_to_group.get(base_no)
-        if not g_anchor:
-            return cand_list
-        vmap = dict(velobi_sorted)  # 車→合計スコア
-        def keyfn(no):
-            near = abs(vmap.get(base_no, -9e9) - vmap.get(no, -9e9)) < 0.1
-            same = (car_to_group.get(no) == g_anchor)
-            return (not (near and same), )  # False(=優先)が先に来る
-       return sorted(cand_list, key=keyfn)
-    
-    # ◎
-    anchor_no = ordered_C[0]
-    result_marks["◎"] = anchor_no
-    reasons[anchor_no] = "本命(Δ≤5母集団・スコア首位)" if delta_map.get(anchor_no, 99) <= 5.0 else "本命(保険)"
-    
-    # 〇・▲（◎以外の母集団）
-    rest_C = [no for no in ordered_C if no != anchor_no]
-    rest_C = _tie_break_same_line(anchor_no, rest_C)
-    
-    if rest_C:
-        result_marks["〇"] = rest_C[0]
-        reasons[rest_C[0]] = "対抗(Δ≤5母集団・スコア2位)" if delta_map.get(rest_C[0], 99) <= 5.0 else "対抗(保険)"
-    if len(rest_C) >= 2:
-        result_marks["▲"] = rest_C[1]
-        reasons[rest_C[1]] = "単穴(Δ≤5母集団・スコア3位)" if delta_map.get(rest_C[1], 99) <= 5.0 else "単穴(保険)"
-    
-    # 残り（△ × α β）はスコア順で埋める
-    marks_order_tail = ["△","×","α","β"]
-    used = set(result_marks.values())
-    tail = [no for no, _ in velobi_sorted if no not in used]
-    for m, n in zip(marks_order_tail, tail):
-        result_marks[m] = n
+        # --- 男子：◎・〇・▲を Δ≤5.0 の母集団からスコア順で決定 ---
+        C = [no for no, _ in velobi_sorted if delta_map.get(no, 99) <= 5.0]
+        if len(C) <= 2:
+            C = [no for no, _ in velobi_sorted if delta_map.get(no, 99) <= 7.0]
+        if not C:
+            C = [no for no, _ in velobi_sorted[:3]]
+        ordered_C = [no for no, _ in velobi_sorted if no in C]
+
+        # 僅差(0.1以内)なら◎と同ラインをわずかに優先
+        def _tie_break_same_line(base_no, cand_list):
+            if not cand_list:
+                return cand_list
+            car_to_group = {car: g for g, members in line_def.items() for car in members}
+            g_anchor = car_to_group.get(base_no)
+            if not g_anchor:
+                return cand_list
+            vmap = dict(velobi_sorted)
+            def keyfn(no):
+                near = abs(vmap.get(base_no, -9e9) - vmap.get(no, -9e9)) < 0.1
+                same = (car_to_group.get(no) == g_anchor)
+                return (not (near and same), )
+            return sorted(cand_list, key=keyfn)
+
+        # ◎
+        anchor_no = ordered_C[0]
+        result_marks["◎"] = anchor_no
+        reasons[anchor_no] = "本命(Δ≤5母集団・スコア首位)" if delta_map.get(anchor_no, 99) <= 5.0 else "本命(保険)"
+
+        # 〇・▲
+        rest_C = [no for no in ordered_C if no != anchor_no]
+        rest_C = _tie_break_same_line(anchor_no, rest_C)
+        if rest_C:
+            result_marks["〇"] = rest_C[0]
+            reasons[rest_C[0]] = "対抗(Δ≤5母集団・スコア2位)" if delta_map.get(rest_C[0], 99) <= 5.0 else "対抗(保険)"
+        if len(rest_C) >= 2:
+            result_marks["▲"] = rest_C[1]
+            reasons[rest_C[1]] = "単穴(Δ≤5母集団・スコア3位)" if delta_map.get(rest_C[1], 99) <= 5.0 else "単穴(保険)"
+
+        # 残り（△ × α β）はスコア順で埋める
+        used = set(result_marks.values())
+        tail = [no for no, _ in velobi_sorted if no not in used]
+        for m, n in zip(["△","×","α","β"], tail):
+            result_marks[m] = n
 
     # 重複排除＆埋め
     def finalize_marks_unique(result_marks: dict, velobi_sorted: list):
@@ -540,31 +528,30 @@ else:
     tag = f"開催日補正 +{DAY_DELTA.get(day_idx,1)}（有効周回={eff_laps}） / 風向:{st.session_state.selected_wind} / 出走:{n_cars}車（入力:{N_MAX}枠）"
     st.caption(tag)
 
-    # note記事用（コピー可）
+    # =====================================================
+    # note記事用（3行のみ・ワンクリコピー）
+    # =====================================================
     st.markdown("### 📋 note記事用（コピー可）")
     line_text = "　".join([x for x in line_inputs if str(x).strip()])
     score_order_text = " ".join(str(no) for no, _ in velobi_sorted)
     marks_order = ["◎","〇","▲","△","×","α","β"]
     marks_line = " ".join(f"{m}{result_marks[m]}" for m in marks_order if m in result_marks)
-    
-    # コピー対象はこの3行だけ
+
     note_text = f"ライン　{line_text}\nスコア順　{score_order_text}\n{marks_line}"
-    
-    # 表示
-    st.text_area("note貼り付け用", note_text, height=100)
-    
-    # コピー用ボタン（note_textのみコピー）
+    st.text_area("note貼り付け用（この枠の内容だけコピーされます）", note_text, height=100)
+
     if st.button("📋 この内容をコピー"):
         st.session_state["_copy_text"] = note_text
         st.session_state["_copy_nonce"] = st.session_state.get("_copy_nonce", 0) + 1
-    
+
     if "_copy_text" in st.session_state:
         if st.session_state.get("_copy_nonce", 0) > st.session_state.get("_copy_done", -1):
             payload = json.dumps(st.session_state["_copy_text"])
             st.markdown(f"""
             <script>
-            navigator.clipboard.writeText({payload});
+              navigator.clipboard.writeText({payload});
             </script>
             """, unsafe_allow_html=True)
             st.success("コピーしました ✅")
             st.session_state["_copy_done"] = st.session_state["_copy_nonce"]
+
