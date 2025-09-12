@@ -296,11 +296,20 @@ def tenscore_correction(tenscores):
 WIND_SIGN = -1  # ← 推奨：風は基本“抵抗”として効かせる（+1にすれば加点）
 
 # ===== 風：新ロジック（風速メイン） =====
-# 風は加点(+1)か減点(-1)かを選ぶ
-WIND_SIGN = -1  # ← 風は抵抗として効かせる
+# 風は加点(+1)か減点(-1)かを選ぶ（通常は抵抗=減点）
+WIND_SIGN = -1
 
 def wind_adjust_velobi(wind_dir, wind_speed, role, prof_escape):
-    s = float(max(0.0, wind_speed))
+    """
+    風向ラベルは完全に無視。風速だけで補正する最小版。
+    0–2 m/s: 0
+    2–5 m/s: 緩やか
+    5–8 m/s: もう少し効く
+    8 m/s+:  頭打ち（全体±0.05にクランプ）
+    役割: head > second > single > thirdplus
+    脚質: 逃げが強いほど強め
+    """
+    s = float(wind_speed or 0.0)
     if s <= 2.0:
         base_mag = 0.0
     elif s <= 5.0:
@@ -311,16 +320,10 @@ def wind_adjust_velobi(wind_dir, wind_speed, role, prof_escape):
         base_mag = 0.027 + 0.004 * min(s - 8.0, 5.0) # 8超～最大0.047
     base_mag = clamp(base_mag, 0.0, 0.050)
 
-    pos_multi  = {'head':1.00,'second':0.75,'thirdplus':0.50,'single':0.65}.get(role, 0.65)
-    prof_multi = (0.40 + 0.60 * float(prof_escape))
+    pos_multi  = {'head':1.00,'second':0.75,'single':0.65,'thirdplus':0.50}.get(role, 0.65)
+    prof_multi = 0.40 + 0.60 * float(prof_escape)
 
-    dir_term = 0.0
-    # ※ 向きは原則無視でOK（WIND_MODEがdirectionalなら薄く使う）
-    if (globals().get("WIND_MODE", "speed_only") == "directional"):
-        wd = WIND_COEFF.get(wind_dir, 0.0)
-        dir_term = clamp(s * wd * (0.30 + 0.70 * float(prof_escape)) * 0.5, -0.02, 0.02)
-
-    val = (base_mag * pos_multi * prof_multi + dir_term) * float(WIND_SIGN)
+    val = base_mag * pos_multi * prof_multi * float(WIND_SIGN)
     return round(clamp(val, -0.05, 0.05), 3)
 
 
