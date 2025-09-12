@@ -292,13 +292,17 @@ def tenscore_correction(tenscores):
     return df.apply(corr, axis=1).tolist()
 
 # ===== 風：新ロジック（風速メイン） =====
+# 風は加点(+1)か減点(-1)かを選ぶ
+WIND_SIGN = -1  # ← 推奨：風は基本“抵抗”として効かせる（+1にすれば加点）
+
+# ===== 風：新ロジック（風速メイン） =====
 def wind_adjust(wind_dir, wind_speed, role, prof_escape):
     """
     風速メインの補正（方向は原則無視）
       - 0–2 m/s: 無視
-      - 2–5 m/s: 緩やか（最大 ~+0.015）
-      - 5–8 m/s: もう少し効く（最大 ~+0.027）
-      - 8 m/s+:  上限 ~+0.050 で頭打ち
+      - 2–5 m/s: 緩やか
+      - 5–8 m/s: もう少し効く
+      - 8 m/s+:  上限で頭打ち（全体±0.05にクランプ）
     役割・脚質で効き方を変える（逃げ>番手>単騎>三番手+）
     """
     s = float(max(0.0, wind_speed))
@@ -315,14 +319,15 @@ def wind_adjust(wind_dir, wind_speed, role, prof_escape):
     pos_multi  = {'head':1.00,'second':0.75,'thirdplus':0.50,'single':0.65}.get(role, 0.65)
     prof_multi = (0.40 + 0.60 * float(prof_escape))  # 逃げ脚が強いほど効かせる
 
+    # 原則“向き”は無視。以下の条件だけ薄く方向を採用
     dir_term = 0.0
-    # 例外：弥彦/前橋などで強風(>=6m/s)時 or 明示的に "directional" を選んだときだけ薄く方向を使う
-    if (WIND_MODE == "directional") or (s >= 6.0 and st.session_state.get("track", "") in SPECIAL_DIRECTIONAL_VELODROMES):
+    if (WIND_MODE == "directional") or (s >= 6.0 and track in SPECIAL_DIRECTIONAL_VELODROMES):
         wd = WIND_COEFF.get(wind_dir, 0.0)
         dir_term = clamp(s * wd * (0.30 + 0.70 * float(prof_escape)) * 0.5, -0.02, 0.02)
 
-    val = base_mag * pos_multi * prof_multi + dir_term
+    val = (base_mag * pos_multi * prof_multi + dir_term) * float(WIND_SIGN)
     return round(clamp(val, -0.05, 0.05), 3)
+
 
 def bank_character_bonus(bank_angle, straight_length, prof_escape, prof_sashi):
     straight_factor = (float(straight_length)-40.0)/10.0
