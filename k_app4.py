@@ -1112,14 +1112,28 @@ if a_gid is not None and a_gid in line_def:
         key=lambda x: (-score_map.get(x, -1e9), x)
     )
 
-preferred_second = None
-if old_anchor is not None and old_anchor != beta_id:
-    preferred_second = old_anchor
+# 〇：旧◎優先 → なければ◎ライン“外”優先 → それでも無ければ全体トップ
+preferred_second = old_anchor if (old_anchor is not None and old_anchor != beta_id) else None
 
 if overall_rest:
-    pick2 = preferred_second if (preferred_second is not None and preferred_second in overall_rest) else overall_rest[0]
+    # 1) 旧◎が使えるなら最優先
+    if preferred_second is not None and preferred_second in overall_rest:
+        pick2 = preferred_second
+        src = "旧◎優先"
+    else:
+        # 2) ▲を◎ラインに残すため、可能なら◎ライン“外”から選ぶ
+        non_anchor_rest = [c for c in overall_rest if car_to_group.get(c, None) != a_gid]
+        if non_anchor_rest:
+            pick2 = non_anchor_rest[0]   # overall_restの順＝SBなし順
+            src = "◎ライン外優先"
+        else:
+            # 3) 候補が無ければ従来どおり全体トップ
+            pick2 = overall_rest[0]
+            src = "全体トップ"
+
     result_marks["〇"] = pick2
-    reasons[pick2] = "対抗（格上げ後SBなしスコア順/旧◎優先）"
+    reasons[pick2] = f"対抗（{src}）"
+
 
 used = set(result_marks.values())
 
