@@ -162,6 +162,78 @@ LINE_BONUS = {"second": 0.08, "thirdplus": 0.04}
 LINE_BONUS_CAP = 0.10
 PROB_U = {"second": 0.00, "thirdplus": 0.00}  # 使っていない（将来用）
 
+# === 風の取得：開催区分→基準時刻（JST, tzなし） ===
+def make_target_dt_naive(jst_date, race_slot: str):
+    """JSTの日付と区分から tz なしの基準時刻を作る（例: 2025-09-12 18:00:00）"""
+    # あなたの定義に合わせて SESSION_HOUR を使う
+    h = SESSION_HOUR.get(race_slot, 11)
+    # jst_date は date でも文字列でもOKにしておく
+    if isinstance(jst_date, datetime):
+        jst_date = jst_date.date()
+    try:
+        y, m, d = jst_date.year, jst_date.month, jst_date.day
+    except Exception:
+        dt = pd.to_datetime(str(jst_date))
+        y, m, d = dt.year, dt.month, dt.day
+    # tz情報は **付けない**（naiveに統一）
+    return datetime(y, m, d, h, 0, 0)
+
+# === Open-Meteoから 10m 風速/風向（1時間値）を取得 ===
+def fetch_openmeteo_hour(lat, lon, target_dt_naive):
+    """
+    target_dt_naive に最も近い1時間の10m風速/風向を返す。
+    Open-Meteoの time は JST だが tz 情報なし → 比較も tz なしで統一。
+    """
+    import numpy as np
+    d = target_dt_naive.strftime("%Y-%m-%d")
+    base = "https://api.open-meteo.com/v1/forecast"
+
+    urls = [
+        # 1) 日付固定（past_days は併用しない）
+        (f"{base}?latitude={lat:.5f}&longitude={lon:.5f}"
+         "&hourly=wind_speed_10m,wind_direction_10m"
+         "&timezone=Asia%2FTokyo"
+         f"&start_date={d}&end_date={d}", True),
+        (f"{base}?latitude={lat:.5f}&longitude={lon:.5f}"
+         "&hourly=wind_speed_10m"
+         "&timezone=Asia%2FTokyo"
+         f"&start_date={d}&end_date={d}", False),
+
+        # 2) 念のため広め（前後2日）
+        (f"{base}?latitude={lat:.5f}&longitude={lon:.5f}"
+         "&hourly=wind_speed_10m,wind_direction_10m"
+         "&timezone=Asia%2FTokyo&past_days=2&forecast_days=2", True),
+        (f"{base}?latitude={lat:.5f}&longitude={lon:.5f}"
+         "&hourly=wind_speed_10m"
+         "&timezone=Asia%2FTokyo&past_days=2&forecast_days=2", False),
+    ]
+
+    last_err = None
+    for url, with_dir in urls:
+        try:
+            r = requests.get(url, timeout=15)
+            r.raise_for_status()
+            j = r.json().get("hourly", {})
+            # APIの time は tz なしISO
+            times = [datetime.fromisoformat(t) for t in j.get("time", [])]
+            if not times:
+                raise RuntimeError("empty hourly times")
+            # tzなし同士で差分
+            diffs = [abs((t - target_dt_naive).total_seconds()) for t in times]
+            k = int(np.argmin(diffs))
+
+            sp = j.get("wind_speed_10m", [])
+            di = j.get("wind_direction_10m", []) if with_dir else []
+            speed = float(sp[k]) if k < len(sp) else float("nan")
+            deg   = (float(di[k]) if with_dir and k < len(di) else None)
+
+            return {"time": times[k], "speed_ms": speed, "deg": deg, "diff_min": diffs[k]/60.0}
+        except Exception as e:
+            last_err = e
+            continue
+    raise RuntimeError(f"Open-Meteo取得失敗（最後のエラー: {last_err}）")
+
+
 # ==============================
 # ユーティリティ
 # ==============================
@@ -476,28 +548,28 @@ race_day = st.sidebar.date_input("開催日（風の取得基準日）", value=d
 
 # 風：手動入力（上書き可能）＋自動取得ボタン
 wind_dir = st.sidebar.selectbox("風向", ["無風","左上","上","右上","左","右","左下","下","右下"], index=0, key="wind_dir_input")
-wind_speed = st.sidebar.number_input("風速(m/s)", 0.0, 30.0, st.session_state.get("wind_speed_input", 3.0), 0.1, key="wind_speed_input")
-
-# 自動取得UI
-with st.sidebar.expander("🌬️ 風をAPIで自動取得（Open-Meteo）", expanded=False):
-    lat = VELODROME_MASTER.get(track, {}).get("lat", None)
-    lon = VELODROME_MASTER.get(track, {}).get("lon", None)
-    if lat is None or lon is None:
-        st.info("この会場の座標が未登録です。手動で風速を入力してください。")
-    else:
-        hour = SESSION_HOUR[race_time]
-        target_dt = datetime.combine(race_day, time(hour=hour), tzinfo=JST)
-        st.caption(f"基準時刻：{target_dt.strftime('%Y-%m-%d %H:%M')}（JST）")
-        if st.button("APIで取得 → 風速に反映", use_container_width=True):
+wind_speed_default = st.session_state.get("wind_speed", 3.0)
+wind_speed = st.sidebar.number_input("風速(m/s)", 0.0, 30.0, float(wind_speed_default), 0.1)
+with st.sidebar.expander("🌀 風をAPIで自動取得（Open-Meteo）", expanded=False):
+    api_date = st.date_input("開催日（風の取得基準日）", value=pd.to_datetime("today").date(), key="api_date")
+    st.caption("基準時刻：モ=8時 / デ=11時 / ナ=18時 / ミ=22時（JST・tzなしで取得）")
+    if st.button("APIで取得→風速に反映", use_container_width=True):
+        info_xy = VELODROME_MASTER.get(track)
+        if not info_xy or info_xy.get("lat") is None or info_xy.get("lon") is None:
+            st.error(f"{track} の座標が未登録です（VELODROME_MASTER に lat/lon を入れてください）")
+        else:
             try:
-                res = fetch_openmeteo_hour(lat, lon, target_dt)
-                st.session_state["wind_speed_input"] = round(res["speed_ms"], 2)
-                # 向きは speed_only なので無視だが、記録だけ残す
-                st.session_state["wind_deg_last"] = res["deg"]
-                st.session_state["wind_time_last"] = res["time"].strftime("%Y-%m-%d %H:%M")
-                st.success(f"取得OK：{res['time'].strftime('%H:%M')}の値 (差{res['diff_min']:.0f}分) / 風速 {res['speed_ms']:.2f} m/s, 風向 {res['deg']:.0f}°")
+                target = make_target_dt_naive(api_date, race_time)     # ← tzなしで作成
+                data = fetch_openmeteo_hour(info_xy["lat"], info_xy["lon"], target)
+                st.session_state["wind_speed"] = round(float(data["speed_ms"]), 2)
+                st.success(
+                    f"{track} {target:%Y-%m-%d %H:%M} 風速 {st.session_state['wind_speed']:.1f} m/s "
+                    f"（API側と{data['diff_min']:.0f}分ズレ）"
+                )
+                st.rerun()  # 左の number_input に即反映
             except Exception as e:
                 st.error(f"取得に失敗：{e}")
+
 
 straight_length = st.sidebar.number_input("みなし直線(m)", 30.0, 80.0, float(info["straight_length"]), 0.1)
 bank_angle = st.sidebar.number_input("バンク角(°)", 20.0, 45.0, float(info["bank_angle"]), 0.1)
