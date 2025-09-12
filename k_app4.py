@@ -80,55 +80,65 @@ KEIRIN_DATA = {
     "手入力":{"bank_angle":30.0,"straight_length":52.0,"bank_length":400},
 }
 
-# 自動取得用の座標（まずは主要いくつか。無い会場は手入力 or 後で拡張）
 VELODROME_MASTER = {
     # 北海道・東北
-    "函館": {"lat": 41.77694, "lon": 140.76283, "home_azimuth": None},
-    "青森": {"lat": 40.79717, "lon": 140.66469, "home_azimuth": None},
-    "いわき平": {"lat": 37.04533, "lon": 140.89150, "home_azimuth": None},
-    "弥彦": {"lat": 37.70778, "lon": 138.82886, "home_azimuth": None},
-    # 関東（例）
-    "前橋": {"lat": 36.39728, "lon": 139.05778, "home_azimuth": None},
-    "取手": {"lat": 35.90175, "lon": 140.05631, "home_azimuth": None},
-    "宇都宮": {"lat": 36.57197, "lon": 139.88281, "home_azimuth": None},
-    "大宮": {"lat": 35.91962, "lon": 139.63417, "home_azimuth": None},
-    "西武園": {"lat": 35.76983, "lon": 139.44686, "home_azimuth": None},
-    "京王閣": {"lat": 35.64294, "lon": 139.53372, "home_azimuth": None},
-    "立川": {"lat": 35.70214, "lon": 139.42300, "home_azimuth": None},
-    "松戸": {"lat": 35.80417, "lon": 139.91119, "home_azimuth": None},
-    "川崎": {"lat": 35.52844, "lon": 139.70944, "home_azimuth": None},
-    "平塚": {"lat": 35.32547, "lon": 139.36342, "home_azimuth": None},
-    "小田原": {"lat": 35.25089, "lon": 139.14947, "home_azimuth": None},
-    # 以降は None（必要に応じて追加）
-    "伊東": {"lat": None, "lon": None, "home_azimuth": None},
-    "静岡": {"lat": None, "lon": None, "home_azimuth": None},
-    "名古屋": {"lat": None, "lon": None, "home_azimuth": None},
-    "岐阜": {"lat": None, "lon": None, "home_azimuth": None},
-    "大垣": {"lat": None, "lon": None, "home_azimuth": None},
-    "豊橋": {"lat": None, "lon": None, "home_azimuth": None},
-    "富山": {"lat": None, "lon": None, "home_azimuth": None},
-    "松坂": {"lat": None, "lon": None, "home_azimuth": None},
-    "四日市": {"lat": None, "lon": None, "home_azimuth": None},
-    "福井": {"lat": None, "lon": None, "home_azimuth": None},
-    "奈良": {"lat": None, "lon": None, "home_azimuth": None},
-    "向日町": {"lat": None, "lon": None, "home_azimuth": None},
-    "和歌山": {"lat": None, "lon": None, "home_azimuth": None},
-    "岸和田": {"lat": None, "lon": None, "home_azimuth": None},
-    "玉野": {"lat": None, "lon": None, "home_azimuth": None},
-    "広島": {"lat": None, "lon": None, "home_azimuth": None},
-    "防府": {"lat": None, "lon": None, "home_azimuth": None},
-    "高松": {"lat": None, "lon": None, "home_azimuth": None},
-    "小松島": {"lat": None, "lon": None, "home_azimuth": None},
-    "高知": {"lat": None, "lon": None, "home_azimuth": None},
-    "松山": {"lat": None, "lon": None, "home_azimuth": None},
-    "小倉": {"lat": None, "lon": None, "home_azimuth": None},
-    "久留米": {"lat": None, "lon": None, "home_azimuth": None},
-    "武雄": {"lat": None, "lon": None, "home_azimuth": None},
-    "佐世保": {"lat": None, "lon": None, "home_azimuth": None},
-    "別府": {"lat": None, "lon": None, "home_azimuth": None},
-    "熊本": {"lat": None, "lon": None, "home_azimuth": None},
-    "手入力": {"lat": None, "lon": None, "home_azimuth": None},
+    "函館":   {"lat": 41.77694,  "lon": 140.76283,  "home_azimuth": None},
+    "青森":   {"lat": 40.79717,  "lon": 140.66469,  "home_azimuth": None},
+    "いわき平": {"lat": 37.04533,  "lon": 140.89150,  "home_azimuth": None},
+    "弥彦":   {"lat": 37.70778,  "lon": 138.82886,  "home_azimuth": None},
+
+    # 関東
+    "前橋":   {"lat": 36.39728,  "lon": 139.05778,  "home_azimuth": None},
+    "取手":   {"lat": 35.90175,  "lon": 140.05631,  "home_azimuth": None},
+    "宇都宮": {"lat": 36.57197,  "lon": 139.88281,  "home_azimuth": None},
+    "大宮":   {"lat": 35.91962,  "lon": 139.63417,  "home_azimuth": None},
+    "西武園": {"lat": 35.76983,  "lon": 139.44686,  "home_azimuth": None},
+    "京王閣": {"lat": 35.64294,  "lon": 139.53372,  "home_azimuth": None},
+    "立川":   {"lat": 35.70214,  "lon": 139.42300,  "home_azimuth": None},
+    "松戸":   {"lat": 35.80417,  "lon": 139.91119,  "home_azimuth": None},
+    "川崎":   {"lat": 35.52844,  "lon": 139.70944,  "home_azimuth": None},
+    "平塚":   {"lat": 35.32547,  "lon": 139.36342,  "home_azimuth": None},
+    "小田原": {"lat": 35.25089,  "lon": 139.14947,  "home_azimuth": None},
+
+    # 中部・北陸・東海
+    "伊東":   {"lat": 34.954667, "lon": 139.092639, "home_azimuth": None},
+    "静岡":   {"lat": 34.973722, "lon": 138.419417, "home_azimuth": None},
+    "名古屋": {"lat": 35.175560, "lon": 136.854028, "home_azimuth": None},
+    "岐阜":   {"lat": 35.414194, "lon": 136.783917, "home_azimuth": None},
+    "大垣":   {"lat": 35.361389, "lon": 136.628444, "home_azimuth": None},
+    "豊橋":   {"lat": 34.770167, "lon": 137.417250, "home_azimuth": None},
+    "富山":   {"lat": 36.757250, "lon": 137.234833, "home_azimuth": None},
+    "松坂":   {"lat": 34.564611, "lon": 136.533833, "home_azimuth": None},  # ※表記は既存キーに合わせて「松坂」
+    "四日市": {"lat": 34.965389, "lon": 136.634500, "home_azimuth": None},
+    "福井":   {"lat": 36.066889, "lon": 136.253722, "home_azimuth": None},
+
+    # 近畿
+    "奈良":   {"lat": 34.681111, "lon": 135.823083, "home_azimuth": None},
+    "向日町": {"lat": 34.949222, "lon": 135.708389, "home_azimuth": None},
+    "和歌山": {"lat": 34.228694, "lon": 135.171833, "home_azimuth": None},
+    "岸和田": {"lat": 34.477500, "lon": 135.369389, "home_azimuth": None},
+
+    # 中国・四国
+    "玉野":   {"lat": 34.497333, "lon": 133.961389, "home_azimuth": None},
+    "広島":   {"lat": 34.359778, "lon": 132.502889, "home_azimuth": None},
+    "防府":   {"lat": 34.048778, "lon": 131.568611, "home_azimuth": None},
+    "高松":   {"lat": 34.345936, "lon": 134.061994, "home_azimuth": None},
+    "小松島": {"lat": 34.005667, "lon": 134.594556, "home_azimuth": None},
+    "高知":   {"lat": 33.566694, "lon": 133.526083, "home_azimuth": None},
+    "松山":   {"lat": 33.808889, "lon": 132.742333, "home_azimuth": None},
+
+    # 九州
+    "小倉":   {"lat": 33.885722, "lon": 130.883167, "home_azimuth": None},
+    "久留米": {"lat": 33.316667, "lon": 130.547778, "home_azimuth": None},
+    "武雄":   {"lat": 33.194083, "lon": 130.023083, "home_azimuth": None},
+    "佐世保": {"lat": 33.161667, "lon": 129.712833, "home_azimuth": None},
+    "別府":   {"lat": 33.282806, "lon": 131.460472, "home_azimuth": None},
+    "熊本":   {"lat": 32.789167, "lon": 130.754722, "home_azimuth": None},
+
+    # 手入力
+    "手入力": {"lat": None,      "lon": None,       "home_azimuth": None},
 }
+
 
 # --- 最新の印別実測率（これを更新したいだけ、ここだけ差し替え） ---
 RANK_STATS = {
