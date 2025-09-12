@@ -403,52 +403,59 @@ def format_rank_all(score_map: dict[int,float], P_floor_val: float | None = None
 # ==============================
 # 風の自動取得（Open-Meteo / 時刻固定）
 # ==============================
-def fetch_openmeteo_hour(lat, lon, target_dt_jst: datetime):
-    """target_dt に最も近い1時間の風速・風向（10m）を返す。400等は自動で再試行しメッセージを出す。"""
+def fetch_openmeteo_hour(lat, lon, target_dt_jst):
+    """target_dt に最も近い1時間の 10m風速/風向 を返す。日付固定→混在期間の順でリトライ。"""
     d = target_dt_jst.strftime("%Y-%m-%d")
     base = "https://api.open-meteo.com/v1/forecast"
-    # 正: wind_speed_10m,wind_direction_10m  ← ここ重要（末尾 m）
-    url = (
-        f"{base}?latitude={lat:.5f}&longitude={lon:.5f}"
-        "&hourly=wind_speed_10m,wind_direction_10m"
-        "&timezone=Asia%2FTokyo"
-        f"&start_date={d}&end_date={d}"
-        "&past_days=1"
-    )
-    try:
-        r = requests.get(url, timeout=15)
-        r.raise_for_status()
-    except requests.HTTPError as e:
-        # 方向だけ落ちた場合に備えてスピードのみで再試行
-        url2 = (
-            f"{base}?latitude={lat:.5f}&longitude={lon:.5f}"
-            "&hourly=wind_speed_10m"
-            "&timezone=Asia%2FTokyo"
-            f"&start_date={d}&end_date={d}"
-            "&past_days=1"
-        )
-        r2 = requests.get(url2, timeout=15)
-        r2.raise_for_status()
-        j = r2.json().get("hourly", {})
-        times = [datetime.fromisoformat(t) for t in j.get("time", [])]
-        df = pd.DataFrame({"time": times, "speed_ms": j.get("wind_speed_10m", [])})
-        if df.empty:
-            raise RuntimeError(f"Open-Meteo応答なし。URL={url2}")
-        df["diff_min"] = df["time"].apply(lambda t: abs((t - target_dt_jst).total_seconds())/60)
-        row = df.sort_values("diff_min").iloc[0]
-        # 風向はNone（speed_onlyなら問題なし）
-        return {"time": row["time"], "speed_ms": float(row["speed_ms"]), "deg": None, "diff_min": float(row["diff_min"])}
-    # 正常系
-    j = r.json()["hourly"]
-    times = [datetime.fromisoformat(t) for t in j["time"]]
-    df = pd.DataFrame({
-        "time": times,
-        "speed_ms": j["wind_speed_10m"],
-        "deg": j["wind_direction_10m"],
-    })
-    df["diff_min"] = df["time"].apply(lambda t: abs((t - target_dt_jst).total_seconds())/60)
-    row = df.sort_values("diff_min").iloc[0]
-    return {"time": row["time"], "speed_ms": float(row["speed_ms"]), "deg": float(row["deg"]), "diff_min": float(row["diff_min"])}
+
+    # 1) 日付固定（start_date/end_date）… past_days は付けない！
+    urls = [
+        # 方向あり
+        (f"{base}?latitude={lat:.5f}&longitude={lon:.5f}"
+         "&hourly=wind_speed_10m,wind_direction_10m"
+         "&timezone=Asia%2FTokyo"
+         f"&start_date={d}&end_date={d}", True),
+        # スピードのみ
+        (f"{base}?latitude={lat:.5f}&longitude={lon:.5f}"
+         "&hourly=wind_speed_10m"
+         "&timezone=Asia%2FTokyo"
+         f"&start_date={d}&end_date={d}", False),
+
+        # 2) 混在期間（直近±数日を拾う）… start/end を使わず past/forecast を併用
+        (f"{base}?latitude={lat:.5f}&longitude={lon:.5f}"
+         "&hourly=wind_speed_10m,wind_direction_10m"
+         "&timezone=Asia%2FTokyo&past_days=2&forecast_days=2", True),
+        (f"{base}?latitude={lat:.5f}&longitude={lon:.5f}"
+         "&hourly=wind_speed_10m"
+         "&timezone=Asia%2FTokyo&past_days=2&forecast_days=2", False),
+    ]
+
+    last_err = None
+    for url, with_dir in urls:
+        try:
+            r = requests.get(url, timeout=15)
+            r.raise_for_status()
+            j = r.json().get("hourly", {})
+            times = pd.to_datetime(j.get("time", []))
+            if times.empty:
+                raise RuntimeError("empty hourly times")
+            df = pd.DataFrame({"time": times, "speed_ms": j.get("wind_speed_10m", [])})
+            if with_dir and "wind_direction_10m" in j:
+                df["deg"] = j["wind_direction_10m"]
+            else:
+                df["deg"] = np.nan
+            df["diff_min"] = (df["time"] - target_dt_jst).abs().dt.total_seconds() / 60.0
+            row = df.sort_values("diff_min").iloc[0]
+            return {
+                "time": pd.to_datetime(row["time"]).to_pydatetime(),
+                "speed_ms": float(row["speed_ms"]),
+                "deg": (None if pd.isna(row["deg"]) else float(row["deg"])),
+                "diff_min": float(row["diff_min"]),
+            }
+        except Exception as e:
+            last_err = e
+            continue
+    raise RuntimeError(f"Open-Meteo取得失敗（最後のエラー: {last_err}）")
 
 
 # ==============================
