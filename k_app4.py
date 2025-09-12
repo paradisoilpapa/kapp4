@@ -296,15 +296,10 @@ def tenscore_correction(tenscores):
 WIND_SIGN = -1  # ← 推奨：風は基本“抵抗”として効かせる（+1にすれば加点）
 
 # ===== 風：新ロジック（風速メイン） =====
-def wind_adjust(wind_dir, wind_speed, role, prof_escape):
-    """
-    風速メインの補正（方向は原則無視）
-      - 0–2 m/s: 無視
-      - 2–5 m/s: 緩やか
-      - 5–8 m/s: もう少し効く
-      - 8 m/s+:  上限で頭打ち（全体±0.05にクランプ）
-    役割・脚質で効き方を変える（逃げ>番手>単騎>三番手+）
-    """
+# 風は加点(+1)か減点(-1)かを選ぶ
+WIND_SIGN = -1  # ← 風は抵抗として効かせる
+
+def wind_adjust_velobi(wind_dir, wind_speed, role, prof_escape):
     s = float(max(0.0, wind_speed))
     if s <= 2.0:
         base_mag = 0.0
@@ -317,16 +312,17 @@ def wind_adjust(wind_dir, wind_speed, role, prof_escape):
     base_mag = clamp(base_mag, 0.0, 0.050)
 
     pos_multi  = {'head':1.00,'second':0.75,'thirdplus':0.50,'single':0.65}.get(role, 0.65)
-    prof_multi = (0.40 + 0.60 * float(prof_escape))  # 逃げ脚が強いほど効かせる
+    prof_multi = (0.40 + 0.60 * float(prof_escape))
 
-    # 原則“向き”は無視。以下の条件だけ薄く方向を採用
     dir_term = 0.0
-    if (WIND_MODE == "directional") or (s >= 6.0 and track in SPECIAL_DIRECTIONAL_VELODROMES):
+    # ※ 向きは原則無視でOK（WIND_MODEがdirectionalなら薄く使う）
+    if (globals().get("WIND_MODE", "speed_only") == "directional"):
         wd = WIND_COEFF.get(wind_dir, 0.0)
         dir_term = clamp(s * wd * (0.30 + 0.70 * float(prof_escape)) * 0.5, -0.02, 0.02)
 
     val = (base_mag * pos_multi * prof_multi + dir_term) * float(WIND_SIGN)
     return round(clamp(val, -0.05, 0.05), 3)
+
 
 
 def bank_character_bonus(bank_angle, straight_length, prof_escape, prof_sashi):
@@ -790,8 +786,7 @@ tens_corr = {no:t_corr[i] for i,no in enumerate(active_cars)} if active_cars els
 rows=[]
 for no in active_cars:
     role = role_in_line(no, line_def)
-    wind = wind_adjust(st.session_state.get("wind_dir_input","無風"), st.session_state.get("wind_speed_input",0.0), role, prof_escape[no])
-    extra = max(eff_laps-2, 0)
+    wind = wind_adjust_velobi(wind_dir, wind_speed, role, prof_escape[no])
     fatigue_scale = 1.0 if race_class=="Ｓ級" else (1.1 if race_class=="Ａ級" else (1.2 if race_class=="Ａ級チャレンジ" else 1.05))
     laps_adj = (-0.10*extra*(1.0 if prof_escape[no]>0.5 else 0.0) + 0.05*extra*(1.0 if prof_oikomi[no]>0.4 else 0.0)) * fatigue_scale
     bank_b = bank_character_bonus(bank_angle, straight_length, prof_escape[no], prof_sashi[no])
@@ -799,8 +794,14 @@ for no in active_cars:
     indiv = extra_bonus.get(no, 0.0)
 
     total_raw = (prof_base[no] + wind + cf["spread"]*tens_corr.get(no,0.0) + bank_b + length_b + laps_adj + indiv)
-    rows.append([no, role, round(prof_base[no],3), wind, round(cf["spread"]*tens_corr.get(no,0.0),3),
-                 round(bank_b,3), round(length_b,3), round(laps_adj,3), round(indiv,3), total_raw])
+   rows.append([
+    no, role,
+    round(prof_base[no],3),
+    round(wind, 3),  # ← ここを明示的に丸め
+    round(cf["spread"]*tens_corr.get(no,0.0),3),
+    round(bank_b,3), round(length_b,3), round(laps_adj,3), round(indiv,3),
+    total_raw
+])
 
 df = pd.DataFrame(rows, columns=["車番","役割","脚質基準(会場)","風補正","得点補正","バンク補正","周長補正","周回補正","個人補正","合計_SBなし_raw"])
 mu = float(df["合計_SBなし_raw"].mean()) if not df.empty else 0.0
