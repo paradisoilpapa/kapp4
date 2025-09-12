@@ -783,29 +783,67 @@ tens_list = [ratings_val[no] for no in active_cars]
 t_corr = tenscore_correction(tens_list) if active_cars else []
 tens_corr = {no:t_corr[i] for i,no in enumerate(active_cars)} if active_cars else {}
 
-rows=[]
+rows = []
+
+# もし関数名を wind_adjust_velobi に変えたなら、ここで拾う
+_wind_func = wind_adjust_velobi if "wind_adjust_velobi" in globals() else wind_adjust
+
 for no in active_cars:
     role = role_in_line(no, line_def)
-    wind = wind_adjust_velobi(wind_dir, wind_speed, role, prof_escape[no])
-    fatigue_scale = 1.0 if race_class=="Ｓ級" else (1.1 if race_class=="Ａ級" else (1.2 if race_class=="Ａ級チャレンジ" else 1.05))
-    laps_adj = (-0.10*extra*(1.0 if prof_escape[no]>0.5 else 0.0) + 0.05*extra*(1.0 if prof_oikomi[no]>0.4 else 0.0)) * fatigue_scale
+
+    # 実効値（ドーム無視で進めるなら eff_* を wind_dir / wind_speed に置換してOK）
+    wind = _wind_func(eff_wind_dir, float(eff_wind_speed), role, float(prof_escape[no]))
+
+    extra = max(eff_laps - 2, 0)
+    fatigue_scale = (
+        1.0 if race_class == "Ｓ級"
+        else 1.1 if race_class == "Ａ級"
+        else 1.2 if race_class == "Ａ級チャレンジ"
+        else 1.05
+    )
+    laps_adj = (
+        -0.10 * extra * (1.0 if prof_escape[no] > 0.5 else 0.0)
+        + 0.05 * extra * (1.0 if prof_oikomi[no] > 0.4 else 0.0)
+    ) * fatigue_scale
     bank_b = bank_character_bonus(bank_angle, straight_length, prof_escape[no], prof_sashi[no])
     length_b = bank_length_adjust(bank_length, prof_oikomi[no])
     indiv = extra_bonus.get(no, 0.0)
 
-    total_raw = (prof_base[no] + wind + cf["spread"]*tens_corr.get(no,0.0) + bank_b + length_b + laps_adj + indiv)
-   rows.append([
-    no, role,
-    round(prof_base[no],3),
-    round(wind, 3),  # ← ここを明示的に丸め
-    round(cf["spread"]*tens_corr.get(no,0.0),3),
-    round(bank_b,3), round(length_b,3), round(laps_adj,3), round(indiv,3),
-    total_raw
-])
+    total_raw = (
+        prof_base[no]
+        + wind
+        + cf["spread"] * tens_corr.get(no, 0.0)
+        + bank_b
+        + length_b
+        + laps_adj
+        + indiv
+    )
 
-df = pd.DataFrame(rows, columns=["車番","役割","脚質基準(会場)","風補正","得点補正","バンク補正","周長補正","周回補正","個人補正","合計_SBなし_raw"])
+    rows.append(
+        [
+            int(no),
+            role,
+            round(prof_base[no], 3),
+            round(wind, 3),                                     # ← ここで丸め
+            round(cf["spread"] * tens_corr.get(no, 0.0), 3),
+            round(bank_b, 3),
+            round(length_b, 3),
+            round(laps_adj, 3),
+            round(indiv, 3),
+            total_raw,
+        ]
+    )
+
+df = pd.DataFrame(
+    rows,
+    columns=[
+        "車番", "役割", "脚質基準(会場)", "風補正", "得点補正",
+        "バンク補正", "周長補正", "周回補正", "個人補正", "合計_SBなし_raw",
+    ],
+)
 mu = float(df["合計_SBなし_raw"].mean()) if not df.empty else 0.0
-df["合計_SBなし"] = mu + 1.0*(df["合計_SBなし_raw"] - mu)
+df["合計_SBなし"] = mu + 1.0 * (df["合計_SBなし_raw"] - mu)
+
 
 # ===== KO方式：最終並びの反映 =====
 v_wo = {int(k): float(v) for k, v in zip(df["車番"].astype(int), df["合計_SBなし"].astype(float))}
