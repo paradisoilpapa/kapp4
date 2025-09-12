@@ -788,14 +788,18 @@ tens_corr = {no:t_corr[i] for i,no in enumerate(active_cars)} if active_cars els
 
 rows = []
 
-# もし関数名を wind_adjust_velobi に変えたなら、ここで拾う
+# 風関数の実体（velobi優先、無ければ旧wind_adjust）
 _wind_func = wind_adjust_velobi if "wind_adjust_velobi" in globals() else wind_adjust
+
+# 実効風（自動取得が無い環境でも安全に動く）
+eff_wind_dir   = globals().get("eff_wind_dir",   wind_dir)
+eff_wind_speed = globals().get("eff_wind_speed", wind_speed)
 
 for no in active_cars:
     role = role_in_line(no, line_def)
 
-    # 実効値（ドーム無視で進めるなら eff_* を wind_dir / wind_speed に置換してOK）
-    wind = _wind_func(eff_wind_dir, float(eff_wind_speed), role, float(prof_escape[no]))
+    # 風補正（向きは使わず、風速メインの関数を呼ぶ想定）
+    wind = _wind_func(eff_wind_dir, float(eff_wind_speed or 0.0), role, float(prof_escape[no]))
 
     extra = max(eff_laps - 2, 0)
     fatigue_scale = (
@@ -846,7 +850,6 @@ df = pd.DataFrame(
 )
 mu = float(df["合計_SBなし_raw"].mean()) if not df.empty else 0.0
 df["合計_SBなし"] = mu + 1.0 * (df["合計_SBなし_raw"] - mu)
-
 
 # ===== KO方式：最終並びの反映 =====
 v_wo = {int(k): float(v) for k, v in zip(df["車番"].astype(int), df["合計_SBなし"].astype(float))}
@@ -1330,7 +1333,7 @@ if one is not None and three is not None:
         name = f"{one}-{three}-{k}"
         prob = (RANK_STATS.get("◎", FALLBACK_DIST)["pTop3"]) * \
                (RANK_STATS.get("▲", FALLBACK_DIST)["pTop3"]) * \
-               (RANK_STATS.get("△", FALLBACK_DIST)["pTop3"])  # ざっくり
+               (RANK_STATS.get("△", FALLBACK_DIST)["pTop3"])
         need = 1.0 / max(prob, 1e-12)
         star = (prob >= P_FLOOR["sanpuku"])
         main_rows.append(f"{name}：{(need*(1.0+E_MIN)):.1f}〜{(need*(1.0+E_MAX)):.1f}倍" + (" ☆" if star else ""))
@@ -1401,4 +1404,3 @@ note_text = (
 )
 
 st.text_area("ここを選択してコピー", note_text, height=420)
-
