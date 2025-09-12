@@ -458,6 +458,7 @@ def fetch_openmeteo_hour(lat, lon, target_dt_jst):
     raise RuntimeError(f"Open-Meteo取得失敗（最後のエラー: {last_err}）")
 
 
+
 # ==============================
 # サイドバー：開催情報 / バンク・風・頭数
 # ==============================
