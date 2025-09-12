@@ -22,10 +22,14 @@ WIND_COEFF = {
     "無風": 0.0
 }
 
-# 風補正モード: "speed_only"（推奨） / "directional"（向きも薄く考慮）
-WIND_MODE = "speed_only"
-# 強風でだけ向きをうっすら使う会場（不要なら空集合でOK）
-SPECIAL_DIRECTIONAL_VELODROMES = {"弥彦", "前橋"}
+# === 風の強さ調整（大きめに効かせる版） ===
+WIND_MODE = "speed_only"               # 向きは基本無視（必要なら "directional"）
+WIND_SIGN = -1                         # 風は減点方向（+1にすると加点扱い）
+WIND_GAIN = 3.0                        # 1.0=従来相当。強めたいので 3.0（2.0〜4.0で好み調整）
+WIND_CAP  = 0.10                       # 風補正の上限（絶対値）。0.08〜0.12 推奨
+WIND_ZERO = 1.5                        # ここまでの風速は無視（m/s）
+SPECIAL_DIRECTIONAL_VELODROMES = {"弥彦", "前橋"}  # 強風時だけ向きも薄く使う会場
+
 
 # 開催区分→基準時刻（JST）
 SESSION_HOUR = {"モーニング": 8, "デイ": 11, "ナイター": 18, "ミッドナイト": 22}
@@ -299,32 +303,41 @@ WIND_SIGN = -1  # ← 推奨：風は基本“抵抗”として効かせる（+
 # 風は加点(+1)か減点(-1)かを選ぶ（通常は抵抗=減点）
 WIND_SIGN = -1
 
-def wind_adjust_velobi(wind_dir, wind_speed, role, prof_escape):
+def wind_adjust(wind_dir, wind_speed, role, prof_escape):
     """
-    風向ラベルは完全に無視。風速だけで補正する最小版。
-    0–2 m/s: 0
-    2–5 m/s: 緩やか
-    5–8 m/s: もう少し効く
-    8 m/s+:  頭打ち（全体±0.05にクランプ）
-    役割: head > second > single > thirdplus
-    脚質: 逃げが強いほど強め
+    “見える”サイズで効く風補正（速度メイン）
+      - ≤1.5 m/s: 無視
+      - 1.5–5 m/s: 緩やかに上昇（最大 ~0.021）
+      - 5–8  m/s:  さらに強く（最大 ~0.045）
+      - 8+   m/s:  急峻（最大 ~0.085）→ 最後に GAIN を掛けて CAP で頭打ち
+    位置: head>second>single>thirdplus
+    脚質: 逃げが強いほど効く
     """
-    s = float(wind_speed or 0.0)
-    if s <= 2.0:
-        base_mag = 0.0
+    s = max(0.0, float(wind_speed))
+    # ベース量（向きは無視）
+    if s <= WIND_ZERO:
+        base = 0.0
     elif s <= 5.0:
-        base_mag = 0.005 * (s - 2.0)                 # 0.000～0.015
+        base = 0.006 * (s - WIND_ZERO)                 # ~0.000〜0.021
     elif s <= 8.0:
-        base_mag = 0.015 + 0.004 * (s - 5.0)         # 0.015～0.027
+        base = 0.021 + 0.008 * (s - 5.0)               # ~0.021〜0.045
     else:
-        base_mag = 0.027 + 0.004 * min(s - 8.0, 5.0) # 8超～最大0.047
-    base_mag = clamp(base_mag, 0.0, 0.050)
+        base = 0.045 + 0.010 * min(s - 8.0, 4.0)       # ~0.045〜0.085（12m/sで打ち止め）
 
-    pos_multi  = {'head':1.00,'second':0.75,'single':0.65,'thirdplus':0.50}.get(role, 0.65)
-    prof_multi = 0.40 + 0.60 * float(prof_escape)
+    pos = {'head':1.00,'second':0.85,'single':0.75,'thirdplus':0.65}.get(role, 0.75)
+    prof = 0.35 + 0.65*float(prof_escape)              # 逃げ0.0→0.35 / 逃げ1.0→1.00
 
-    val = base_mag * pos_multi * prof_multi * float(WIND_SIGN)
-    return round(clamp(val, -0.05, 0.05), 3)
+    val = base * pos * prof
+
+    # 例外的に“向き”を薄く（強風＆対象会場 or 明示的にdirectional）
+    if (WIND_MODE == "directional") or (s >= 7.0 and st.session_state.get("track", "") in SPECIAL_DIRECTIONAL_VELODROMES):
+        wd = WIND_COEFF.get(wind_dir, 0.0)             # 既存の向き係数を薄掛け
+        dir_term = clamp(s * wd * (0.30 + 0.70*float(prof_escape)) * 0.6, -0.03, 0.03)
+        val += dir_term
+
+    # 減点方向に符号を付け、GAINで増幅、CAPで安全に頭打ち
+    val = (val * float(WIND_SIGN)) * float(WIND_GAIN)
+    return round(clamp(val, -float(WIND_CAP), float(WIND_CAP)), 3)
 
 
 
