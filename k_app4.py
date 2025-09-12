@@ -928,6 +928,7 @@ def anchor_score(no:int) -> float:
     finish_term = max(-FINISH_CLIP, min(FINISH_CLIP, raw_finish))
     return base + sb + pos_term + finish_term + SMALL_Z_RATING * zt_map.get(no, 0.0)
 
+# ===== ◎候補抽出（SBなし 上位のみを母集団にする） =====
 cand_sorted = sorted(active_cars, key=lambda n: anchor_score(n), reverse=True)
 C = cand_sorted[:min(3, len(cand_sorted))]
 
@@ -935,8 +936,9 @@ ratings_sorted2 = sorted(active_cars, key=lambda n: ratings_val[n], reverse=True
 ratings_rank2 = {no: i+1 for i, no in enumerate(ratings_sorted2)}
 ALLOWED_MAX_RANK = globals().get("ALLOWED_MAX_RANK", 5)
 
+# ガールズの得点1位を守る既存の安全弁
 guarantee_top_rating = True
-if guarantee_top_rating and _is_girls and len(ratings_sorted2) >= 1:
+if guarantee_top_rating and (race_class == "ガールズ") and len(ratings_sorted2) >= 1:
     top_rating_car = ratings_sorted2[0]
     if top_rating_car not in C:
         C = [top_rating_car] + [c for c in C if c != top_rating_car]
@@ -945,22 +947,41 @@ if guarantee_top_rating and _is_girls and len(ratings_sorted2) >= 1:
 C_hard = [no for no in C if ratings_rank2.get(no, 999) <= ALLOWED_MAX_RANK]
 C_use = C_hard if C_hard else ratings_sorted2[:ALLOWED_MAX_RANK]
 
-anchor_no_pre = max(C, key=lambda x: anchor_score(x)) if C else int(df_sorted_pure.loc[0, "車番"])
-anchor_no = max(C_use, key=lambda x: anchor_score(x)) if C_use else anchor_no_pre
+# --- 追加: SBなしランキングの上位だけを候補に制限 ---
+ANCHOR_CAND_SB_TOPK   = globals().get("ANCHOR_CAND_SB_TOPK", 5)  # 候補はSB上位5以内まで
+ANCHOR_REQUIRE_TOP_SB = globals().get("ANCHOR_REQUIRE_TOP_SB", 3) # 最終◎はSB上位3以内に限定
 
-try:
-    top_candidates = sorted(C_use, key=lambda x: anchor_score(x), reverse=True)[:2]
-    if len(top_candidates) >= 2:
-        s1 = anchor_score(top_candidates[0])
-        s2 = anchor_score(top_candidates[1])
-        if (s1 - s2) < TIE_EPSILON:
-            better_by_rating = min(top_candidates, key=lambda x: ratings_rank2.get(x, 999))
-            anchor_no = better_by_rating
-except Exception:
-    pass
+rank_pure = {int(df_sorted_pure.loc[i, "車番"]): i+1 for i in range(len(df_sorted_pure))}
+cand_pool = [c for c in C_use if rank_pure.get(c, 999) <= ANCHOR_CAND_SB_TOPK]
+if not cand_pool:
+    # 交差が空なら、純粋にSB上位Kだけで再選
+    cand_pool = [int(df_sorted_pure.loc[i, "車番"])
+                 for i in range(min(ANCHOR_CAND_SB_TOPK, len(df_sorted_pure)))]
 
-if anchor_no != anchor_no_pre:
-    st.caption(f"※ ◎は『競走得点 上位{ALLOWED_MAX_RANK}位以内』縛りにより {anchor_no_pre}→{anchor_no} に調整。")
+# 候補からanchor_score最大を暫定◎に
+anchor_no_pre = max(cand_pool, key=lambda x: anchor_score(x)) if cand_pool else int(df_sorted_pure.loc[0, "車番"])
+anchor_no = anchor_no_pre
+
+# 僅差なら得点順位でタイブレーク
+top2 = sorted(cand_pool, key=lambda x: anchor_score(x), reverse=True)[:2]
+if len(top2) >= 2:
+    s1 = anchor_score(top2[0]); s2 = anchor_score(top2[1])
+    TIE_EPSILON = globals().get("TIE_EPSILON", 0.8)
+    if (s1 - s2) < TIE_EPSILON:
+        better_by_rating = min(top2, key=lambda x: ratings_rank2.get(x, 999))
+        anchor_no = better_by_rating
+
+# --- 最終ガード: ◎はSBなし 上位N以内に限定 ---
+if rank_pure.get(anchor_no, 999) > ANCHOR_REQUIRE_TOP_SB:
+    # まず候補の中からSB上位N以内だけで再選
+    pool = [c for c in cand_pool if rank_pure.get(c, 999) <= ANCHOR_REQUIRE_TOP_SB]
+    if pool:
+        anchor_no = max(pool, key=lambda x: anchor_score(x))
+    else:
+        # それでも無ければSB純トップを採用
+        anchor_no = int(df_sorted_pure.loc[0, "車番"])
+    st.caption(f"※ ◎は『SBなし 上位{ANCHOR_REQUIRE_TOP_SB}位以内』縛りで {anchor_no_pre}→{anchor_no} に調整。")
+
 
 role_map = {no: role_in_line(no, line_def) for no in active_cars}
 cand_scores = [anchor_score(no) for no in C] if len(C) >= 2 else [0, 0]
