@@ -1069,16 +1069,11 @@ if beta_id is not None:
     result_marks["β"] = beta_id
     reasons[beta_id] = "β（来ない枠：低3着率×位置×得点×SB空回り）"
 
+# β同居ラインでも◎は動かさない（回避しない）
 beta_gid = car_to_group.get(beta_id, None) if beta_id is not None else None
 old_anchor = None
-if beta_gid is not None and car_to_group.get(anchor_no, None) == beta_gid:
-    pool = [int(df_sorted_wo.loc[i, "車番"]) for i in range(len(df_sorted_wo))]
-    pool = [c for c in pool if car_to_group.get(c, None) != beta_gid]
-    if pool:
-        old_anchor = anchor_no
-        anchor_no = max(pool, key=lambda x: anchor_score(x))
-        result_marks["◎"] = anchor_no
-        reasons[anchor_no] = f"本命（β同居ライン回避→{old_anchor}からシフト）"
+# （意図的に何もしない）
+
 
 score_map = {
     int(df_sorted_wo.loc[i, "車番"]): float(df_sorted_wo.loc[i, "合計_SBなし"])
