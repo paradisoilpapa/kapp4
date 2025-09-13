@@ -897,6 +897,67 @@ except Exception:
                 except Exception:
                     pass
 
+# ---[GUARDS before 900] 必要変数の存在を保証 ---
+# result_marks / reasons
+if 'result_marks' not in locals() or not isinstance(result_marks, dict):
+    result_marks = {}
+if 'reasons' not in locals() or not isinstance(reasons, dict):
+    reasons = {}
+
+# line_def / car_to_group
+if 'line_def' not in locals() or not isinstance(line_def, dict):
+    line_def = {}
+if 'car_to_group' not in locals() or not isinstance(car_to_group, dict):
+    car_to_group = {}
+
+# USED_IDS
+try:
+    USED_IDS
+except NameError:
+    try:
+        USED_IDS = sorted(int(i) for i in active_cars)
+    except Exception:
+        try:
+            USED_IDS = sorted(int(df_sorted_wo.loc[i, "車番"]) for i in range(len(df_sorted_wo)))
+        except Exception:
+            USED_IDS = list(range(1, int(n_cars)+1))
+
+# beta_id / β温存
+if 'beta_id' not in locals() or beta_id is None:
+    try:
+        beta_id = select_beta([int(i) for i in USED_IDS])
+    except Exception:
+        beta_id = None
+if ("β" not in result_marks) and (beta_id is not None):
+    try:
+        result_marks["β"] = int(beta_id)
+        reasons[beta_id] = reasons.get(beta_id, "β（来ない枠：選別ロジック）")
+    except Exception:
+        pass
+
+# sb_base（同値ブレイク用）
+if 'sb_base' not in locals() or not isinstance(sb_base, dict) or not sb_base:
+    sb_base = {}
+    try:
+        sb_base = {USED_IDS[idx]: float(xs_base[idx]) for idx in range(len(USED_IDS))}
+    except Exception:
+        try:
+            if ('df_sorted_wo' in globals() and df_sorted_wo is not None and "車番" in df_sorted_wo.columns):
+                col = "合計_SBなし" if "合計_SBなし" in df_sorted_wo.columns else ("SBなし" if "SBなし" in df_sorted_wo.columns else None)
+                if col is not None:
+                    for _, r in df_sorted_wo.iterrows():
+                        try:
+                            sb_base[int(r["車番"])] = float(r[col])
+                        except Exception:
+                            pass
+        except Exception:
+            pass
+
+# race_t
+if 'race_t' not in locals() or not isinstance(race_t, dict) or not race_t:
+    race_t = {int(i): 50.0 for i in USED_IDS}
+
+# ===[900から貼付]========================================================
 def _race_t_val(i: int) -> float:
     try:
         return float(race_t.get(i, 50.0))
@@ -943,7 +1004,7 @@ if "α" not in result_marks:
     try:
         pool = [int(df_sorted_wo.loc[i, "車番"]) for i in range(len(df_sorted_wo))]
     except Exception:
-        pool = [i for i in USED_IDS]
+        pool = [int(i) for i in USED_IDS]
     pool = [c for c in pool if c not in used_now and c != beta_id]
     if pool:
         alpha_pick = pool[-1]
