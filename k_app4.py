@@ -1108,21 +1108,55 @@ st.dataframe(hen_df, use_container_width=True)
 # ==============================
 # ★ レース内基準（SBなし）→ PLモデル用の強さ（購入計算で使用）
 # ==============================
-# 車番集合を統一（active_cars があれば採用、なければ 1..n_cars）
+
+# 1) 車番集合を固定（active_cars が空なら 1..n_cars）
 USED_IDS = sorted(int(i) for i in (active_cars if active_cars else range(1, n_cars+1)))
 M = len(USED_IDS)
 
-# SBなしスコア（風・ライン補正後）
-score_map_sb_wo = coerce_score_map(velobi_wo, n_cars)
-xs_raw = np.array([score_map_sb_wo.get(i, np.nan) for i in USED_IDS], dtype=float)
+# 2) SBなしスコアの確定（分散ゼロ回避の決定的フォールバック）
+def _extract_from_df_sorted_wo(ids: list[int]) -> np.ndarray:
+    if 'df_sorted_wo' not in globals() or df_sorted_wo is None:
+        return np.array([np.nan]*len(ids), dtype=float)
+    col = "合計_SBなし" if "合計_SBなし" in df_sorted_wo.columns else ("SBなし" if "SBなし" in df_sorted_wo.columns else None)
+    if col is None:
+        return np.array([np.nan]*len(ids), dtype=float)
+    mp = {}
+    for _, r in df_sorted_wo.iterrows():
+        try:
+            i = int(r["車番"]); x = float(r[col])
+            mp[i] = x
+        except Exception:
+            continue
+    return np.array([mp.get(i, np.nan) for i in ids], dtype=float)
 
-# レース内T（購入計算用）
+def _choose_base_scores(ids: list[int]) -> tuple[np.ndarray, str]:
+    cand: list[tuple[str, np.ndarray]] = []
+    # 候補1: velobi_wo
+    if 'velobi_wo' in globals() and velobi_wo is not None:
+        m = coerce_score_map(velobi_wo, n_cars)
+        cand.append(("velobi_wo", np.array([m.get(i, np.nan) for i in ids], dtype=float)))
+    # 候補2: df_sorted_wo 由来
+    cand.append(("df_sorted_wo", _extract_from_df_sorted_wo(ids)))
+    # 候補3: 環境＋ラインの素点（SBなし代替）
+    cand.append(("prof_env_raw", np.array([float(prof_env_raw.get(i, np.nan)) for i in ids], dtype=float)))
+    # 候補4: ランクダミー（最終手段）
+    cand.append(("rank_fallback", np.arange(len(ids), 0, -1, dtype=float)))
+
+    for name, x in cand:
+        finite = x[np.isfinite(x)]
+        if finite.size >= 2 and (np.nanmax(x) - np.nanmin(x)) > 1e-12:
+            return x, name
+    return cand[-1][1], "rank_fallback"
+
+xs_raw, _base_src = _choose_base_scores(USED_IDS)
+
+# 3) NaN補完 → Tスコア（平均50, SD10）
 xs = fill_nans_with_median(xs_raw.copy())
 xs_race_t = t_score_nan_safe(xs)
 race_t = {USED_IDS[idx]: round(float(xs_race_t[idx]), 1) for idx in range(M)}
 race_z = (xs_race_t - 50.0) / 10.0
 
-# PL用の重み（USED_IDS基準）
+# 4) PL用の重み（USED_IDS基準）
 tau = 1.0
 w   = np.exp(race_z * tau)
 S_w = float(np.sum(w))
@@ -1145,7 +1179,7 @@ def prob_top3_triple_pl(i: int, j: int, k: int) -> float:
 def prob_wide_pair_pl(i: int, j: int) -> float:
     total = 0.0
     for k in USED_IDS:
-        if k == i or k == j: 
+        if k == i or k == j:
             continue
         total += prob_top3_triple_pl(i, j, k)
     return total
