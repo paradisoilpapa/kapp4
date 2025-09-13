@@ -962,21 +962,116 @@ HEN_DEC_PLACES = 1
 EPS = 1e-12  # 数値安定
 
 # === NaN/欠損に強いスコア整形 & Tスコア（NaN安全） =========================
-def coerce_score_map(d: dict, n_cars: int) -> dict[int, float]:
-    """velobi_wo を車番int: float(有限 or NaN) に正規化し、1..n_carsも埋める"""
-    out = {}
-    d = d or {}
-    for k, v in d.items():
+def coerce_score_map(d, n_cars: int) -> dict[int, float]:
+    """
+    velobi_wo を {車番:int -> スコア:float} に正規化し、1..n_cars を埋める。
+    対応:
+      - dict / Mapping
+      - list / tuple / numpy.ndarray
+        * 長さ==n_cars かつ要素がスカラー → 位置+1を車番に割当て
+        * それ以外は (car, score) 形式のペアを探索
+      - pandas.Series （indexを車番相当として解釈）
+      - pandas.DataFrame（'車番' と スコア列候補を自動推定）
+      - None → 空として扱う
+    すべて数値化失敗は NaN にする。
+    """
+    out: dict[int, float] = {}
+    # 1) None
+    if d is None:
+        pass
+
+    # 2) dict / Mapping
+    elif hasattr(d, "items"):
+        for k, v in d.items():
+            try:
+                i = int(k)
+            except Exception:
+                continue
+            try:
+                x = float(v)
+            except Exception:
+                x = np.nan
+            out[i] = x
+
+    # 3) pandas.Series
+    elif "pandas.core.series" in str(type(d)).lower():
         try:
-            i = int(k)
+            tmp = d.to_dict()
+            for k, v in tmp.items():
+                try:
+                    i = int(k)
+                except Exception:
+                    continue
+                try:
+                    x = float(v)
+                except Exception:
+                    x = np.nan
+                out[i] = x
         except Exception:
-            continue
+            pass
+
+    # 4) pandas.DataFrame
+    elif "pandas.core.frame" in str(type(d)).lower():
         try:
-            x = float(v)
+            df_ = d.copy()
+            # 車番列の推定
+            car_col = "車番" if "車番" in df_.columns else None
+            if car_col is None:
+                for c in df_.columns:
+                    if np.issubdtype(df_[c].dtype, np.integer):
+                        car_col = c
+                        break
+            # スコア列の推定
+            score_col = None
+            for cand in ["SBなし", "合計_SBなし", "スコア", "score", "SB_wo", "SB"]:
+                if cand in df_.columns:
+                    score_col = cand
+                    break
+            if score_col is None:
+                for c in df_.columns:
+                    if c == car_col:
+                        continue
+                    if np.issubdtype(df_[c].dtype, np.floating) or np.issubdtype(df_[c].dtype, np.number):
+                        score_col = c
+                        break
+            if car_col is not None and score_col is not None:
+                for _, r in df_.iterrows():
+                    try:
+                        i = int(r[car_col])
+                    except Exception:
+                        continue
+                    try:
+                        x = float(r[score_col])
+                    except Exception:
+                        x = np.nan
+                    out[i] = x
         except Exception:
-            x = np.nan
-        out[i] = x
-    for i in range(1, n_cars + 1):
+            pass
+
+    # 5) list / tuple / ndarray
+    elif isinstance(d, (list, tuple, np.ndarray)):
+        arr = list(d)
+        # 長さ==n_cars かつ各要素がスカラー → 位置+1を車番に
+        if len(arr) == n_cars and all(not isinstance(x, (list, tuple, dict)) for x in arr):
+            for idx, v in enumerate(arr, start=1):
+                try:
+                    out[idx] = float(v)
+                except Exception:
+                    out[idx] = np.nan
+        else:
+            # (car, score) 形式を探索
+            for it in arr:
+                try:
+                    if isinstance(it, (list, tuple)) and len(it) >= 2:
+                        i = int(it[0]); x = float(it[1])
+                        out[i] = x
+                except Exception:
+                    continue
+
+    # 6) それ以外 → 何もしない（空のまま）
+
+    # 1..n_cars を埋める
+    for i in range(1, int(n_cars) + 1):
         out.setdefault(i, np.nan)
     return out
 
@@ -1080,7 +1175,7 @@ st.dataframe(hen_df, use_container_width=True)
 # ★ レース内基準（SBなし）→ PLモデル用の強さ（購入計算で使用）
 # ==============================
 # SBなしスコア（風・ライン補正後）から、レース内T（平均50, SD10）を作る（NaN安全）
-score_map_sb_wo = coerce_score_map(velobi_wo, n_cars)       # 正規化
+score_map_sb_wo = coerce_score_map(velobi_wo, n_cars)       # 正規化（dict以外もOK）
 xs = np.array([score_map_sb_wo[i] for i in range(1, n_cars + 1)], dtype=float)
 xs = fill_nans_with_median(xs)                               # NaNを中央値で埋める
 xs_race_t = t_score_nan_safe(xs)                             # 平均50, SD10 or 全員50
@@ -1254,4 +1349,3 @@ note_text = (
 )
 
 st.text_area("ここを選択してコピー", note_text, height=520)
-
