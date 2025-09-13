@@ -986,16 +986,34 @@ if 'sb_base' not in locals() or not isinstance(sb_base, dict) or not sb_base:
         except Exception:
             pass
 
-# race_t
-if 'race_t' not in locals() or not isinstance(race_t, dict) or not race_t:
-    race_t = {int(i): 50.0 for i in USED_IDS}
+# --- replace: ここから（旧 `# race_t` ガードを削除して差し替え） ---
+# race_t（キーをint化・値をfloat化）。空or変換不可なら全員50（この場合はσ=0扱い）
+_rt = {}
+try:
+    it = race_t.items() if isinstance(race_t, dict) else []
+    for k, v in it:
+        try:
+            _rt[int(k)] = float(v)
+        except Exception:
+            continue
+except Exception:
+    pass
+if not _rt:
+    _rt = {int(i): 50.0 for i in USED_IDS}
+race_t = _rt
 
-# ===[900から貼付]========================================================
 def _race_t_val(i: int) -> float:
     try:
-        return float(race_t.get(i, 50.0))
+        return float(race_t.get(int(i), 50.0))
     except Exception:
         return 50.0
+# --- replace: ここまで（以下はそのまま維持） ---
+
+# ◎〇▲を T↓ → SBなし↓ → 車番↑ で決定（βは除外）
+seed_pool = [i for i in USED_IDS if i != result_marks.get("β")]
+order_by_T = sorted(seed_pool, key=lambda i: (-_race_t_val(i), -sb_base.get(i, float("-inf")), i))
+for mk, car in zip(["◎","〇","▲"], order_by_T):
+    result_marks[mk] = car
 
 # ◎〇▲を T↓ → SBなし↓ → 車番↑ で決定（βは除外）
 seed_pool = [i for i in USED_IDS if i != result_marks.get("β")]
