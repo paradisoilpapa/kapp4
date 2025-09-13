@@ -903,6 +903,11 @@ S_WIDE_MIN = 110.0
 # 目標回収率（ROI）
 TARGET_ROI = {"trio":1.20, "qn":1.10, "wide":1.05}
 
+# 最低限オッズのフロア
+ODDS_FLOOR_QN   = 8.0   # 二車複
+ODDS_FLOOR_WIDE = 4.0   # ワイド
+
+
 # 表示用小数
 HEN_DEC_PLACES = 1
 EPS = 1e-12
@@ -1179,6 +1184,12 @@ def _min_required_from_trios(rows, p_func, roi: float) -> float|None:
 min_odds_qn   = _min_required_from_pairs(pairs_qn,  prob_top2_pair_pl,   TARGET_ROI["qn"])
 min_odds_wide = _min_required_from_pairs(pairs_w,   prob_wide_pair_pl,   TARGET_ROI["wide"])
 min_odds_trio = _min_required_from_trios(trios_all, prob_top3_triple_pl, TARGET_ROI["trio"])
+
+# フロア適用（表示下限を強制）
+if min_odds_qn   is not None: min_odds_qn   = max(min_odds_qn,   ODDS_FLOOR_QN)
+if min_odds_wide is not None: min_odds_wide = max(min_odds_wide, ODDS_FLOOR_WIDE)
+# 三連複に下限を付けたいなら同様にどうぞ
+
 
 def _df_trio(rows):
     return pd.DataFrame([{"買い目":"-".join(map(str,sorted([a,b,c]))), "偏差値S":round(s,1)} for (a,b,c,s) in rows])
