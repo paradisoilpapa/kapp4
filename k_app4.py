@@ -1220,7 +1220,7 @@ if pairs_w:
 else:
     st.markdown("#### ワイド（該当なし）")
 
-# 9) note用出力
+# 9) note用出力（ヘッダー順変更：{track}{race_no}R → 展開評価 → 推奨）
 def _fmt_hen_lines(ts_map: dict, ids: list[int]) -> str:
     out = []
     for n in ids:
@@ -1232,10 +1232,16 @@ line_text  = "　".join([x for x in globals().get("line_inputs", []) if str(x).s
 marks_line = " ".join(f"{m}{result_marks[m]}" for m in ["◎","〇","▲","△","×","α","β"] if m in result_marks)
 score_order_text = _format_rank_from_array(USED_IDS, xs_base_raw)
 
+# 先頭3行の並びを希望どおりに
+header_lines = [
+    f"{track}{race_no}R",
+    f"展開評価：{confidence}",
+    f"{'推奨 3連複' if len(trios_all)>=1 else ('推奨 2車複・ワイド' if (len(pairs_qn)+len(pairs_w))>=1 else '推奨 ケン')}",
+]
+header_text = "\n".join(header_lines)
+
 note_text = (
-    f"{'推奨 3連複' if len(trios_all)>=1 else ('推奨 2車複・ワイド' if (len(pairs_qn)+len(pairs_w))>=1 else '推奨 ケン')}\n"
-    f"競輪場　{track}{race_no}R\n"
-    f"展開評価：{confidence}\n\n"
+    header_text + "\n\n"  # ← ここで1行空ける
     f"{race_time}　{race_class}\n"
     f"ライン　{line_text}\n"
     f"スコア順（SBなし）　{score_order_text}\n"
@@ -1243,12 +1249,13 @@ note_text = (
     "偏差値（風・ライン込み）\n"
     "— レース内基準（平均50・SD10） —\n"
     f"{_fmt_hen_lines(race_t, USED_IDS)}\n\n"
-    + (("三連複（基準162以上／最低限オッズ " + (f"{min_odds_trio:.1f}" if min_odds_trio is not None else "—") + "倍以上）\n" +
+    + (("三連複（基準" + str(int(S_TRIO_MIN)) + "以上／最低限オッズ " + (f"{min_odds_trio:.1f}" if min_odds_trio is not None else "—") + "倍以上）\n" +
         ("\n".join([f"{row['買い目']}（S={row['偏差値S']:.1f}）" for _, row in _df_trio(trios_all).iterrows()]) if trios_all else "対象外") + "\n\n"))
-    + (("二車複（基準122以上／最低限オッズ " + (f"{min_odds_qn:.1f}" if min_odds_qn is not None else "—") + "倍以上）\n" +
+    + (("二車複（基準" + str(int(S_QN_MIN)) + "以上／最低限オッズ " + (f"{min_odds_qn:.1f}" if min_odds_qn is not None else "—") + "倍以上）\n" +
         ("\n".join([f"{row['買い目']}（S={row['偏差値S']:.1f}）" for _, row in _df_pair(pairs_qn).iterrows()]) if pairs_qn else "対象外") + "\n\n"))
-    + (("ワイド（基準116以上／最低限オッズ " + (f"{min_odds_wide:.1f}" if min_odds_wide is not None else "—") + "倍以上）\n" +
+    + (("ワイド（基準" + str(int(S_WIDE_MIN)) + "以上／最低限オッズ " + (f"{min_odds_wide:.1f}" if min_odds_wide is not None else "—") + "倍以上）\n" +
         ("\n".join([f"{row['買い目']}（S={row['偏差値S']:.1f}）" for _, row in _df_pair(pairs_w).iterrows()]) if pairs_w else "対象外")))
 )
+
 st.markdown("### 📋 note用（コピーエリア）")
 st.text_area("ここを選択してコピー", note_text, height=520)
