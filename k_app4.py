@@ -934,6 +934,7 @@ if "α" not in result_marks:
         alpha_pick = pool[-1]
         result_marks["α"] = alpha_pick
         reasons[alpha_pick] = "α（フォールバック：禁止条件全滅→最弱を採用）"
+
 # ==============================
 # ★ 偏差値フィルタ閾値 & 目標回収率
 # ==============================
@@ -959,6 +960,47 @@ TARGET_ROI = {
 HEN_DEC_PLACES = 1
 
 EPS = 1e-12  # 数値安定
+
+# === NaN/欠損に強いスコア整形 & Tスコア（NaN安全） =========================
+def coerce_score_map(d: dict, n_cars: int) -> dict[int, float]:
+    """velobi_wo を車番int: float(有限 or NaN) に正規化し、1..n_carsも埋める"""
+    out = {}
+    d = d or {}
+    for k, v in d.items():
+        try:
+            i = int(k)
+        except Exception:
+            continue
+        try:
+            x = float(v)
+        except Exception:
+            x = np.nan
+        out[i] = x
+    for i in range(1, n_cars + 1):
+        out.setdefault(i, np.nan)
+    return out
+
+def fill_nans_with_median(arr: np.ndarray) -> np.ndarray:
+    """有限値の中央値で NaN を埋める。有限値が無ければ 0."""
+    a = arr.astype(float, copy=True)
+    finite = np.isfinite(a)
+    if not finite.any():
+        a[:] = 0.0
+        return a
+    med = float(np.nanmedian(a))
+    a[~finite] = med
+    return a
+
+def t_score_nan_safe(values: np.ndarray, eps: float = 1e-9) -> np.ndarray:
+    """NaN安全なTスコア。全同値→全員50。"""
+    v = values.astype(float, copy=True)
+    mu = float(np.nanmean(v))
+    sd = float(np.nanstd(v))
+    if not np.isfinite(mu):
+        return np.full_like(v, 50.0)
+    if not np.isfinite(sd) or sd < eps:
+        return np.full_like(v, 50.0)
+    return 50.0 + 10.0 * (v - mu) / sd
 
 # ==============================
 # ★ 偏差値セクション（従来：△=50固定・◎≤80・風/ライン込み）
@@ -1037,12 +1079,13 @@ st.dataframe(hen_df, use_container_width=True)
 # ==============================
 # ★ レース内基準（SBなし）→ PLモデル用の強さ（購入計算で使用）
 # ==============================
-# SBなしスコア（風・ライン補正後）から、レース内T（平均50, SD10）を作る
-score_map_sb_wo = dict(velobi_wo)  # {car_id: SBなしスコア}
-xs = np.array([score_map_sb_wo.get(i, 0.0) for i in range(1, n_cars + 1)], dtype=float)
-xs_race_t = t_score(xs, use_sample=False)     # 平均50, SD10
+# SBなしスコア（風・ライン補正後）から、レース内T（平均50, SD10）を作る（NaN安全）
+score_map_sb_wo = coerce_score_map(velobi_wo, n_cars)       # 正規化
+xs = np.array([score_map_sb_wo[i] for i in range(1, n_cars + 1)], dtype=float)
+xs = fill_nans_with_median(xs)                               # NaNを中央値で埋める
+xs_race_t = t_score_nan_safe(xs)                             # 平均50, SD10 or 全員50
 race_t = {i: round(float(xs_race_t[i-1]), 1) for i in range(1, n_cars + 1)}
-race_z = (xs_race_t - 50.0) / 10.0            # 平均0, SD1
+race_z = (xs_race_t - 50.0) / 10.0                           # 平均0, SD1
 
 # 全体基準（無ければ "—"）
 if 'global_tscore_dict' in globals() and global_tscore_dict is not None:
@@ -1095,7 +1138,7 @@ for i in range(len(active_cars)):
             trios.append((a,b,c,_trio_score(a,b,c)))
 
 # Sしきいで候補抽出（表記の互換性維持）
-pairs_qn  = sorted([(a,b,s) for (a,b,s) in pairs if s >= S_QN_MIN],  key=lambda x:(-x[2], x[0], x[1]))
+pairs_qn  = sorted([(a,b,s) for (a,b,s) in pairs if s >= S_QN_MIN],   key=lambda x:(-x[2], x[0], x[1]))
 pairs_w   = sorted([(a,b,s) for (a,b,s) in pairs if s >= S_WIDE_MIN], key=lambda x:(-x[2], x[0], x[1]))
 trios_all = sorted([(a,b,c,s) for (a,b,c,s) in trios if s >= S_TRIO_MIN], key=lambda x:(-x[3], x[0], x[1], x[2]))
 
@@ -1108,8 +1151,7 @@ def _min_required_from_pairs(rows, p_func, roi: float) -> float|None:
             reqs.append(roi / p)
     if not reqs: return None
     m = min(reqs)
-    # 0.5刻みで丸め（見やすさ重視）
-    return math.floor(m*2 + 0.5) / 2.0
+    return math.floor(m*2 + 0.5) / 2.0  # 0.5刻み丸め
 
 def _min_required_from_trios(rows, p_func, roi: float) -> float|None:
     reqs = []
@@ -1121,8 +1163,8 @@ def _min_required_from_trios(rows, p_func, roi: float) -> float|None:
     m = min(reqs)
     return math.floor(m*2 + 0.5) / 2.0
 
-min_odds_qn   = _min_required_from_pairs(pairs_qn,  prob_top2_pair_pl,  TARGET_ROI["qn"])
-min_odds_wide = _min_required_from_pairs(pairs_w,   prob_wide_pair_pl,  TARGET_ROI["wide"])
+min_odds_qn   = _min_required_from_pairs(pairs_qn,  prob_top2_pair_pl,   TARGET_ROI["qn"])
+min_odds_wide = _min_required_from_pairs(pairs_w,   prob_wide_pair_pl,   TARGET_ROI["wide"])
 min_odds_trio = _min_required_from_trios(trios_all, prob_top3_triple_pl, TARGET_ROI["trio"])
 
 # 表示テーブル（従来関数の互換）
@@ -1178,8 +1220,8 @@ def _fmt_hen_lines(ts_map: dict) -> str:
             out.append(f"{n}: —")
     return "\n".join(out)
 
-hen_lines_global = _fmt_hen_lines(global_t_fixed)               # 全体基準
-hen_lines_race   = _fmt_hen_lines(race_t)                       # レース内基準（SBなし→T）
+hen_lines_global = _fmt_hen_lines(global_t_fixed)  # 全体基準
+hen_lines_race   = _fmt_hen_lines(race_t)          # レース内基準（SBなし→T）
 
 def _lines_from_df_note(df: pd.DataFrame, title: str, min_odds: float|None) -> str:
     if df is None or df.empty:
