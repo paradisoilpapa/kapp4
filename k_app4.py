@@ -954,7 +954,7 @@ TARGET_ROI = {"trio":1.20, "qn":1.10, "wide":1.05}
 
 # 表示用小数
 HEN_DEC_PLACES = 1
-EPS = 1e-12  # 数値安定
+EPS = 1e-12
 
 # === NaN/欠損に強いスコア整形 & Tスコア（NaN安全） =========================
 def coerce_score_map(d, n_cars: int) -> dict[int, float]:
@@ -970,38 +970,34 @@ def coerce_score_map(d, n_cars: int) -> dict[int, float]:
             except Exception: x = np.nan
             out[i] = x
     elif "pandas.core.series" in str(type(d)).lower():  # Series
-        try:
-            for k, v in d.to_dict().items():
-                try: i = int(k)
+        for k, v in d.to_dict().items():
+            try: i = int(k)
+            except Exception: continue
+            try: x = float(v)
+            except Exception: x = np.nan
+            out[i] = x
+    elif "pandas.core.frame" in str(type(d)).lower():   # DataFrame
+        df_ = d.copy()
+        car_col = "車番" if "車番" in df_.columns else None
+        if car_col is None:
+            for c in df_.columns:
+                if np.issubdtype(df_[c].dtype, np.integer):
+                    car_col = c; break
+        score_col = None
+        for cand in ["SBなし", "合計_SBなし", "スコア", "score", "SB_wo", "SB"]:
+            if cand in df_.columns: score_col = cand; break
+        if score_col is None:
+            for c in df_.columns:
+                if c == car_col: continue
+                if np.issubdtype(df_[c].dtype, np.floating) or np.issubdtype(df_[c].dtype, np.number):
+                    score_col = c; break
+        if car_col is not None and score_col is not None:
+            for _, r in df_.iterrows():
+                try: i = int(r[car_col])
                 except Exception: continue
-                try: x = float(v)
+                try: x = float(r[score_col])
                 except Exception: x = np.nan
                 out[i] = x
-        except Exception: pass
-    elif "pandas.core.frame" in str(type(d)).lower():   # DataFrame
-        try:
-            df_ = d.copy()
-            car_col = "車番" if "車番" in df_.columns else None
-            if car_col is None:
-                for c in df_.columns:
-                    if np.issubdtype(df_[c].dtype, np.integer):
-                        car_col = c; break
-            score_col = None
-            for cand in ["SBなし", "合計_SBなし", "スコア", "score", "SB_wo", "SB"]:
-                if cand in df_.columns: score_col = cand; break
-            if score_col is None:
-                for c in df_.columns:
-                    if c == car_col: continue
-                    if np.issubdtype(df_[c].dtype, np.floating) or np.issubdtype(df_[c].dtype, np.number):
-                        score_col = c; break
-            if car_col is not None and score_col is not None:
-                for _, r in df_.iterrows():
-                    try: i = int(r[car_col])
-                    except Exception: continue
-                    try: x = float(r[score_col])
-                    except Exception: x = np.nan
-                    out[i] = x
-        except Exception: pass
     elif isinstance(d, (list, tuple, np.ndarray)):      # list/tuple/ndarray
         arr = list(d)
         if len(arr) == n_cars and all(not isinstance(x, (list, tuple, dict)) for x in arr):
@@ -1010,11 +1006,12 @@ def coerce_score_map(d, n_cars: int) -> dict[int, float]:
                 except Exception: out[idx] = np.nan
         else:
             for it in arr:
-                try:
-                    if isinstance(it, (list, tuple)) and len(it) >= 2:
+                if isinstance(it, (list, tuple)) and len(it) >= 2:
+                    try:
                         i = int(it[0]); x = float(it[1])
                         out[i] = x
-                except Exception: continue
+                    except Exception:
+                        continue
     # 埋め
     for i in range(1, int(n_cars) + 1):
         out.setdefault(i, np.nan)
@@ -1037,71 +1034,6 @@ def t_score_nan_safe(values: np.ndarray, eps: float = 1e-9) -> np.ndarray:
     if not np.isfinite(mu): return np.full_like(v, 50.0)
     if not np.isfinite(sd) or sd < eps: return np.full_like(v, 50.0)
     return 50.0 + 10.0 * (v - mu) / sd
-
-# === 全体基準Tのフォールバック =========================
-def _coerce_tscore_map_any(d, n_cars: int) -> dict[int, float] | None:
-    if d is None: return None
-    out = {}
-    if hasattr(d, "items"):                 # dict / Mapping
-        it = d.items()
-    elif "pandas.core.series" in str(type(d)).lower():  # Series
-        it = d.to_dict().items()
-    elif "pandas.core.frame" in str(type(d)).lower():   # DataFrame
-        df_ = d.copy()
-        car_col = "車番" if "車番" in df_.columns else None
-        if car_col is None:
-            for c in df_.columns:
-                if np.issubdtype(df_[c].dtype, np.integer):
-                    car_col = c; break
-        val_col = None
-        for cand in ["偏差値","tscore","T","全体偏差値","score"]:
-            if cand in df_.columns: val_col = cand; break
-        if val_col is None:
-            for c in df_.columns:
-                if c == car_col: continue
-                if np.issubdtype(df_[c].dtype, np.floating) or np.issubdtype(df_[c].dtype, np.number):
-                    val_col = c; break
-        if car_col is None or val_col is None: return None
-        for _, r in df_.iterrows():
-            try:   i = int(r[car_col]); x = float(r[val_col])
-            except Exception: continue
-            out[i] = x
-        for i in range(1, n_cars+1): out.setdefault(i, np.nan)
-        return out
-    else:
-        return None
-    for k, v in it:
-        try:   i = int(k)
-        except Exception: continue
-        try:   x = float(v)
-        except Exception: x = np.nan
-        out[i] = x
-    for i in range(1, n_cars+1): out.setdefault(i, np.nan)
-    return out
-
-def make_global_t_fixed(n_cars: int, xs_sb_wo_raw: np.ndarray, decimals: int = 1) -> dict[int, float | str]:
-    """
-    優先順位:
-      (1) global_tscore_dict を使用（正規化＆丸め）
-      (2) GLOBAL_SB_WO_MEAN / GLOBAL_SB_WO_SD があれば SBなし → 全体Tへ変換
-      (3) どちらも無ければ '—'
-    """
-    gmap = globals().get("global_tscore_dict", None)
-    coerced = _coerce_tscore_map_any(gmap, n_cars) if gmap is not None else None
-    if coerced:
-        arr = np.array([coerced.get(i, np.nan) for i in range(1, n_cars+1)], dtype=float)
-        if np.isfinite(arr).any():
-            arr = fill_nans_with_median(arr)
-            return {i: round(float(arr[i-1]), decimals) for i in range(1, n_cars+1)}
-
-    mean_ = globals().get("GLOBAL_SB_WO_MEAN", None)
-    sd_   = globals().get("GLOBAL_SB_WO_SD", None)
-    if isinstance(mean_, (int,float)) and isinstance(sd_, (int,float)) and sd_ and sd_ > 0:
-        t = 50.0 + 10.0 * ((xs_sb_wo_raw - float(mean_)) / float(sd_))
-        t = fill_nans_with_median(np.asarray(t, dtype=float))
-        return {i: round(float(t[i-1]), decimals) for i in range(1, n_cars+1)}
-
-    return {i: "—" for i in range(1, n_cars+1)}
 
 # ==============================
 # ★ 偏差値セクション（従来：△=50固定・◎≤80・風/ライン込み）
@@ -1176,24 +1108,25 @@ st.dataframe(hen_df, use_container_width=True)
 # ==============================
 # ★ レース内基準（SBなし）→ PLモデル用の強さ（購入計算で使用）
 # ==============================
+# 車番集合を統一（active_cars があれば採用、なければ 1..n_cars）
+USED_IDS = sorted(int(i) for i in (active_cars if active_cars else range(1, n_cars+1)))
+M = len(USED_IDS)
+
 # SBなしスコア（風・ライン補正後）
 score_map_sb_wo = coerce_score_map(velobi_wo, n_cars)
-xs_raw = np.array([score_map_sb_wo[i] for i in range(1, n_cars + 1)], dtype=float)
+xs_raw = np.array([score_map_sb_wo.get(i, np.nan) for i in USED_IDS], dtype=float)
 
 # レース内T（購入計算用）
 xs = fill_nans_with_median(xs_raw.copy())
 xs_race_t = t_score_nan_safe(xs)
-race_t = {i: round(float(xs_race_t[i-1]), 1) for i in range(1, n_cars + 1)}
+race_t = {USED_IDS[idx]: round(float(xs_race_t[idx]), 1) for idx in range(M)}
 race_z = (xs_race_t - 50.0) / 10.0
 
-# ★ 全体基準T：三段フォールバックで生成（← これで '—' を回避）
-global_t_fixed = make_global_t_fixed(n_cars, xs_raw, decimals=HEN_DEC_PLACES)
-
-# PL用の重み
+# PL用の重み（USED_IDS基準）
 tau = 1.0
-w = np.exp(race_z * tau)
+w   = np.exp(race_z * tau)
 S_w = float(np.sum(w))
-w_idx = {i: float(w[i-1]) for i in range(1, n_cars + 1)}
+w_idx = {USED_IDS[idx]: float(w[idx]) for idx in range(M)}
 
 def prob_top2_pair_pl(i: int, j: int) -> float:
     wi, wj = w_idx[i], w_idx[j]
@@ -1203,7 +1136,7 @@ def prob_top2_pair_pl(i: int, j: int) -> float:
 def prob_top3_triple_pl(i: int, j: int, k: int) -> float:
     a, b, c = w_idx[i], w_idx[j], w_idx[k]
     total = 0.0
-    for x, y, z in [(a,b,c),(a,c,b),(b,a,c),(b,c,a),(c,a,b),(c,b,a)]:
+    for x, y, z in ((a,b,c),(a,c,b),(b,a,c),(b,c,a),(c,a,b),(c,b,a)):
         d1 = max(S_w - x, EPS)
         d2 = max(S_w - x - y, EPS)
         total += (x / S_w) * (y / d1) * (z / d2)
@@ -1211,35 +1144,26 @@ def prob_top3_triple_pl(i: int, j: int, k: int) -> float:
 
 def prob_wide_pair_pl(i: int, j: int) -> float:
     total = 0.0
-    for k in range(1, n_cars + 1):
-        if k == i or k == j: continue
+    for k in USED_IDS:
+        if k == i or k == j: 
+            continue
         total += prob_top3_triple_pl(i, j, k)
     return total
 
 # ==============================
-# ★ 買い目生成（全候補）＋ 最低限オッズ（PL確率×TARGET_ROI）
+# ★ 買い目生成（S=このレース内偏差値）
 # ==============================
-# ←←← ここが変更点：Sは「このレース内偏差値（race_t）」起点に統一
-S_BASE_MAP = {i: float(race_t[i]) for i in range(1, n_cars+1)}
+S_BASE_MAP = {i: float(race_t.get(i, 0.0)) for i in USED_IDS}
 
-def _pair_score(a,b):   return float(S_BASE_MAP.get(a,0.0) + S_BASE_MAP.get(b,0.0))
-def _trio_score(a,b,c): return float(S_BASE_MAP.get(a,0.0) + S_BASE_MAP.get(b,0.0) + S_BASE_MAP.get(c,0.0))
+def _pair_score(a,b):   return S_BASE_MAP.get(a,0.0) + S_BASE_MAP.get(b,0.0)
+def _trio_score(a,b,c): return S_BASE_MAP.get(a,0.0) + S_BASE_MAP.get(b,0.0) + S_BASE_MAP.get(c,0.0)
 
-pairs, trios = [], []
-for i in range(len(active_cars)):
-    for j in range(i+1, len(active_cars)):
-        a, b = active_cars[i], active_cars[j]
-        pairs.append((a,b,_pair_score(a,b)))
-for i in range(len(active_cars)):
-    for j in range(i+1, len(active_cars)):
-        for k in range(j+1, len(active_cars)):
-            a, b, c = active_cars[i], active_cars[j], active_cars[k]
-            trios.append((a,b,c,_trio_score(a,b,c)))
+pairs  = [(a,b,_pair_score(a,b))     for (a,b)     in combinations(USED_IDS, 2)]
+trios  = [(a,b,c,_trio_score(a,b,c)) for (a,b,c)   in combinations(USED_IDS, 3)]
 
-# Sしきいで候補抽出（Sはレース内基準）
-pairs_qn  = sorted([(a,b,s)   for (a,b,s)   in pairs  if s >= S_QN_MIN],  key=lambda x:(-x[2], x[0], x[1]))
-pairs_w   = sorted([(a,b,s)   for (a,b,s)   in pairs  if s >= S_WIDE_MIN], key=lambda x:(-x[2], x[0], x[1]))
-trios_all = sorted([(a,b,c,s) for (a,b,c,s) in trios  if s >= S_TRIO_MIN], key=lambda x:(-x[3], x[0], x[1], x[2]))
+pairs_qn  = sorted([(a,b,s)   for (a,b,s)   in pairs if s >= S_QN_MIN],    key=lambda x:(-x[2], x[0], x[1]))
+pairs_w   = sorted([(a,b,s)   for (a,b,s)   in pairs if s >= S_WIDE_MIN],  key=lambda x:(-x[2], x[0], x[1]))
+trios_all = sorted([(a,b,c,s) for (a,b,c,s) in trios if s >= S_TRIO_MIN],  key=lambda x:(-x[3], x[0], x[1], x[2]))
 
 # ---- 各候補のPL確率から「最低限オッズ（単一値）」を計算（TARGET_ROI / p の最小）
 def _min_required_from_pairs(rows, p_func, roi: float) -> float|None:
@@ -1304,18 +1228,15 @@ marks_line = " ".join(f"{m}{result_marks[m]}" for m in ["◎","〇","▲","△",
 score_map_for_note = {int(r["車番"]): float(r["合計_SBなし"]) for _, r in df_sorted_wo.iterrows()}
 score_order_text = format_rank_all(score_map_for_note, P_floor_val=None)
 
-def _fmt_hen_lines(ts_map: dict) -> str:
+def _fmt_hen_lines(ts_map: dict, ids: list[int]) -> str:
     out = []
-    for n in range(1, n_cars+1):
+    for n in ids:
         v = ts_map.get(n, "—")
-        if isinstance(v, (int, float)):
-            out.append(f"{n}: {float(v):.{HEN_DEC_PLACES}f}")
-        else:
-            out.append(f"{n}: —")
+        out.append(f"{n}: {float(v):.{HEN_DEC_PLACES}f}" if isinstance(v,(int,float)) else f"{n}: —")
     return "\n".join(out)
 
-# ★ 偏差値は「レース内基準」のみを出力（全体基準は非表示）
-hen_lines_race = _fmt_hen_lines(race_t)
+# 偏差値は「レース内基準」のみを出力
+hen_lines_race = _fmt_hen_lines(race_t, USED_IDS)
 
 def _lines_from_df_note(df: pd.DataFrame, title: str, min_odds: float|None) -> str:
     if df is None or df.empty:
@@ -1344,5 +1265,4 @@ note_text = (
     + _lines_from_df_note(_df_pair(pairs_qn),   "二車複", min_odds_qn)   + "\n\n"
     + _lines_from_df_note(_df_pair(pairs_w),    "ワイド", min_odds_wide)
 )
-
 st.text_area("ここを選択してコピー", note_text, height=520)
