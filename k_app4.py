@@ -708,10 +708,17 @@ if ko_scale > 0.0 and line_def and len(line_def) >= 1:
         new_scores[car] = blended
     v_final = {int(k): float(v) for k, v in new_scores.items()}
 
+# （if ko_scale > 0.0 ... の対応ブロックの直後 / else ブロックを丸ごと置換）
+
 else:
     # KOを使わない（またはライン無し）ケースのフォールバック
-    ko_order = [int(df_sorted_wo.loc[i, "車番"]) for i in range(len(df_sorted_wo))]
-    v_final = {int(c): float(v_wo[int(c)]) for c in ko_order}
+    # → 純SBなし(v_wo)の降順をそのまま採用して v_final を作る
+    if v_wo:
+        ko_order = sorted(v_wo.keys(), key=lambda c: v_wo[c], reverse=True)
+        v_final = {int(c): float(v_wo[c]) for c in ko_order}
+    else:
+        ko_order = []
+        v_final = {}
 
 # --- 純SBなしランキング（KOまで／格上げ前）
 df_sorted_pure = pd.DataFrame({
