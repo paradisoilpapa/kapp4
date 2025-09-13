@@ -869,66 +869,81 @@ def enforce_alpha_eligibility(result_marks: dict[str,int]) -> dict[str,int]:
                 break
     return marks
 
-beta_id = select_beta([c for c in active_cars if c != anchor_no])
-rank_wo = {int(df_sorted_wo.loc[i, "車番"]): i+1 for i in range(len(df_sorted_wo))}
+# === 印を「このレース内偏差値T」で一貫決定（β温存）＋ 後段の△/×/αは既存ロジックで埋める ===
+
+# β決定（既存値を優先。無ければ計算）
+try:
+    beta_id = beta_id if ('beta_id' in globals() and beta_id is not None) else select_beta(list(active_cars))
+except Exception:
+    beta_id = None
+
+# 初期化（βだけ温存）
 result_marks, reasons = {}, {}
-result_marks["◎"] = anchor_no
-reasons[anchor_no] = "本命(C上位3→得点ゲート→ラインSB重視＋KO並び＋着順z＋位置加点)"
 if beta_id is not None:
-    result_marks["β"] = beta_id
-    reasons[beta_id] = "β（来ない枠：低3着率×位置×得点×SB空回り）"
+    result_marks["β"] = int(beta_id)
+    reasons[beta_id] = "β（来ない枠：選別ロジック）"
 
-beta_gid = car_to_group.get(beta_id, None) if beta_id is not None else None
-old_anchor = None
+# SBなし（同値ブレイク用）。xs_base が無ければ df_sorted_wo から拾う
+sb_base = {}
+try:
+    sb_base = {USED_IDS[idx]: float(xs_base[idx]) for idx in range(len(USED_IDS))}
+except Exception:
+    if 'df_sorted_wo' in globals() and df_sorted_wo is not None and "車番" in df_sorted_wo.columns:
+        col = "合計_SBなし" if "合計_SBなし" in df_sorted_wo.columns else ("SBなし" if "SBなし" in df_sorted_wo.columns else None)
+        if col is not None:
+            for _, r in df_sorted_wo.iterrows():
+                try:
+                    sb_base[int(r["車番"])] = float(r[col])
+                except Exception:
+                    pass
 
-score_map = {int(df_sorted_wo.loc[i, "車番"]): float(df_sorted_wo.loc[i, "合計_SBなし"]) for i in range(len(df_sorted_wo))}
-pool_all = [int(df_sorted_wo.loc[i, "車番"]) for i in range(len(df_sorted_wo))]
-overall_rest = [c for c in pool_all if c not in {anchor_no, beta_id}]
-a_gid = car_to_group.get(anchor_no, None)
+def _race_t_val(i: int) -> float:
+    try:
+        return float(race_t.get(i, 50.0))
+    except Exception:
+        return 50.0
+
+# ◎〇▲を T↓ → SBなし↓ → 車番↑ で決定（βは除外）
+seed_pool = [i for i in USED_IDS if i != result_marks.get("β")]
+order_by_T = sorted(seed_pool, key=lambda i: (-_race_t_val(i), -sb_base.get(i, float("-inf")), i))
+for mk, car in zip(["◎","〇","▲"], order_by_T):
+    result_marks[mk] = car
+
+# ◎のライン仲間をSBなし順で抽出（tail優先度の先頭に積む）
+anchor_no = result_marks.get("◎", None)
 mates_sorted = []
-if a_gid is not None and a_gid in line_def:
-    mates_sorted = sorted([c for c in line_def[a_gid] if c not in {anchor_no, beta_id}],
-                          key=lambda x: (-score_map.get(x, -1e9), x))
-preferred_second = old_anchor if (old_anchor is not None and old_anchor != beta_id) else None
-if overall_rest:
-    if preferred_second is not None and preferred_second in overall_rest:
-        pick2 = preferred_second
-        src = "旧◎優先"
-    else:
-        non_anchor_rest = [c for c in overall_rest if car_to_group.get(c, None) != a_gid]
-        if non_anchor_rest:
-            pick2 = non_anchor_rest[0]; src = "◎ライン外優先"
-        else:
-            pick2 = overall_rest[0]; src = "全体トップ"
-    result_marks["〇"] = pick2
-    reasons[pick2] = f"対抗（{src}）"
+if anchor_no is not None:
+    a_gid = car_to_group.get(anchor_no, None)
+    if a_gid is not None and a_gid in line_def:
+        used_now = set(result_marks.values())
+        mates_sorted = sorted(
+            [c for c in line_def[a_gid] if c not in used_now and c != result_marks.get("β")],
+            key=lambda x: (-sb_base.get(x, float("-inf")), x)
+        )
 
+# tail優先度（◎ライン残り → 全体残りSBなし順）
 used = set(result_marks.values())
-mate_candidates = [c for c in mates_sorted if c not in used]
-if mate_candidates:
-    pick = mate_candidates[0]
-    result_marks["▲"] = pick
-    reasons[pick] = "単穴（◎ライン優先：同ライン最上位を採用）"
-else:
-    rest_global = [c for c in overall_rest if c not in used]
-    if rest_global:
-        pick = rest_global[0]
-        result_marks["▲"] = pick
-        reasons[pick] = "単穴（格上げ後SBなしスコア順）"
+overall_rest = [c for c in USED_IDS if c not in used]
+overall_rest = sorted(overall_rest, key=lambda x: (-sb_base.get(x, float("-inf")), x))
+tail_priority = mates_sorted + [c for c in overall_rest if c not in mates_sorted]
 
-used = set(result_marks.values())
-tail_priority = [c for c in mates_sorted if c not in used]
-tail_priority += [c for c in overall_rest if c not in used and c not in tail_priority]
+# === ここから“既存の tail 埋め”そのまま ===
 for mk in ["△","×","α"]:
     if mk in result_marks: continue
     if not tail_priority: break
     no = tail_priority.pop(0)
     result_marks[mk] = no
     reasons[no] = f"{mk}（◎ライン優先→残りスコア順）"
+
 result_marks = enforce_alpha_eligibility(result_marks)
+
 if "α" not in result_marks:
     used_now = set(result_marks.values())
-    pool = [int(df_sorted_wo.loc[i, "車番"]) for i in range(len(df_sorted_wo))]
+    pool = []
+    try:
+        pool = [int(df_sorted_wo.loc[i, "車番"]) for i in range(len(df_sorted_wo))]
+    except Exception:
+        pool = [i for i in USED_IDS]
     pool = [c for c in pool if c not in used_now and c != beta_id]
     if pool:
         alpha_pick = pool[-1]
