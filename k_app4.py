@@ -896,9 +896,9 @@ import streamlit as st
 from itertools import combinations
 
 # しきい値（S＝偏差値Tの合算）
-S_TRIO_MIN = 170.0
-S_QN_MIN   = 120.0
-S_WIDE_MIN = 110.0
+S_TRIO_MIN = 151.0
+S_QN_MIN   = 128.0
+S_WIDE_MIN = 116.0
 
 # 目標回収率（ROI）
 TARGET_ROI = {"trio":1.20, "qn":1.10, "wide":1.05}
