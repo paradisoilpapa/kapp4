@@ -896,7 +896,7 @@ import streamlit as st
 from itertools import combinations
 
 # しきい値（S＝偏差値Tの合算）
-S_TRIO_MIN = 151.0
+S_TRIO_MIN = 160.0
 S_QN_MIN   = 128.0
 S_WIDE_MIN = 116.0
 
@@ -1243,11 +1243,11 @@ note_text = (
     "偏差値（風・ライン込み）\n"
     "— レース内基準（平均50・SD10） —\n"
     f"{_fmt_hen_lines(race_t, USED_IDS)}\n\n"
-    + (("三連複（基準170以上／最低限オッズ " + (f"{min_odds_trio:.1f}" if min_odds_trio is not None else "—") + "倍以上）\n" +
+    + (("三連複（基準160以上／最低限オッズ " + (f"{min_odds_trio:.1f}" if min_odds_trio is not None else "—") + "倍以上）\n" +
         ("\n".join([f"{row['買い目']}（S={row['偏差値S']:.1f}）" for _, row in _df_trio(trios_all).iterrows()]) if trios_all else "対象外") + "\n\n"))
-    + (("二車複（基準120以上／最低限オッズ " + (f"{min_odds_qn:.1f}" if min_odds_qn is not None else "—") + "倍以上）\n" +
+    + (("二車複（基準128以上／最低限オッズ " + (f"{min_odds_qn:.1f}" if min_odds_qn is not None else "—") + "倍以上）\n" +
         ("\n".join([f"{row['買い目']}（S={row['偏差値S']:.1f}）" for _, row in _df_pair(pairs_qn).iterrows()]) if pairs_qn else "対象外") + "\n\n"))
-    + (("ワイド（基準110以上／最低限オッズ " + (f"{min_odds_wide:.1f}" if min_odds_wide is not None else "—") + "倍以上）\n" +
+    + (("ワイド（基準116以上／最低限オッズ " + (f"{min_odds_wide:.1f}" if min_odds_wide is not None else "—") + "倍以上）\n" +
         ("\n".join([f"{row['買い目']}（S={row['偏差値S']:.1f}）" for _, row in _df_pair(pairs_w).iterrows()]) if pairs_w else "対象外")))
 )
 st.markdown("### 📋 note用（コピーエリア）")
