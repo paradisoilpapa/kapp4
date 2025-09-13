@@ -956,26 +956,20 @@ TARGET_ROI = {"trio":1.20, "qn":1.10, "wide":1.05}
 HEN_DEC_PLACES = 1
 EPS = 1e-12
 
-# === NaN/欠損に強いスコア整形 =========================
+# =========== ユーティリティ ===========
 def coerce_score_map(d, n_cars: int) -> dict[int, float]:
-    """velobi_wo を {車番:int -> スコア:float} に正規化し、1..n_cars を埋める"""
+    """任意の d を {車番:int -> スコア:float or NaN} に正規化し 1..n_cars を埋める"""
     out: dict[int, float] = {}
     if d is None:
         pass
-    elif hasattr(d, "items"):  # dict / Mapping
+    elif hasattr(d, "items"):  # dict
         for k, v in d.items():
-            try: i = int(k)
-            except Exception: continue
-            try: x = float(v)
-            except Exception: x = np.nan
-            out[i] = x
+            try: out[int(k)] = float(v)
+            except Exception: out[int(k)] = np.nan
     elif "pandas.core.series" in str(type(d)).lower():  # Series
         for k, v in d.to_dict().items():
-            try: i = int(k)
-            except Exception: continue
-            try: x = float(v)
-            except Exception: x = np.nan
-            out[i] = x
+            try: out[int(k)] = float(v)
+            except Exception: out[int(k)] = np.nan
     elif "pandas.core.frame" in str(type(d)).lower():   # DataFrame
         df_ = d.copy()
         car_col = "車番" if "車番" in df_.columns else None
@@ -989,114 +983,93 @@ def coerce_score_map(d, n_cars: int) -> dict[int, float]:
         if score_col is None:
             for c in df_.columns:
                 if c == car_col: continue
-                if np.issubdtype(df_[c].dtype, np.floating) or np.issubdtype(df_[c].dtype, np.number):
+                if np.issubdtype(df_[c].dtype, np.number):
                     score_col = c; break
-        if car_col is not None and score_col is not None:
+        if car_col and score_col:
             for _, r in df_.iterrows():
                 try: i = int(r[car_col])
                 except Exception: continue
-                try: x = float(r[score_col])
-                except Exception: x = np.nan
-                out[i] = x
+                try: out[i] = float(r[score_col])
+                except Exception: out[i] = np.nan
     elif isinstance(d, (list, tuple, np.ndarray)):      # list/tuple/ndarray
         arr = list(d)
-        if len(arr) == n_cars and all(not isinstance(x, (list, tuple, dict)) for x in arr):
+        if len(arr) == n_cars and all(not isinstance(x,(list,tuple,dict)) for x in arr):
             for idx, v in enumerate(arr, start=1):
                 try: out[idx] = float(v)
                 except Exception: out[idx] = np.nan
         else:
             for it in arr:
-                if isinstance(it, (list, tuple)) and len(it) >= 2:
-                    try:
-                        i = int(it[0]); x = float(it[1])
-                        out[i] = x
-                    except Exception:
-                        continue
-    for i in range(1, int(n_cars) + 1):
+                if isinstance(it,(list,tuple)) and len(it) >= 2:
+                    try: i = int(it[0]); x = float(it[1]); out[i] = x
+                    except Exception: pass
+    for i in range(1, int(n_cars)+1):
         out.setdefault(i, np.nan)
     return out
 
-# === 偏差値（Tスコア）を有限値だけで作る =========================
-def t_score_from_finite(values: np.ndarray, eps: float = 1e-9) -> tuple[np.ndarray, float, float]:
+def t_score_from_finite(values: np.ndarray, eps: float = 1e-9) -> tuple[np.ndarray, float, float, int]:
     """
-    有限値のみで μ, σ を計算し T=50+10*(x-μ)/σ を作る。
-    欠損(NaN)は T=50（母平均相当）に置く。σ≈0 なら全員50。
+    有限値のみで μ, σ を計算し T=50+10*(x-μ)/σ。σ≈0 or 有限値<2 なら全員50。
+    NaNは偏差値T=50に置換。
+    戻り: (T配列, μ, σ, 有限値件数)
     """
     v = values.astype(float, copy=True)
     finite = np.isfinite(v)
-    cnt = int(finite.sum())
-    if cnt == 0:
-        return np.full_like(v, 50.0), float("nan"), 0.0
-    if cnt == 1:
-        mu = float(v[finite][0])
-        return np.full_like(v, 50.0), mu, 0.0
+    k = int(finite.sum())
+    if k < 2:
+        return np.full_like(v, 50.0), float(np.nan if k==0 else v[finite][0]), 0.0, k
     mu = float(np.mean(v[finite]))
     sd = float(np.std(v[finite], ddof=0))
     if not np.isfinite(sd) or sd < eps:
-        return np.full_like(v, 50.0), mu, 0.0
+        return np.full_like(v, 50.0), mu, 0.0, k
     T = 50.0 + 10.0 * ((v - mu) / sd)
     T[~finite] = 50.0
-    return T, mu, sd
-
-def _has_variation_finite(a: np.ndarray, eps: float = 1e-9) -> bool:
-    finite = np.isfinite(a)
-    if finite.sum() < 2:
-        return False
-    return float(np.std(a[finite], ddof=0)) > eps
+    return T, mu, sd, k
 
 # ==============================
-# ★ 偏差値（レース内T＝平均50・SD10）— SBなしを母集団
+# ★ 「スコア順（SBなし）」と同一配列を偏差値化する
 # ==============================
-# 車番集合（表示・計算の母集団を固定）
+# 1) このレースで使う車番集合（母集団）
 USED_IDS = sorted(int(i) for i in (active_cars if active_cars else range(1, n_cars+1)))
 M = len(USED_IDS)
 
-# レース内の SBなしスコア（風・ライン補正後）
-score_map_sb_wo = coerce_score_map(velobi_wo, n_cars)
-xs_vwo = np.array([score_map_sb_wo.get(i, np.nan) for i in USED_IDS], dtype=float)
+# 2) 「スコア順（SBなし）」に使う配列を先に作る（=偏差値Tの母集団に必ず流用）
+#    最優先: df_sorted_wo['合計_SBなし' or 'SBなし']、無ければ velobi_wo
+score_map_from_df = None
+if 'df_sorted_wo' in globals() and df_sorted_wo is not None:
+    score_map_from_df = coerce_score_map(df_sorted_wo, n_cars)
+score_map_vwo = coerce_score_map(velobi_wo, n_cars)
 
-def _extract_sb_from_df_sorted_wo(ids: list[int]) -> np.ndarray:
-    if 'df_sorted_wo' not in globals() or df_sorted_wo is None or "車番" not in df_sorted_wo.columns:
-        return np.full(len(ids), np.nan, dtype=float)
-    col = "合計_SBなし" if "合計_SBなし" in df_sorted_wo.columns else ("SBなし" if "SBなし" in df_sorted_wo.columns else None)
-    if col is None:
-        return np.full(len(ids), np.nan, dtype=float)
-    mp = {}
-    for _, r in df_sorted_wo.iterrows():
-        try: mp[int(r["車番"])] = float(r[col])
-        except Exception: pass
-    return np.array([mp.get(i, np.nan) for i in ids], dtype=float)
+# 優先ソースを決める（df優先）
+SB_BASE_MAP = score_map_from_df if score_map_from_df else score_map_vwo
 
-xs_alt = _extract_sb_from_df_sorted_wo(USED_IDS)
+# 3) スコア配列（USED_IDSの順）— これを **スコア順表示** と **偏差値T** の両方に使う
+xs_base_raw = np.array([SB_BASE_MAP.get(i, np.nan) for i in USED_IDS], dtype=float)
 
-# 分散が出るソースを選ぶ（velobi_wo 優先）
-if _has_variation_finite(xs_vwo):
-    xs_base_raw, SRC = xs_vwo, "velobi_wo"
-elif _has_variation_finite(xs_alt):
-    xs_base_raw, SRC = xs_alt, "df_sorted_wo"
-else:
-    xs_base_raw, SRC = xs_vwo, "degenerate"  # 有限値が1以下 or 同値
-
-# レース内偏差値T（NaNはT=50）
-xs_race_t, mu_sbwo, sd_sbwo = t_score_from_finite(xs_base_raw)
+# 4) 偏差値T（レース内：平均50・SD10、NaN→50）
+xs_race_t, mu_sb, sd_sb, k_finite = t_score_from_finite(xs_base_raw)
 race_t = {USED_IDS[idx]: float(round(xs_race_t[idx], HEN_DEC_PLACES)) for idx in range(M)}
 race_z = (xs_race_t - 50.0) / 10.0
 
-# 参考（不要なら削除可）
-st.caption(f"SBなし母集団 μ={mu_sbwo if np.isfinite(mu_sbwo) else 'nan'} / σ={sd_sbwo:.6f} / source={SRC}")
+# 5) 画面の「スコア順（SBなし）」テキストも、この xs_base_raw から作る
+def _format_rank_from_array(ids, arr):
+    pairs = [(i, float(arr[idx])) for idx, i in enumerate(ids)]
+    pairs = sorted(pairs, key=lambda kv: (-kv[1] if np.isfinite(kv[1]) else float("-inf"), kv[0]))
+    return " ".join(str(i) for i,_ in pairs)
+score_order_text = _format_rank_from_array(USED_IDS, xs_base_raw)
 
-# 表示テーブル
+# 6) 表示
 hen_df = pd.DataFrame({
     "車": USED_IDS,
-    "SBなし(基準)": [None if not np.isfinite(x) else float(x) for x in xs_base_raw],
+    "SBなし(母集団)": [None if not np.isfinite(x) else float(x) for x in xs_base_raw],
     "偏差値T(レース内)": [race_t[i] for i in USED_IDS],
 }).sort_values(["偏差値T(レース内)","車"], ascending=[False, True]).reset_index(drop=True)
 
-st.markdown("### 偏差値（レース内T＝平均50・SD10｜SBなしを母集団）")
+st.markdown("### 偏差値（レース内T＝平均50・SD10｜SBなしと同一母集団）")
+st.caption(f"μ={mu_sb if np.isfinite(mu_sb) else 'nan'} / σ={sd_sb:.6f} / 有限値k={k_finite}")
 st.dataframe(hen_df, use_container_width=True)
 
 # ==============================
-# ★ PLモデル用の強さ（race_z から）— 購入計算に使用
+# ★ PLモデル用の強さ（race_z）— 購入計算
 # ==============================
 tau = 1.0
 w   = np.exp(race_z * tau)
@@ -1126,13 +1099,13 @@ def prob_wide_pair_pl(i: int, j: int) -> float:
     return total
 
 # ==============================
-# ★ 買い目生成（S=このレース内偏差値）— σ=0なら全て該当なし
+# ★ 買い目生成（S=このレース内偏差値）— σ=0なら該当なし
 # ==============================
-sigma_is_zero = (sd_sbwo <= 1e-9)
+sigma_is_zero = (sd_sb <= 1e-9)
 
-S_BASE_MAP = {i: float(race_t.get(i, 0.0)) for i in USED_IDS}
-def _pair_score(a,b):   return S_BASE_MAP.get(a,0.0) + S_BASE_MAP.get(b,0.0)
-def _trio_score(a,b,c): return S_BASE_MAP.get(a,0.0) + S_BASE_MAP.get(b,0.0) + S_BASE_MAP.get(c,0.0)
+S_BASE_MAP_T = {i: float(race_t.get(i, 0.0)) for i in USED_IDS}
+def _pair_score(a,b):   return S_BASE_MAP_T.get(a,0.0) + S_BASE_MAP_T.get(b,0.0)
+def _trio_score(a,b,c): return S_BASE_MAP_T.get(a,0.0) + S_BASE_MAP_T.get(b,0.0) + S_BASE_MAP_T.get(c,0.0)
 
 if sigma_is_zero:
     pairs_qn, pairs_w, trios_all = [], [], []
@@ -1159,6 +1132,7 @@ def _min_required_from_trios(rows, p_func, roi: float) -> float|None:
     for a,b,c,*_ in rows:
         p = p_func(a,b,c)
         if p > EPS: reqs.append(roi / p)
+        # p==0 は除外
     if not reqs: return None
     m = min(reqs)
     return math.floor(m*2 + 0.5) / 2.0
@@ -1197,19 +1171,12 @@ else:
     st.markdown("#### ワイド（該当なし）")
 
 # ==============================
-# ★ note用 出力（縦並び偏差値・全候補・最低限オッズ帯）
+# ★ note用 出力（スコア順は同一母集団）
 # ==============================
 st.markdown("### 📋 note用（コピーエリア）")
 
 line_text = "　".join([x for x in line_inputs if str(x).strip()])
 marks_line = " ".join(f"{m}{result_marks[m]}" for m in ["◎","〇","▲","△","×","α","β"] if m in result_marks)
-score_map_for_note = {int(r["車番"]): float(r["合計_SBなし"]) for _, r in df_sorted_wo.iterrows()} if 'df_sorted_wo' in globals() and df_sorted_wo is not None else {}
-def format_rank_all(m, P_floor_val=None):
-    try:
-        return globals()["format_rank_all"](m, P_floor_val=P_floor_val)
-    except Exception:
-        return " ".join(str(k) for k,_ in sorted(m.items(), key=lambda kv: (-kv[1], kv[0])))
-score_order_text = format_rank_all(score_map_for_note, P_floor_val=None)
 
 def _fmt_hen_lines(ts_map: dict, ids: list[int]) -> str:
     out = []
