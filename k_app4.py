@@ -897,6 +897,39 @@ except Exception:
                 except Exception:
                     pass
 
+# === [HEAD印をTで再決定する準備] 900行の直前に貼付 ===
+# βだけ温存して印をクリア
+beta_keep = None
+try:
+    beta_keep = result_marks.get("β")
+except Exception:
+    pass
+result_marks = {}
+reasons = {} if 'reasons' not in locals() or not isinstance(reasons, dict) else reasons
+if beta_keep is not None:
+    result_marks["β"] = int(beta_keep)
+
+# USED_IDS / sb_base の最小保証（同値ブレイク用）
+if 'USED_IDS' not in locals() or not USED_IDS:
+    try:
+        USED_IDS = sorted(int(i) for i in active_cars)
+    except Exception:
+        USED_IDS = list(range(1, int(n_cars)+1))
+if 'sb_base' not in locals() or not isinstance(sb_base, dict) or not sb_base:
+    sb_base = {}
+    try:
+        sb_base = {USED_IDS[idx]: float(xs_base[idx]) for idx in range(len(USED_IDS))}
+    except Exception:
+        if 'df_sorted_wo' in globals() and df_sorted_wo is not None and "車番" in df_sorted_wo.columns:
+            col = "合計_SBなし" if "合計_SBなし" in df_sorted_wo.columns else ("SBなし" if "SBなし" in df_sorted_wo.columns else None)
+            if col is not None:
+                for _, r in df_sorted_wo.iterrows():
+                    try:
+                        sb_base[int(r["車番"])] = float(r[col])
+                    except Exception:
+                        pass
+
+
 # ---[GUARDS before 900] 必要変数の存在を保証 ---
 # result_marks / reasons
 if 'result_marks' not in locals() or not isinstance(result_marks, dict):
