@@ -688,24 +688,30 @@ head_scale = KO_HEADCOUNT_SCALE.get(int(n_cars), 1.0)
 ko_scale_raw = (KO_GIRLS_SCALE if _is_girls else 1.0) * head_scale
 KO_SCALE_MAX = 0.45
 ko_scale = min(ko_scale_raw, KO_SCALE_MAX)
+# （691行目付近を丸ごと置換）
+
 if ko_scale > 0.0 and line_def and len(line_def) >= 1:
-   # === KOはT順位（=SB降順）で統一 ===
-# df_sorted_wo は「合計_SBなし」降順なので、その並び ≒ T降順（偏差値は単調変換）
-ko_order = [int(df_sorted_wo.loc[i, "車番"]) for i in range(len(df_sorted_wo))]
+    ko_order = _ko_order(v_wo, line_def, S, B,
+                         line_factor=line_factor_eff,
+                         gap_delta=KO_GAP_DELTA)
+    vals = [v_wo[c] for c in v_wo.keys()]
+    mu0  = float(np.mean(vals)); sd0 = float(np.std(vals) + 1e-12)
+    KO_STEP_SIGMA_LOCAL = max(0.25, KO_STEP_SIGMA * 0.7)
+    step = KO_STEP_SIGMA_LOCAL * sd0
 
-vals = [v_wo[c] for c in v_wo.keys()]
-mu0  = float(np.mean(vals)); sd0 = float(np.std(vals) + 1e-12)
-KO_STEP_SIGMA_LOCAL = max(0.25, KO_STEP_SIGMA * 0.7)
-step = KO_STEP_SIGMA_LOCAL * sd0
+    new_scores = {}
+    for rank, car in enumerate(ko_order, start=1):
+        rank_adjust = step * (len(ko_order) - rank)
+        blended = (1.0 - ko_scale) * v_wo[car] + ko_scale * (
+            mu0 + rank_adjust - (len(ko_order)/2.0 - 0.5)*step
+        )
+        new_scores[car] = blended
+    v_final = {int(k): float(v) for k, v in new_scores.items()}
 
-new_scores = {}
-for rank, car in enumerate(ko_order, start=1):
-    # 勝敗もT優先＝シード順がそのまま上位。ブレンドは「T順の順位」に沿って付与
-    rank_adjust = step * (len(ko_order) - rank)
-    blended = (1.0 - ko_scale) * v_wo[car] + ko_scale * (mu0 + rank_adjust - (len(ko_order)/2.0 - 0.5)*step)
-    new_scores[car] = blended
-
-v_final = {int(k): float(v) for k, v in new_scores.items()}
+else:
+    # KOを使わない（またはライン無し）ケースのフォールバック
+    ko_order = [int(df_sorted_wo.loc[i, "車番"]) for i in range(len(df_sorted_wo))]
+    v_final = {int(c): float(v_wo[int(c)]) for c in ko_order}
 
 # --- 純SBなしランキング（KOまで／格上げ前）
 df_sorted_pure = pd.DataFrame({
