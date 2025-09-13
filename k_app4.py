@@ -938,191 +938,218 @@ if "α" not in result_marks:
 # ==============================
 # ★ 偏差値セクション（新規）
 # ==============================
-# SB原点：個人(S+B)×位置重み
-sb_raw = {}
+# ==============================
+# ★ 新規パラメータ（偏差値＆買い目＆目標回収率）
+# ==============================
+HEN_DEC_PLACES = 1           # 偏差値 小数一桁
+HEN_BASELINE_MARK = "△"      # △=50 を基準化
+HEN_CAP_TOP = 80.0           # ◎の上限
+HEN_FLOOR = 35.0             # 見た目の下限（必要なら）
+
+# 買い目スコア下限（偏差値Sの合計でフィルタ）
+S_TRIO_MIN = 170.0           # 三連複の最低S
+S_QN_MIN   = 120.0           # 二車複の最低S
+S_WIDE_MIN = 110.0           # ワイドの最低S
+
+# 目標回収率（=期待値しきい値）
+TARGET_ROI = {
+    "trio": 1.20,   # 三連複
+    "qn":   1.10,   # 二車複
+    "wide": 1.05,   # ワイド
+}
+
+# ==============================
+# ★ 偏差値（風・バンク・周回・個人補正＋ライン位置SB）を反映
+# ==============================
+# ここまでに作ってある中間値を使う：
+# - df["合計_SBなし_raw"] : 風/会場/周回/個人補正まで入った生スコア
+# - bonus_init : ライングループSBボーナス（compute_lineSB_bonusの結果）
+# - role_in_line(...) / pos_coeff(...) : ライン内の役割重み
+# - score_adj_map / v_final は“印/並び調整用”なので偏差値は使わない（※偏差値は買い目の母集団整合を優先）
+
+# 車ごとの「偏差値用の連続スコア」を作る（=環境とライン位置まで入れる）
+hen_base_score = {}
 for no in active_cars:
+    # 合計_SBなし_raw（環境・個人補正まで）を母体に
+    raw = float(df.loc[df["車番"] == no, "合計_SBなし_raw"].iloc[0]) if not df.empty else 0.0
+    # ライングループSBボーナス（役割重みをかけて各車に配賦）
     role = role_in_line(no, line_def)
-    wpos = {'head':1.0,'second':0.7,'thirdplus':0.5,'single':0.9}.get(role,0.9)
-    sb_raw[no] = wpos * (float(S.get(no,0)) + float(B.get(no,0)))
+    g = car_to_group.get(no, None)
+    sb_g = float(bonus_init.get(g, 0.0)) if g is not None else 0.0
+    sb_car = sb_g * pos_coeff(role, 1.0)
+    hen_base_score[no] = raw + sb_car
 
-prof_raw = {no: float(prof_base[no]) for no in active_cars}
-in3_raw  = {no: float(_shrink_p3in(no)) for no in active_cars}
+# Z→偏差値（50±10）へ
+vals = [hen_base_score[n] for n in active_cars]
+mu = float(np.mean(vals)) if vals else 0.0
+sd = float(np.std(vals)) if vals else 1.0
+sd = (sd if sd > 1e-12 else 1.0)
+hen_raw = {n: (50.0 + 10.0 * ((hen_base_score[n] - mu) / sd)) for n in active_cars}
 
-z_sb   = zscore_list([sb_raw[no] for no in active_cars]) if active_cars else []
-z_prof = zscore_list([prof_raw[no] for no in active_cars]) if active_cars else []
-z_in   = zscore_list([in3_raw[no]  for no in active_cars]) if active_cars else []
+# △=50 へ“平行移動”：△が無い場合は中央値に寄せる
+def _find_mark_car(mk: str) -> int | None:
+    for k, v in result_marks.items():
+        if k == mk:
+            return v
+    return None
 
-hen_map = {}
-for i, no in enumerate(active_cars):
-    z = HEN_W_SB*z_sb[i] + HEN_W_PROF*z_prof[i] + HEN_W_IN*z_in[i]
-    hen = 50.0 + 10.0*float(z)
-    hen_map[no] = round(hen, HEN_DEC_PLACES)
+delta_shift = 0.0
+delta_car = _find_mark_car(HEN_BASELINE_MARK)
+if delta_car is not None and delta_car in hen_raw:
+    delta_shift = 50.0 - float(hen_raw[delta_car])
+else:
+    # フォールバック：中央値を50に
+    arr = sorted(hen_raw.values())
+    med = (arr[len(arr)//2] if arr else 50.0)
+    delta_shift = 50.0 - float(med)
 
+hen_shifted = {n: (hen_raw[n] + delta_shift) for n in active_cars}
+
+# ◎の上限を80に“平行移動”で揃える（超過分だけ全体を下げる）
+top_val = max(hen_shifted.values()) if hen_shifted else 50.0
+over = top_val - HEN_CAP_TOP
+if over > 0:
+    hen_shifted = {n: (hen_shifted[n] - over) for n in active_cars}
+
+# 見た目の下限を敷く（任意）
+hen_map = {n: round(max(HEN_FLOOR, hen_shifted[n]), HEN_DEC_PLACES) for n in active_cars}
+
+# 偏差値の縦並びを note 用にも使える形で保持（1〜n_cars順）
+hen_vert_lines = [f"{i}: {hen_map.get(i, None) if i in active_cars else '-'}" for i in range(1, n_cars+1)]
+
+# 画面表示
+st.markdown("### 偏差値（風・ライン位置込み / △=50・◎≤80 調整後）")
 hen_df = pd.DataFrame({
     "車": active_cars,
     "偏差値": [hen_map[n] for n in active_cars],
-    "SB原点": [round(sb_raw[n],3) for n in active_cars],
-    "脚質原点": [round(prof_raw[n],3) for n in active_cars],
-    "入着(縮約3内)": [round(in3_raw[n],3) for n in active_cars],
-}).sort_values(["偏差値","車"], ascending=[False, True]).reset_index(drop=True)
-
-st.markdown("### 偏差値（SB0.2・脚質0.3・入着0.5）")
-st.dataframe(hen_df, use_container_width=True)
-
-# ==============================
-# 表示：ランキング＆印（既存）
-# ==============================
-st.markdown("### ランキング＆印（◎ライン格上げ反映済み）")
-rows_out=[]
-for r,(no,sc) in enumerate(velobi_wo, start=1):
-    mark = "".join([m for m,v in result_marks.items() if v==no])
-    n_tot = x1.get(no,0)+x2.get(no,0)+x3.get(no,0)+x_out.get(no,0)
-    p1p = (x1.get(no,0)/(n_tot+1e-9))*100
-    p2p = (x2.get(no,0)/(n_tot+1e-9))*100
-    rows_out.append({
-        "順(SBなし)": r, "印": mark, "車": no,
-        "SBなしスコア": sc,
-        "偏差値": hen_map.get(no, None),
-        "得点": ratings_val.get(no, None),
-        "1着回": x1.get(no,0), "2着回": x2.get(no,0), "3着回": x3.get(no,0), "着外": x_out.get(no,0),
-        "1着%": round(p1p,1), "2着%": round(p2p,1),
-        "ライン": car_to_group.get(no,"-")
-    })
-st.dataframe(pd.DataFrame(rows_out), use_container_width=True)
-
-st.markdown("#### 補正内訳（SBなし）")
-show=[]
-for no,_ in velobi_wo:
-    rec = df[df["車番"]==no].iloc[0]
-    show.append({
-        "車":int(no),"ライン":car_to_group.get(int(no),"-"),
-        "脚質基準(会場)":round(rec["脚質基準(会場)"],3),
-        "風補正":rec["風補正"],"得点補正":rec["得点補正"],
-        "バンク補正":rec["バンク補正"],"周長補正":rec["周長補正"],
-        "周回補正":rec["周回補正"],"個人補正":rec["個人補正"],
-        "合計_SBなし_raw":round(rec["合計_SBなし_raw"],3),
-        "合計_SBなし":round(rec["合計_SBなし"],3)
-    })
-st.dataframe(pd.DataFrame(show), use_container_width=True)
-
-score_order_text = format_rank_all({int(r["車番"]): float(r["合計_SBなし"]) for _, r in df_sorted_pure.iterrows()}, P_floor_val=None)
-st.caption(
-    f"競輪場　{track}{race_no}R / {race_time}　{race_class} / "
-    f"開催日：{day_label}（line係数={line_factor_eff:.2f}, SBcap±{cap_SB_eff:.2f}） / "
-    f"会場スタイル:{style:+.2f} / 風:{st.session_state.get('wind_dir_input','無風')} / 有効周回={eff_laps} / 展開評価：**{confidence}**（Norm={norm:.2f})"
-)
+    "ベース": [round(hen_base_score[n], 3) for n in active_cars],
+    "役割": [role_in_line(n, line_def) for n in active_cars],
+    "ライン": [car_to_group.get(n, "-") for n in active_cars],
+})
+st.dataframe(hen_df.sort_values(["偏差値","車"], ascending=[False, True]).reset_index(drop=True),
+             use_container_width=True)
 
 # ==============================
-# ★ 推奨ラベル & 偏差値ベース買い目（最大6点）
+# ★ 買い目生成（“全候補”）＋ 最低限オッズ（目標回収率ベース）
 # ==============================
-# 1) 推奨ラベル
-strong_list = [n for n in active_cars if hen_map.get(n, 0.0) >= HEN_THRESHOLD]
-k = len(strong_list)
-if LABEL_MAP["ken"](k):
-    rec_label = "推奨 ケン"
-elif LABEL_MAP["trio"](k):
-    rec_label = "推奨 3連複"
-elif LABEL_MAP["wide_qn"](k):
-    rec_label = "推奨 2車複・ワイド"
+def _pair_score(a,b):  return float(hen_map.get(a,0.0) + hen_map.get(b,0.0))
+def _trio_score(a,b,c):return float(hen_map.get(a,0.0) + hen_map.get(b,0.0) + hen_map.get(c,0.0))
+
+# 全組合せ
+pairs, trios = [], []
+for i in range(len(active_cars)):
+    for j in range(i+1, len(active_cars)):
+        a, b = active_cars[i], active_cars[j]
+        pairs.append((a,b,_pair_score(a,b)))
+for i in range(len(active_cars)):
+    for j in range(i+1, len(active_cars)):
+        for k in range(j+1, len(active_cars)):
+            a, b, c = active_cars[i], active_cars[j], active_cars[k]
+            trios.append((a,b,c,_trio_score(a,b,c)))
+
+# スコア下限でフィルタ
+pairs_qn  = [(a,b,s)     for (a,b,s)     in pairs if s >= S_QN_MIN]
+pairs_w   = [(a,b,s)     for (a,b,s)     in pairs if s >= S_WIDE_MIN]
+trios_all = [(a,b,c,s)   for (a,b,c,s)   in trios if s >= S_TRIO_MIN]
+
+# ソート
+pairs_qn  = sorted(pairs_qn,  key=lambda x:(-x[2], x[0], x[1]))
+pairs_w   = sorted(pairs_w,   key=lambda x:(-x[2], x[0], x[1]))
+trios_all = sorted(trios_all, key=lambda x:(-x[3], x[0], x[1], x[2]))
+
+# 疑似確率：同型内で「Sの総和」に比例（※キャリブ不要でシンプル）
+def _pseudo_probs_from_scores(scores: list[float]) -> list[float]:
+    tot = float(sum(max(0.0, s) for s in scores)) or 1.0
+    return [max(0.0, s) / tot for s in scores]
+
+def _round_to_0p5(x: float) -> float:
+    # “〜倍”表現の丸め（0.5刻み）
+    return math.floor(x*2 + 0.5) / 2.0
+
+# 最低限オッズ（その型で“買える候補”の中で最小の必要オッズを掲示）
+def _min_required_odds_for_list(scores: list[float], target_roi: float) -> float | None:
+    if not scores: return None
+    probs = _pseudo_probs_from_scores(scores)
+    reqs = [target_roi / p if p > 1e-12 else float("inf") for p in probs]
+    m = min(reqs) if reqs else None
+    return _round_to_0p5(m) if m is not None and math.isfinite(m) else None
+
+min_odds_trio = _min_required_odds_for_list([s for *_,s in trios_all], TARGET_ROI["trio"])
+min_odds_qn   = _min_required_odds_for_list([s for *_,s in pairs_qn],  TARGET_ROI["qn"])
+min_odds_wide = _min_required_odds_for_list([s for *_,s in pairs_w],   TARGET_ROI["wide"])
+
+# 表示テーブル
+def _df_trio(rows):
+    return pd.DataFrame([{
+        "買い目": "-".join(map(str, sorted([a,b,c]))),
+        "偏差値S": round(s,1)
+    } for (a,b,c,s) in rows])
+
+def _df_pair(rows):
+    return pd.DataFrame([{
+        "買い目": f"{a}-{b}",
+        "偏差値S": round(s,1)
+    } for (a,b,s) in rows])
+
+if trios_all:
+    hdr = "#### 三連複（偏差値Sフィルタ）"
+    if min_odds_trio is not None:
+        hdr += f"　/　**最低限オッズ {min_odds_trio:.1f}倍以上**（目標回収率{int(TARGET_ROI['trio']*100)}%）"
+    st.markdown(hdr)
+    st.dataframe(_df_trio(trios_all), use_container_width=True)
 else:
-    # 1-2台強者
-    if any(hen_map[n] >= HEN_STRONG_ONE for n in strong_list):
-        rec_label = "推奨 全券種（強軸流し寄り）"
-    else:
-        rec_label = "推奨 3連複（抑えで2車複・ワイド）"
-st.markdown(f"### 🎯 {rec_label}")
+    st.markdown("#### 三連複（該当なし）")
 
-# 2) 買い目生成（偏差値でスコアリング／上位から最大6点）
-def _pair_score(a,b):
-    # 偏差値の和で評価（単純・高速）
-    return float(hen_map.get(a,0.0) + hen_map.get(b,0.0))
-def _trio_score(a,b,c):
-    return float(hen_map.get(a,0.0) + hen_map.get(b,0.0) + hen_map.get(c,0.0))
+if pairs_qn:
+    hdr = "#### 二車複（偏差値Sフィルタ）"
+    if min_odds_qn is not None:
+        hdr += f"　/　**最低限オッズ {min_odds_qn:.1f}倍以上**（目標回収率{int(TARGET_ROI['qn']*100)}%）"
+    st.markdown(hdr)
+    st.dataframe(_df_pair(pairs_qn), use_container_width=True)
+else:
+    st.markdown("#### 二車複（該当なし）")
 
-cars_sorted_by_hen = sorted(active_cars, key=lambda n:(-hen_map[n], n))
-top_for_combo = cars_sorted_by_hen[:min(7, len(cars_sorted_by_hen))]  # 組合せ爆発を抑制
-
-# --- 3連複（BOXまたは◎相当上位流し）
-trio_rows = []
-if LABEL_MAP["trio"](k) or rec_label.startswith("推奨 全券種") or rec_label.startswith("推奨 3連複"):
-    cand = strong_list if 3 <= k <= 6 else top_for_combo
-    tri = []
-    for i in range(len(cand)):
-        for j in range(i+1, len(cand)):
-            for l in range(j+1, len(cand)):
-                a,b,c = cand[i], cand[j], cand[l]
-                tri.append((a,b,c,_trio_score(a,b,c)))
-    tri = sorted(tri, key=lambda x:(-x[3], x[0], x[1], x[2]))[:MAX_TICKETS]
-    for a,b,c,sc in tri:
-        trio_rows.append({"買い目":"-".join(map(str,sorted([a,b,c]))), "偏差値スコア": round(sc,1)})
-trio_df = pd.DataFrame(trio_rows)
-
-# --- 2車複
-qn_rows = []
-if LABEL_MAP["wide_qn"](k) or rec_label.startswith("推奨 全券種") or rec_label.endswith("2車複・ワイド"):
-    cand = strong_list if k>=2 else top_for_combo
-    pairs=[]
-    for i in range(len(cand)):
-        for j in range(i+1, len(cand)):
-            a,b = cand[i], cand[j]
-            pairs.append((a,b,_pair_score(a,b)))
-    pairs = sorted(pairs, key=lambda x:(-x[2], x[0], x[1]))[:MAX_TICKETS]
-    for a,b,sc in pairs:
-        qn_rows.append({"買い目":f"{a}-{b}", "偏差値スコア": round(sc,1)})
-qn_df = pd.DataFrame(qn_rows)
-
-# --- ワイド（2車複と同母集団／同ロジック）
-wide_rows = []
-if LABEL_MAP["wide_qn"](k) or rec_label.startswith("推奨 全券種") or rec_label.endswith("2車複・ワイド"):
-    cand = strong_list if k>=2 else top_for_combo
-    pairs=[]
-    for i in range(len(cand)):
-        for j in range(i+1, len(cand)):
-            a,b = cand[i], cand[j]
-            pairs.append((a,b,_pair_score(a,b)))
-    pairs = sorted(pairs, key=lambda x:(-x[2], x[0], x[1]))[:MAX_TICKETS]
-    for a,b,sc in pairs:
-        wide_rows.append({"買い目":f"{a}-{b}", "偏差値スコア": round(sc,1)})
-wide_df = pd.DataFrame(wide_rows)
-
-# 表示
-if not trio_df.empty:
-    st.markdown("#### 三連複（偏差値スコア上位・最大6点）")
-    st.dataframe(trio_df, use_container_width=True)
-if not qn_df.empty:
-    st.markdown("#### 二車複（偏差値スコア上位・最大6点）")
-    st.dataframe(qn_df, use_container_width=True)
-if not wide_df.empty:
-    st.markdown("#### ワイド（偏差値スコア上位・最大6点）")
-    st.dataframe(wide_df, use_container_width=True)
-if trio_df.empty and qn_df.empty and wide_df.empty:
-    st.info("該当なし（ケン推奨）")
+if pairs_w:
+    hdr = "#### ワイド（偏差値Sフィルタ）"
+    if min_odds_wide is not None:
+        hdr += f"　/　**最低限オッズ {min_odds_wide:.1f}倍以上**（目標回収率{int(TARGET_ROI['wide']*100)}%）"
+    st.markdown(hdr)
+    st.dataframe(_df_pair(pairs_w), use_container_width=True)
+else:
+    st.markdown("#### ワイド（該当なし）")
 
 # ==============================
-# note用（冒頭に推奨ラベルを差し込む）
+# ★ note用 出力（縦並び偏差値・全候補・最低限オッズ帯）
 # ==============================
-st.markdown("### 📋 note用")
-def _lines_from_df_simple(df: pd.DataFrame, title: str) -> str:
-    if df is None or df.empty:
-        return f"{title}\n対象外"
-    lines = [f"{row['買い目']}（偏差値S {row['偏差値スコア']:.1f}）" for _, row in df.iterrows()]
-    return f"{title}\n" + "\n".join(lines)
+st.markdown("### 📋 note用（コピーエリア）")
 
 line_text = "　".join([x for x in line_inputs if str(x).strip()])
 marks_line = " ".join(f"{m}{result_marks[m]}" for m in ["◎","〇","▲","△","×","α","β"] if m in result_marks)
 score_map_for_note = {int(r["車番"]): float(r["合計_SBなし"]) for _, r in df_sorted_wo.iterrows()}
 score_order_text = format_rank_all(score_map_for_note, P_floor_val=None)
 
+def _lines_from_df_note(df: pd.DataFrame, title: str, min_odds: float|None, roi_key: str) -> str:
+    if df is None or df.empty:
+        tail = "対象外"
+    else:
+        rows = [f"{row['買い目']}（S={row['偏差値S']:.1f}）" for _, row in df.iterrows()]
+        tail = "\n".join(rows)
+    head = title
+    if min_odds is not None:
+        head += f"（基準{(S_TRIO_MIN if '三連複' in title else S_QN_MIN if '二車複' in title else S_WIDE_MIN):.0f}以上／最低限オッズ {min_odds:.1f}倍以上）"
+    return f"{head}\n{tail}"
+
 note_text = (
-    f"{rec_label}\n"
+    f"{'推奨 3連複' if len(trios_all)>=1 else ('推奨 2車複・ワイド' if len(pairs_qn)+len(pairs_w)>=1 else '推奨 ケン')}\n"
     f"競輪場　{track}{race_no}R\n"
     f"展開評価：{confidence}\n\n"
     f"{race_time}　{race_class}\n"
     f"ライン　{line_text}\n"
     f"スコア順（SBなし）　{score_order_text}\n"
     f"{marks_line}\n\n"
-    + _lines_from_df_simple(trio_df,  "三連複（偏差値上位）") + "\n\n"
-    + _lines_from_df_simple(qn_df,    "二車複（偏差値上位）") + "\n\n"
-    + _lines_from_df_simple(wide_df,  "ワイド（偏差値上位）")
+    "偏差値（風・ライン込み）\n" + "\n".join(hen_vert_lines) + "\n\n"
+    + _lines_from_df_note(_df_trio(trios_all), "三連複", min_odds_trio, "trio") + "\n\n"
+    + _lines_from_df_note(_df_pair(pairs_qn),   "二車複", min_odds_qn,   "qn")   + "\n\n"
+    + _lines_from_df_note(_df_pair(pairs_w),    "ワイド", min_odds_wide, "wide")
 )
-st.text_area("ここを選択してコピー", note_text, height=360)
+st.text_area("ここを選択してコピー", note_text, height=520)
