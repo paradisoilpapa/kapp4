@@ -957,54 +957,87 @@ HEN_DEC_PLACES = 1
 EPS = 1e-12
 
 # =========== ユーティリティ ===========
+# ===== REPLACE: NaN/欠損に強いスコア整形 =========================
 def coerce_score_map(d, n_cars: int) -> dict[int, float]:
-    """任意の d を {車番:int -> スコア:float or NaN} に正規化し 1..n_cars を埋める"""
+    """
+    任意の d を {車番:int -> スコア:float or NaN} に正規化し、1..n_cars を埋める。
+    優先順: DataFrame > Series > dict/Mapping > list/tuple/ndarray > None
+    """
     out: dict[int, float] = {}
-    if d is None:
-        pass
-    elif hasattr(d, "items"):  # dict
+
+    # --- DataFrame ---
+    if "pandas.core.frame" in str(type(d)).lower():
+        try:
+            df_ = d
+            # 車番列
+            car_col = "車番" if "車番" in df_.columns else None
+            if car_col is None:
+                for c in df_.columns:
+                    if np.issubdtype(df_[c].dtype, np.integer):
+                        car_col = c; break
+            # スコア列
+            score_col = None
+            for cand in ["合計_SBなし", "SBなし", "スコア", "score", "SB_wo", "SB"]:
+                if cand in df_.columns:
+                    score_col = cand; break
+            if score_col is None:
+                for c in df_.columns:
+                    if c == car_col: continue
+                    if np.issubdtype(df_[c].dtype, np.number):
+                        score_col = c; break
+            if car_col is not None and score_col is not None:
+                for _, r in df_.iterrows():
+                    try:    i = int(r[car_col])
+                    except:  continue
+                    try:    x = float(r[score_col])
+                    except:  x = np.nan
+                    out[i] = x
+        except:
+            pass
+
+    # --- Series ---
+    elif "pandas.core.series" in str(type(d)).lower():
+        try:
+            for k, v in d.to_dict().items():
+                try:    i = int(k)
+                except:  continue
+                try:    x = float(v)
+                except:  x = np.nan
+                out[i] = x
+        except:
+            pass
+
+    # --- dict / Mapping ---
+    elif hasattr(d, "items"):
         for k, v in d.items():
-            try: out[int(k)] = float(v)
-            except Exception: out[int(k)] = np.nan
-    elif "pandas.core.series" in str(type(d)).lower():  # Series
-        for k, v in d.to_dict().items():
-            try: out[int(k)] = float(v)
-            except Exception: out[int(k)] = np.nan
-    elif "pandas.core.frame" in str(type(d)).lower():   # DataFrame
-        df_ = d.copy()
-        car_col = "車番" if "車番" in df_.columns else None
-        if car_col is None:
-            for c in df_.columns:
-                if np.issubdtype(df_[c].dtype, np.integer):
-                    car_col = c; break
-        score_col = None
-        for cand in ["合計_SBなし","SBなし","スコア","score","SB_wo","SB"]:
-            if cand in df_.columns: score_col = cand; break
-        if score_col is None:
-            for c in df_.columns:
-                if c == car_col: continue
-                if np.issubdtype(df_[c].dtype, np.number):
-                    score_col = c; break
-        if car_col and score_col:
-            for _, r in df_.iterrows():
-                try: i = int(r[car_col])
-                except Exception: continue
-                try: out[i] = float(r[score_col])
-                except Exception: out[i] = np.nan
-    elif isinstance(d, (list, tuple, np.ndarray)):      # list/tuple/ndarray
+            try:    i = int(k)
+            except:  continue
+            try:    x = float(v)
+            except:  x = np.nan
+            out[i] = x
+
+    # --- list / tuple / ndarray ---
+    elif isinstance(d, (list, tuple, np.ndarray)):
         arr = list(d)
         if len(arr) == n_cars and all(not isinstance(x,(list,tuple,dict)) for x in arr):
             for idx, v in enumerate(arr, start=1):
-                try: out[idx] = float(v)
-                except Exception: out[idx] = np.nan
+                try:    out[idx] = float(v)
+                except:  out[idx] = np.nan
         else:
             for it in arr:
-                if isinstance(it,(list,tuple)) and len(it) >= 2:
-                    try: i = int(it[0]); x = float(it[1]); out[i] = x
-                    except Exception: pass
-    for i in range(1, int(n_cars)+1):
+                if isinstance(it, (list, tuple)) and len(it) >= 2:
+                    try:
+                        i = int(it[0]); x = float(it[1])
+                        out[i] = x
+                    except:
+                        continue
+    # None → 何もしない
+
+    # 1..n_cars を埋める
+    for i in range(1, int(n_cars) + 1):
         out.setdefault(i, np.nan)
     return out
+
 
 def t_score_from_finite(values: np.ndarray, eps: float = 1e-9) -> tuple[np.ndarray, float, float, int]:
     """
