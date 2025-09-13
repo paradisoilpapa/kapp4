@@ -1314,8 +1314,8 @@ def _fmt_hen_lines(ts_map: dict) -> str:
             out.append(f"{n}: —")
     return "\n".join(out)
 
-hen_lines_global = _fmt_hen_lines(global_t_fixed)  # 全体基準（フォールバック適用済み）
-hen_lines_race   = _fmt_hen_lines(race_t)          # レース内基準（SBなし→T）
+# ★ 偏差値は「レース内基準」のみを出力（全体基準は非表示）
+hen_lines_race = _fmt_hen_lines(race_t)
 
 def _lines_from_df_note(df: pd.DataFrame, title: str, min_odds: float|None) -> str:
     if df is None or df.empty:
@@ -1338,12 +1338,11 @@ note_text = (
     f"スコア順（SBなし）　{score_order_text}\n"
     f"{marks_line}\n\n"
     "偏差値（風・ライン込み）\n"
-    "— 全体基準 —\n"
-    f"{hen_lines_global}\n\n"
     "— レース内基準（平均50・SD10） —\n"
     f"{hen_lines_race}\n\n"
     + _lines_from_df_note(_df_trio(trios_all), "三連複", min_odds_trio) + "\n\n"
     + _lines_from_df_note(_df_pair(pairs_qn),   "二車複", min_odds_qn)   + "\n\n"
     + _lines_from_df_note(_df_pair(pairs_w),    "ワイド", min_odds_wide)
 )
+
 st.text_area("ここを選択してコピー", note_text, height=520)
