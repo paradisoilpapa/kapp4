@@ -936,98 +936,58 @@ if "α" not in result_marks:
         reasons[alpha_pick] = "α（フォールバック：禁止条件全滅→最弱を採用）"
 
 # ==============================
-# ★ 偏差値セクション（新規）
+# ★ 偏差値セクション（△=50・◎≤80版）
 # ==============================
-# ==============================
-# ★ 新規パラメータ（偏差値＆買い目＆目標回収率）
-# ==============================
-HEN_DEC_PLACES = 1           # 偏差値 小数一桁
-HEN_BASELINE_MARK = "△"      # △=50 を基準化
-HEN_CAP_TOP = 80.0           # ◎の上限
-HEN_FLOOR = 35.0             # 見た目の下限（必要なら）
-
-# 買い目スコア下限（偏差値Sの合計でフィルタ）
-S_TRIO_MIN = 170.0           # 三連複の最低S
-S_QN_MIN   = 120.0           # 二車複の最低S
-S_WIDE_MIN = 110.0           # ワイドの最低S
-
-# 目標回収率（=期待値しきい値）
-TARGET_ROI = {
-    "trio": 1.20,   # 三連複
-    "qn":   1.10,   # 二車複
-    "wide": 1.05,   # ワイド
-}
-
-# ==============================
-# ★ 偏差値（風・バンク・周回・個人補正＋ライン位置SB）を反映
-# ==============================
-# ここまでに作ってある中間値を使う：
-# - df["合計_SBなし_raw"] : 風/会場/周回/個人補正まで入った生スコア
-# - bonus_init : ライングループSBボーナス（compute_lineSB_bonusの結果）
-# - role_in_line(...) / pos_coeff(...) : ライン内の役割重み
-# - score_adj_map / v_final は“印/並び調整用”なので偏差値は使わない（※偏差値は買い目の母集団整合を優先）
-
-# 車ごとの「偏差値用の連続スコア」を作る（=環境とライン位置まで入れる）
-hen_base_score = {}
+# 1) 素のスコア（SB・環境・入着）
+sb_raw = {}
 for no in active_cars:
-    # 合計_SBなし_raw（環境・個人補正まで）を母体に
-    raw = float(df.loc[df["車番"] == no, "合計_SBなし_raw"].iloc[0]) if not df.empty else 0.0
-    # ライングループSBボーナス（役割重みをかけて各車に配賦）
     role = role_in_line(no, line_def)
-    g = car_to_group.get(no, None)
-    sb_g = float(bonus_init.get(g, 0.0)) if g is not None else 0.0
-    sb_car = sb_g * pos_coeff(role, 1.0)
-    hen_base_score[no] = raw + sb_car
+    wpos = {'head':1.0,'second':0.7,'thirdplus':0.5,'single':0.9}.get(role,0.9)
+    sb_raw[no] = wpos * (float(S.get(no,0)) + float(B.get(no,0)))
 
-# Z→偏差値（50±10）へ
-vals = [hen_base_score[n] for n in active_cars]
-mu = float(np.mean(vals)) if vals else 0.0
-sd = float(np.std(vals)) if vals else 1.0
-sd = (sd if sd > 1e-12 else 1.0)
-hen_raw = {n: (50.0 + 10.0 * ((hen_base_score[n] - mu) / sd)) for n in active_cars}
+prof_raw = {no: float(prof_base[no]) for no in active_cars}
+in3_raw  = {no: float(_shrink_p3in(no)) for no in active_cars}
 
-# △=50 へ“平行移動”：△が無い場合は中央値に寄せる
-def _find_mark_car(mk: str) -> int | None:
-    for k, v in result_marks.items():
-        if k == mk:
-            return v
-    return None
+# 2) z化
+z_sb   = zscore_list([sb_raw[no]  for no in active_cars]) if active_cars else []
+z_prof = zscore_list([prof_raw[no] for no in active_cars]) if active_cars else []
+z_in   = zscore_list([in3_raw[no]  for no in active_cars]) if active_cars else []
 
-delta_shift = 0.0
-delta_car = _find_mark_car(HEN_BASELINE_MARK)
-if delta_car is not None and delta_car in hen_raw:
-    delta_shift = 50.0 - float(hen_raw[delta_car])
-else:
-    # フォールバック：中央値を50に
-    arr = sorted(hen_raw.values())
-    med = (arr[len(arr)//2] if arr else 50.0)
-    delta_shift = 50.0 - float(med)
+hen_raw = {}
+for i,no in enumerate(active_cars):
+    z = HEN_W_SB*z_sb[i] + HEN_W_PROF*z_prof[i] + HEN_W_IN*z_in[i]
+    hen_raw[no] = 50.0 + 10.0*float(z)
 
-hen_shifted = {n: (hen_raw[n] + delta_shift) for n in active_cars}
+# 3) △=50 に平行移動
+base_car = result_marks.get("△", None)
+if base_car is None or base_car not in hen_raw:
+    # △がなければ中央値の車
+    sorted_items = sorted(hen_raw.items(), key=lambda x:x[1])
+    base_car = sorted_items[len(sorted_items)//2][0]
+shift = 50.0 - hen_raw[base_car]
+hen_shifted = {no: hen_raw[no] + shift for no in active_cars}
 
-# ◎の上限を80に“平行移動”で揃える（超過分だけ全体を下げる）
-top_val = max(hen_shifted.values()) if hen_shifted else 50.0
-over = top_val - HEN_CAP_TOP
-if over > 0:
-    hen_shifted = {n: (hen_shifted[n] - over) for n in active_cars}
+# 4) ◎≤80に調整
+hmax = max(hen_shifted.values()) if hen_shifted else 80.0
+if hmax > 80.0:
+    down = hmax - 80.0
+    hen_shifted = {no: val - down for no,val in hen_shifted.items()}
 
-# 見た目の下限を敷く（任意）
-hen_map = {n: round(max(HEN_FLOOR, hen_shifted[n]), HEN_DEC_PLACES) for n in active_cars}
+# 5) 丸め
+hen_map = {no: round(hen_shifted[no], HEN_DEC_PLACES) for no in active_cars}
 
-# 偏差値の縦並びを note 用にも使える形で保持（1〜n_cars順）
-hen_vert_lines = [f"{i}: {hen_map.get(i, None) if i in active_cars else '-'}" for i in range(1, n_cars+1)]
-
-# 画面表示
-st.markdown("### 偏差値（風・ライン位置込み / △=50・◎≤80 調整後）")
+# 表示
 hen_df = pd.DataFrame({
     "車": active_cars,
     "偏差値": [hen_map[n] for n in active_cars],
-    "ベース": [round(hen_base_score[n], 3) for n in active_cars],
-    "役割": [role_in_line(n, line_def) for n in active_cars],
-    "ライン": [car_to_group.get(n, "-") for n in active_cars],
-})
-st.dataframe(hen_df.sort_values(["偏差値","車"], ascending=[False, True]).reset_index(drop=True),
-             use_container_width=True)
+    "SB原点": [round(sb_raw[n],3) for n in active_cars],
+    "脚質原点": [round(prof_raw[n],3) for n in active_cars],
+    "入着(縮約3内)": [round(in3_raw[n],3) for n in active_cars],
+}).sort_values(["偏差値","車"], ascending=[False, True]).reset_index(drop=True)
+
+st.markdown("### 偏差値（△=50・◎≤80・風/ライン込み）")
+st.dataframe(hen_df, use_container_width=True)
+
 
 # ==============================
 # ★ 買い目生成（“全候補”）＋ 最低限オッズ（目標回収率ベース）
@@ -1128,6 +1088,9 @@ marks_line = " ".join(f"{m}{result_marks[m]}" for m in ["◎","〇","▲","△",
 score_map_for_note = {int(r["車番"]): float(r["合計_SBなし"]) for _, r in df_sorted_wo.iterrows()}
 score_order_text = format_rank_all(score_map_for_note, P_floor_val=None)
 
+# 偏差値を縦並びで出力
+hen_lines = "\n".join([f"{n}: {hen_map.get(n, 0):.1f}" for n in range(1, n_cars+1) if n in hen_map])
+
 def _lines_from_df_note(df: pd.DataFrame, title: str, min_odds: float|None, roi_key: str) -> str:
     if df is None or df.empty:
         tail = "対象外"
@@ -1147,9 +1110,11 @@ note_text = (
     f"ライン　{line_text}\n"
     f"スコア順（SBなし）　{score_order_text}\n"
     f"{marks_line}\n\n"
-    "偏差値（風・ライン込み）\n" + "\n".join(hen_vert_lines) + "\n\n"
+    "偏差値（風・ライン込み）\n"
+    f"{hen_lines}\n\n"
     + _lines_from_df_note(_df_trio(trios_all), "三連複", min_odds_trio, "trio") + "\n\n"
     + _lines_from_df_note(_df_pair(pairs_qn),   "二車複", min_odds_qn,   "qn")   + "\n\n"
     + _lines_from_df_note(_df_pair(pairs_w),    "ワイド", min_odds_wide, "wide")
 )
+
 st.text_area("ここを選択してコピー", note_text, height=520)
