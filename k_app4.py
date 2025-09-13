@@ -956,7 +956,7 @@ TARGET_ROI = {"trio":1.20, "qn":1.10, "wide":1.05}
 HEN_DEC_PLACES = 1
 EPS = 1e-12
 
-# === NaN/欠損に強いスコア整形 & Tスコア（NaN安全） =========================
+# === NaN/欠損に強いスコア整形 =========================
 def coerce_score_map(d, n_cars: int) -> dict[int, float]:
     """velobi_wo を {車番:int -> スコア:float} に正規化し、1..n_cars を埋める"""
     out: dict[int, float] = {}
@@ -984,7 +984,7 @@ def coerce_score_map(d, n_cars: int) -> dict[int, float]:
                 if np.issubdtype(df_[c].dtype, np.integer):
                     car_col = c; break
         score_col = None
-        for cand in ["SBなし", "合計_SBなし", "スコア", "score", "SB_wo", "SB"]:
+        for cand in ["合計_SBなし","SBなし","スコア","score","SB_wo","SB"]:
             if cand in df_.columns: score_col = cand; break
         if score_col is None:
             for c in df_.columns:
@@ -1016,80 +1016,79 @@ def coerce_score_map(d, n_cars: int) -> dict[int, float]:
         out.setdefault(i, np.nan)
     return out
 
-def fill_nans_with_median(arr: np.ndarray) -> np.ndarray:
-    a = arr.astype(float, copy=True)
-    finite = np.isfinite(a)
-    if not finite.any():
-        a[:] = 0.0
-        return a
-    med = float(np.nanmedian(a))
-    a[~finite] = med
-    return a
-
-def t_score_nan_safe(values: np.ndarray, eps: float = 1e-9) -> np.ndarray:
-    """母平均/母標準偏差で T=50+10*(x-μ)/σ。σ≈0 なら全員50。"""
+# === 偏差値（Tスコア）を有限値だけで作る =========================
+def t_score_from_finite(values: np.ndarray, eps: float = 1e-9) -> tuple[np.ndarray, float, float]:
+    """
+    有限値のみで μ, σ を計算し T=50+10*(x-μ)/σ を作る。
+    欠損(NaN)は T=50（母平均相当）に置く。σ≈0 なら全員50。
+    """
     v = values.astype(float, copy=True)
-    mu = float(np.nanmean(v))
-    sd = float(np.nanstd(v))
-    if not np.isfinite(mu): return np.full_like(v, 50.0)
-    if not np.isfinite(sd) or sd < eps: return np.full_like(v, 50.0)
-    return 50.0 + 10.0 * (v - mu) / sd
+    finite = np.isfinite(v)
+    cnt = int(finite.sum())
+    if cnt == 0:
+        return np.full_like(v, 50.0), float("nan"), 0.0
+    if cnt == 1:
+        mu = float(v[finite][0])
+        return np.full_like(v, 50.0), mu, 0.0
+    mu = float(np.mean(v[finite]))
+    sd = float(np.std(v[finite], ddof=0))
+    if not np.isfinite(sd) or sd < eps:
+        return np.full_like(v, 50.0), mu, 0.0
+    T = 50.0 + 10.0 * ((v - mu) / sd)
+    T[~finite] = 50.0
+    return T, mu, sd
+
+def _has_variation_finite(a: np.ndarray, eps: float = 1e-9) -> bool:
+    finite = np.isfinite(a)
+    if finite.sum() < 2:
+        return False
+    return float(np.std(a[finite], ddof=0)) > eps
 
 # ==============================
-# ★ 偏差値（レース内T＝平均50・SD10）— SBなしを母集団、平行移動/上限なし
+# ★ 偏差値（レース内T＝平均50・SD10）— SBなしを母集団
 # ==============================
-# 1) 車番集合（表示・計算の“母集団”を固定）
+# 車番集合（表示・計算の母集団を固定）
 USED_IDS = sorted(int(i) for i in (active_cars if active_cars else range(1, n_cars+1)))
 M = len(USED_IDS)
 
-# 2) レース内の SBなしスコア（風・ライン補正後）を取得
-#    第一候補: velobi_wo、第二候補: df_sorted_wo の「合計_SBなし」または「SBなし」
+# レース内の SBなしスコア（風・ライン補正後）
 score_map_sb_wo = coerce_score_map(velobi_wo, n_cars)
 xs_vwo = np.array([score_map_sb_wo.get(i, np.nan) for i in USED_IDS], dtype=float)
 
 def _extract_sb_from_df_sorted_wo(ids: list[int]) -> np.ndarray:
-    if 'df_sorted_wo' not in globals() or df_sorted_wo is None:
-        return np.full(len(ids), np.nan, dtype=float)
-    if "車番" not in df_sorted_wo.columns:
+    if 'df_sorted_wo' not in globals() or df_sorted_wo is None or "車番" not in df_sorted_wo.columns:
         return np.full(len(ids), np.nan, dtype=float)
     col = "合計_SBなし" if "合計_SBなし" in df_sorted_wo.columns else ("SBなし" if "SBなし" in df_sorted_wo.columns else None)
     if col is None:
         return np.full(len(ids), np.nan, dtype=float)
     mp = {}
     for _, r in df_sorted_wo.iterrows():
-        try:
-            mp[int(r["車番"])] = float(r[col])
-        except Exception:
-            pass
+        try: mp[int(r["車番"])] = float(r[col])
+        except Exception: pass
     return np.array([mp.get(i, np.nan) for i in ids], dtype=float)
 
 xs_alt = _extract_sb_from_df_sorted_wo(USED_IDS)
 
-# 3) “分散>0”のソースを厳密に選ぶ（velobi_wo優先、ダメなら df_sorted_wo）
-def _std_ok(a: np.ndarray) -> bool:
-    a_filled = fill_nans_with_median(a.copy())
-    return bool(np.isfinite(np.nanstd(a_filled)) and (np.nanstd(a_filled) > 1e-9))
-
-if _std_ok(xs_vwo):
-    xs_base = fill_nans_with_median(xs_vwo.copy())
-    SRC = "velobi_wo"
-elif _std_ok(xs_alt):
-    xs_base = fill_nans_with_median(xs_alt.copy())
-    SRC = "df_sorted_wo"
+# 分散が出るソースを選ぶ（velobi_wo 優先）
+if _has_variation_finite(xs_vwo):
+    xs_base_raw, SRC = xs_vwo, "velobi_wo"
+elif _has_variation_finite(xs_alt):
+    xs_base_raw, SRC = xs_alt, "df_sorted_wo"
 else:
-    # σ=0（または値が無い）→ 全員50（評価不能）。明示的にケン判定に使う。
-    xs_base = fill_nans_with_median(xs_vwo.copy())  # 形だけ埋める
-    SRC = "degenerate"
+    xs_base_raw, SRC = xs_vwo, "degenerate"  # 有限値が1以下 or 同値
 
-# 4) レース内偏差値 T を計算
-xs_race_t = t_score_nan_safe(xs_base)
+# レース内偏差値T（NaNはT=50）
+xs_race_t, mu_sbwo, sd_sbwo = t_score_from_finite(xs_base_raw)
 race_t = {USED_IDS[idx]: float(round(xs_race_t[idx], HEN_DEC_PLACES)) for idx in range(M)}
 race_z = (xs_race_t - 50.0) / 10.0
 
-# 5) 表示テーブル（Tスコアそのもの）
+# 参考（不要なら削除可）
+st.caption(f"SBなし母集団 μ={mu_sbwo if np.isfinite(mu_sbwo) else 'nan'} / σ={sd_sbwo:.6f} / source={SRC}")
+
+# 表示テーブル
 hen_df = pd.DataFrame({
     "車": USED_IDS,
-    "SBなし(基準)": [float(xs_base[idx]) for idx in range(M)],
+    "SBなし(基準)": [None if not np.isfinite(x) else float(x) for x in xs_base_raw],
     "偏差値T(レース内)": [race_t[i] for i in USED_IDS],
 }).sort_values(["偏差値T(レース内)","車"], ascending=[False, True]).reset_index(drop=True)
 
@@ -1121,7 +1120,7 @@ def prob_top3_triple_pl(i: int, j: int, k: int) -> float:
 def prob_wide_pair_pl(i: int, j: int) -> float:
     total = 0.0
     for k in USED_IDS:
-        if k == i or k == j:
+        if k == i or k == j: 
             continue
         total += prob_top3_triple_pl(i, j, k)
     return total
@@ -1129,7 +1128,7 @@ def prob_wide_pair_pl(i: int, j: int) -> float:
 # ==============================
 # ★ 買い目生成（S=このレース内偏差値）— σ=0なら全て該当なし
 # ==============================
-sigma_is_zero = (SRC == "degenerate") or (float(np.nanstd(xs_base)) <= 1e-9)
+sigma_is_zero = (sd_sbwo <= 1e-9)
 
 S_BASE_MAP = {i: float(race_t.get(i, 0.0)) for i in USED_IDS}
 def _pair_score(a,b):   return S_BASE_MAP.get(a,0.0) + S_BASE_MAP.get(b,0.0)
@@ -1152,7 +1151,7 @@ def _min_required_from_pairs(rows, p_func, roi: float) -> float|None:
         if p > EPS: reqs.append(roi / p)
     if not reqs: return None
     m = min(reqs)
-    return math.floor(m*2 + 0.5) / 2.0  # 0.5刻み
+    return math.floor(m*2 + 0.5) / 2.0
 
 def _min_required_from_trios(rows, p_func, roi: float) -> float|None:
     if not rows: return None
@@ -1206,12 +1205,10 @@ line_text = "　".join([x for x in line_inputs if str(x).strip()])
 marks_line = " ".join(f"{m}{result_marks[m]}" for m in ["◎","〇","▲","△","×","α","β"] if m in result_marks)
 score_map_for_note = {int(r["車番"]): float(r["合計_SBなし"]) for _, r in df_sorted_wo.iterrows()} if 'df_sorted_wo' in globals() and df_sorted_wo is not None else {}
 def format_rank_all(m, P_floor_val=None):
-    # 既存関数があるならそちらを使ってOK。なければ簡易で代替
     try:
         return globals()["format_rank_all"](m, P_floor_val=P_floor_val)
     except Exception:
         return " ".join(str(k) for k,_ in sorted(m.items(), key=lambda kv: (-kv[1], kv[0])))
-
 score_order_text = format_rank_all(score_map_for_note, P_floor_val=None)
 
 def _fmt_hen_lines(ts_map: dict, ids: list[int]) -> str:
