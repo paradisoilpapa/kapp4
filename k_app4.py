@@ -869,6 +869,105 @@ def enforce_alpha_eligibility(result_marks: dict[str,int]) -> dict[str,int]:
                 break
     return marks
 
+# ==============================
+# ★ レース内基準（SBなし）→ Tスコア算出（平均50・SD10）
+#    欠損は平均に吸着させず、最後に 50±微差で決定的に散らす
+# ==============================
+EPS_LOCAL = 1e-9
+
+# 母集団ID（無ければ作る）
+try:
+    USED_IDS = sorted(int(i) for i in (active_cars if active_cars else range(1, n_cars+1)))
+except Exception:
+    USED_IDS = list(range(1, int(n_cars)+1))
+M = len(USED_IDS)
+
+# SBなしの一次ソース（velobi_wo）
+xs_raw = np.array([np.nan]*M, dtype=float)
+try:
+    if (velobi_wo is not None) and hasattr(velobi_wo, "items"):
+        _tmp = {int(k): float(v) for k, v in velobi_wo.items()}
+        xs_raw = np.array([_tmp.get(i, np.nan) for i in USED_IDS], dtype=float)
+except Exception:
+    pass
+
+# SBなしの代替ソース（df_sorted_wo）
+xs_alt = np.array([np.nan]*M, dtype=float)
+try:
+    if ('df_sorted_wo' in globals()) and (df_sorted_wo is not None) and ("車番" in df_sorted_wo.columns):
+        col = "合計_SBなし" if "合計_SBなし" in df_sorted_wo.columns else ("SBなし" if "SBなし" in df_sorted_wo.columns else None)
+        if col is not None:
+            _mp = {}
+            for _, r in df_sorted_wo.iterrows():
+                try:
+                    _mp[int(r["車番"])] = float(r[col])
+                except Exception:
+                    pass
+            xs_alt = np.array([_mp.get(i, np.nan) for i in USED_IDS], dtype=float)
+except Exception:
+    pass
+
+# T計算：有限値だけで μ,σ を出す（欠損を混ぜない）
+use_alt_for_mu = False
+finite = np.isfinite(xs_raw)
+if finite.sum() >= 2:
+    mu = float(np.nanmean(xs_raw[finite]))
+    sd = float(np.nanstd(xs_raw[finite]))
+else:
+    finite_alt = np.isfinite(xs_alt)
+    if finite_alt.sum() >= 2:
+        mu = float(np.nanmean(xs_alt[finite_alt]))
+        sd = float(np.nanstd(xs_alt[finite_alt]))
+        use_alt_for_mu = True
+    else:
+        mu, sd = np.nan, np.nan  # 評価不能→全員50.0扱い
+
+# Tスコア配列
+xs_race_t = np.full(M, 50.0, dtype=float)  # 既定は50
+
+if np.isfinite(mu) and np.isfinite(sd) and sd >= EPS_LOCAL:
+    # 一次ソースからT化
+    if not use_alt_for_mu:
+        if finite.any():
+            xs_race_t[finite] = 50.0 + 10.0 * (xs_raw[finite] - mu) / sd
+    else:
+        finite_alt = np.isfinite(xs_alt)
+        if finite_alt.any():
+            xs_race_t[finite_alt] = 50.0 + 10.0 * (xs_alt[finite_alt] - mu) / sd
+
+    # 残りは他方のソースで補完T化
+    need = ~np.isfinite(xs_race_t)
+    if need.any():
+        if not use_alt_for_mu:
+            ok = np.isfinite(xs_alt) & need
+            xs_race_t[ok] = 50.0 + 10.0 * (xs_alt[ok] - mu) / sd
+        else:
+            ok = np.isfinite(xs_raw) & need
+            xs_race_t[ok] = 50.0 + 10.0 * (xs_raw[ok] - mu) / sd
+
+# まだ欠損(=nan)が残る場合は 50±微差で決定的にズラす（丸め後も差が出るように）
+need = ~np.isfinite(xs_race_t)
+if need.any():
+    # 同値ブレイク用の sb_base をその場で用意（強い→+側、弱い→-側）
+    try:
+        sb_base
+    except Exception:
+        sb_base = {USED_IDS[idx]: (xs_raw[idx] if np.isfinite(xs_raw[idx]) else -1e18) for idx in range(M)}
+    idxs = np.where(need)[0].tolist()
+    idxs.sort(key=lambda ii: (-float(sb_base.get(USED_IDS[ii], -1e18)), USED_IDS[ii]))
+    k = len(idxs)
+    delta = 0.12  # 0.1超にして四捨五入後も差が残るように
+    center = (k - 1) / 2.0 if k > 1 else 0.0
+    for r, ii in enumerate(idxs):
+        offset = delta * (center - r)  # 強い側:+ 弱い側:-
+        xs_race_t[ii] = 50.0 + offset
+
+# 表示・S計算で使う dict（丸め）
+race_t = {USED_IDS[idx]: float(round(xs_race_t[idx], HEN_DEC_PLACES)) for idx in range(M)}
+
+# PLモデル用の z（丸め前の連続値で計算）
+race_z = (xs_race_t - 50.0) / 10.0
+
 # === 印を「このレース内偏差値T」で一貫決定（β温存）＋ 後段の△/×/αは既存ロジックで埋める ===
 
 # β決定（既存値を優先。無ければ計算）
