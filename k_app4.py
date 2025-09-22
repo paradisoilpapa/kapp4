@@ -1455,8 +1455,9 @@ GAMMA_TOP3 = float(globals().get("GAMMA_TOP3", 0.6))
 MARK_FLOOR = float(globals().get("MARK_FLOOR", 0.20))
 
 w_base = np.exp(race_z * TAU_PL)
+result_marks = globals().get("result_marks", {})  # 未定義なら空dictに
+car_mark = {int(v): k for k, v in result_marks.items()} if isinstance(result_marks, dict) else {}
 
-car_mark = {int(v): k for k, v in (result_marks.items() if isinstance(result_marks, dict) else {}).items()}
 fallback_key = RANK_FALLBACK_MARK
 base_dist = FALLBACK_DIST
 
