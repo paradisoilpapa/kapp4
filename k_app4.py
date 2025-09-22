@@ -2569,9 +2569,9 @@ def _keys_nitan_P(rows):
     return [str(k) for k, *_ in rows]
 
 # 表示用：SとPをまとめたテーブルを作る
-def _df_overlap(keys, s_map, p_map, bet_type):
-    """
-    keys: 重複キーのリスト（'1-2-3' / '1-2' / '1-2-3' / 'a-b'）
+def _find_overlaps(keys_a, keys_b): 
+    """2リストの重複を返す ('1-2-3' / '1-2' / '1-2-3' / 'a-b')"""
+
     s_map: key -> スコア(S)  の辞書
     p_map: key -> 確率(%)    の辞書（0-100 で渡す）
     bet_type: '三連複'|'三連単'|'二車複'|'二車単'
