@@ -2575,24 +2575,7 @@ def _keys_nitan_P(rows):
     return [str(k) for k, *_ in rows]
 
 # 表示用：SとPをまとめたテーブルを作る
-def _find_overlaps(keys_a, keys_b): 
-    """2リストの重複を返す ('1-2-3' / '1-2' / '1-2-3' / 'a-b')"""
-
-    s_map: key -> スコア(S)  の辞書
-    p_map: key -> 確率(%)    の辞書（0-100 で渡す）
-    bet_type: '三連複'|'三連単'|'二車複'|'二車単'
-    """
-    rows = []
-    for k in keys:
-        s = s_map.get(k, float('nan'))
-        p = p_map.get(k, float('nan'))
-        rows.append({"買い目": k, "S(点)": f"{s:.1f}", "P(%)": f"{p:.1f}"})
-    # P降順→S降順→キー昇順で見やすく
-    import math
-    rows.sort(key=lambda r: (-(float(r["P(%)"].rstrip('%')) if isinstance(r["P(%)"], str) else float(r["P(%)"])),
-                             -(float(r["S(点)"]) if r["S(点)"] not in ("", "—") else -math.inf),
-                             r["買い目"]))
-    return pd.DataFrame(rows)
+def _format_prob_row
 
 
 
