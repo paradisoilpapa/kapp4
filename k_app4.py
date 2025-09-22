@@ -1461,6 +1461,22 @@ if L1 and L2 and L3:
     cand_trio.sort(key=lambda x: (-x[3], x[0], x[1], x[2]))
     trio_prob_rows = cand_trio[:CAPS["trio"]]
 
+# --- safety: 印/フォーメーション未定義でも落ちないように ---
+_rm = globals().get("result_marks", {})
+if not isinstance(_rm, dict):
+    _rm = {}
+result_marks = _rm
+
+L1 = (globals().get("L1") or [])
+L2 = (globals().get("L2") or [])
+L3 = (globals().get("L3") or [])
+
+
+first_col  = [x for x in [result_marks.get("◎"), result_marks.get("〇")] if x is not None]
+second_col = [x for x in [result_marks.get("◎"), result_marks.get("〇"), result_marks.get("▲")] if x is not None]
+third_col  = list(L3)  # ← さきほど safety で保証済み
+
+
 # 三連単（1列目：◎ or 〇、2列目：◎〇▲、3列目：L3）
 first_col  = [x for x in [result_marks.get("◎"), result_marks.get("〇")] if x is not None]
 second_col = [x for x in [result_marks.get("◎"), result_marks.get("〇"), result_marks.get("▲")] if x is not None]
