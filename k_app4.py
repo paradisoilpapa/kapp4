@@ -1497,7 +1497,8 @@ def prob_wide_pair_pl(i: int, j: int) -> float:
     return total
 
 def prob_nitan_ordered(i: int, j: int) -> float:
-    """二車単 i→j の順序付き近似"""
+    """二車単 (iからjへ) の順序付き近似"""
+
     wi, wj = w_idx[i], w_idx[j]
     d1 = max(S_w - wi, EPS)
     return (wi / S_w) * (wj / d1)
