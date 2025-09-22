@@ -610,17 +610,20 @@ grade_default = "auto"  # デフォルト：自動（開催グレード）
 grade_choice = st.sidebar.radio
 
 if "_grade_from_race_class" not in globals():
-    def _grade_from_race_class(race_class: str) -> str:
+   def _grade_from_race_class(race_class):
+    """race_class の文字列からグレードを推定して返す"""
     s = str(race_class or "")
-    if "ガール" in s:
-        return "GIRLS"
-    if "Ｓ級" in s or "S級" in s or "S" in s:
-        return "G"
-    if "チャレンジ" in s:
+    if "F2" in s or "チャレンジ" in s:
         return "F2"
-    if "Ａ級" in s or "A級" in s or "A" in s:
+    elif "F1" in s:
         return "F1"
-    return "TOTAL"  # 不明なら全体
+    elif "G" in s or "Ｓ級" in s:
+        return "G"
+    elif "ガールズ" in s or "L級" in s:
+        return "GIRLS"
+    else:
+        return "TOTAL"  # 該当しなければ全体集計をデフォルトに
+
 
 # ---- SAFETY GUARD: pick_rank_stats を呼ぶ前に必ず定義しておく ----
 if "pick_rank_stats" not in globals():
