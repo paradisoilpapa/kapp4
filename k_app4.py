@@ -1451,11 +1451,46 @@ st.markdown("### 偏差値（レース内T＝平均50・SD10｜SBなしと同一
 st.caption(f"μ={mu_sb if np.isfinite(mu_sb) else 'nan'} / σ={sd_sb:.6f} / 有効件数k={k_finite}")
 st.dataframe(hen_df, use_container_width=True)
 
-# 6) PL用重み（購入計算に使用：既存近似）
-tau = 1.0
-w   = np.exp(race_z * tau)
+# 6) PL用重み（購入計算に使用：グレード×印 連動版）
+# 前提：RANK_IN_USE（写真の実測率テーブルからの採用値）が直前で決まっていること
+#       result_marks で各印の車番が決まっていること（◎〇▲…）
+#       FALLBACK_DIST は既存どおり（印なしの既定分布）
+
+# ---- 調整ノブ（効き具合が強すぎ／弱すぎの時はここだけ触ればOK）----
+TAU_PL     = float(globals().get("TAU_PL", 1.0))     # race_z 温度（従来 tau）
+GAMMA_P1   = float(globals().get("GAMMA_P1", 0.8))   # p1 の差分の効き
+GAMMA_TOP3 = float(globals().get("GAMMA_TOP3", 0.6)) # pTop3 の差分の効き
+MARK_FLOOR = float(globals().get("MARK_FLOOR", 0.20))# マーク補正の下限
+
+# ---- 1) 基礎：従来どおり race_z から指数重み ----
+w_base = np.exp(race_z * TAU_PL)
+
+# ---- 2) 車ごとの印→グレード別の実測率（RANK_IN_USE）を引く ----
+car_mark = {int(v): k for k, v in (result_marks.items() if isinstance(result_marks, dict) else {}).items()}
+fallback_key = RANK_FALLBACK_MARK if 'RANK_FALLBACK_MARK' in globals() else '△'
+base_dist = RANK_STATS_GLOBAL.get(fallback_key, FALLBACK_DIST) if 'RANK_STATS_GLOBAL' in globals() else FALLBACK_DIST
+
+# ---- 3) 印の実測率差分を線形で係数化 ----
+w_mark_list = []
+for car in USED_IDS:
+    mk = car_mark.get(int(car), fallback_key)
+    prior = RANK_IN_USE.get(mk, base_dist)  # ← ★ここが“連動”の要（F2/F1/G/auto で切替）
+    delta_p1   = float(prior["p1"])    - float(base_dist["p1"])
+    delta_top3 = float(prior["pTop3"]) - float(base_dist["pTop3"])
+    coeff = 1.0 + GAMMA_P1*delta_p1 + GAMMA_TOP3*delta_top3
+    w_mark_list.append(max(MARK_FLOOR, coeff))
+w_mark = np.array(w_mark_list, dtype=float)
+
+# ---- 4) 合成 → これが購入計算に使う重み ----
+w = w_base * w_mark
+
+# 正規化セット（以降の確率近似で使用）
 S_w = float(np.sum(w))
+if S_w <= 0:
+    w = np.ones_like(w, dtype=float)
+    S_w = float(np.sum(w))
 w_idx = {USED_IDS[idx]: float(w[idx]) for idx in range(M)}
+
 
 def prob_top2_pair_pl(i: int, j: int) -> float:
     wi, wj = w_idx[i], w_idx[j]
