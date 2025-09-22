@@ -2516,7 +2516,6 @@ def _df_prob_nitan(rows):
 
 # --- 重複（S×P）のキー抽出ヘルパー ---
 def _find_overlaps(keys_a, keys_b):
-    """2リストの重複を返す（文字列キーで比較）"""
     set_a = set(keys_a)
     set_b = set(keys_b)
     return sorted(set_a & set_b)
