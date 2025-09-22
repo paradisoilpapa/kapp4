@@ -1436,6 +1436,12 @@ def prob_trifecta_ordered(a: int, b: int, c: int) -> float:
 trio_prob_rows, trifecta_prob_rows = [], []
 qn_prob_rows, nitan_prob_rows = [], []
 
+# --- safety: フォーメーション未生成でも落ちないように ---
+if "L1" not in globals(): L1 = []
+if "L2" not in globals(): L2 = []
+if "L3" not in globals(): L3 = []
+
+
 # 三連複（L1-L2-L3 のユニーク三つ組）
 if L1 and L2 and L3:
     seen = set()
