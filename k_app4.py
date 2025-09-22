@@ -231,6 +231,15 @@ if RANK_FALLBACK_MARK not in RANK_STATS_GLOBAL:
 FALLBACK_DIST = RANK_STATS_GLOBAL.get(RANK_FALLBACK_MARK, {"p1": 0.15, "pTop2": 0.30, "pTop3": 0.45})
 # ------------------------------------------------------------------------
 
+def _grade_from_race_class(race_class: str) -> str:
+    # L=ガールズ, G=Ｓ級, F1=Ａ級, F2=チャレンジ
+    if "ガール" in race_class: return "L"
+    if "Ｓ級" in race_class:   return "G"
+    if "チャレンジ" in race_class: return "F2"
+    if "Ａ級" in race_class:   return "F1"
+    return "F1"
+
+
 # KO(勝ち上がり)関連
 KO_GIRLS_SCALE = 0.0
 KO_HEADCOUNT_SCALE = {5:0.6, 6:0.8, 7:1.0, 8:1.0, 9:1.0}
@@ -604,6 +613,15 @@ grade_choice = st.sidebar.radio(
     format_func=lambda x: x[0],
     horizontal=False
 )[1]
+
+if "_grade_from_race_class" not in globals():
+    def _grade_from_race_class(race_class: str) -> str:
+        if "ガール" in race_class: return "L"
+        if "Ｓ級" in race_class:   return "G"
+        if "チャレンジ" in race_class: return "F2"
+        if "Ａ級" in race_class:   return "F1"
+        return "F1"
+
 
 detected_grade = _grade_from_race_class(race_class)
 RANK_IN_USE, lam_used, source_key = pick_rank_stats(
