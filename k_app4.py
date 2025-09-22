@@ -1407,6 +1407,123 @@ def prob_trifecta_ordered(a: int, b: int, c: int) -> float:
     return (wa / S_w) * (wb / d1) * (wc / d2)
 
 
+# ===== 確率枠：基準 & 上限 =====
+P_TH_BASE = float(globals().get("P_TH_BASE", 0.08))  # 8% 以上
+CAPS = {
+    "trio":     int(globals().get("CAP_TRIO_PROB", 3)),   # 三連複 最大3
+    "trifecta": int(globals().get("CAP_TRIF_PROB", 3)),   # 三連単 最大3
+    "qn":       int(globals().get("CAP_QN_PROB", 3)),     # 二車複 最大3
+    "nitan":    int(globals().get("CAP_NITAN_PROB", 3)),  # 二車単 最大3
+}
+
+# ===== 並び順ありの確率（Plackett–Luce 型） =====
+def prob_nitan_ordered(a: int, b: int) -> float:
+    # a→b の順
+    wa, wb = w_idx[a], w_idx[b]
+    d1 = max(S_w, EPS)
+    d2 = max(S_w - wa, EPS)
+    return (wa / d1) * (wb / d2)
+
+def prob_trifecta_ordered(a: int, b: int, c: int) -> float:
+    # a→b→c の順
+    wa, wb, wc = w_idx[a], w_idx[b], w_idx[c]
+    d1 = max(S_w, EPS)
+    d2 = max(S_w - wa, EPS)
+    d3 = max(S_w - wa - wb, EPS)
+    return (wa / d1) * (wb / d2) * (wc / d3)
+
+# ===== 確率枠 生成（重複歓迎・フォーメーションから作る） =====
+trio_prob_rows, trifecta_prob_rows = [], []
+qn_prob_rows, nitan_prob_rows = [], []
+
+# 三連複（L1-L2-L3 のユニーク三つ組）
+if L1 and L2 and L3:
+    seen = set()
+    cand_trio = []
+    for a in L1:
+        for b in L2:
+            for c in L3:
+                if len({a,b,c}) != 3: 
+                    continue
+                key = tuple(sorted((int(a), int(b), int(c))))
+                if key in seen:
+                    continue
+                seen.add(key)
+                p = prob_top3_triple_pl(int(key[0]), int(key[1]), int(key[2]))
+                if p >= P_TH_BASE:
+                    cand_trio.append((key[0], key[1], key[2], float(p), "確率枠"))
+    cand_trio.sort(key=lambda x: (-x[3], x[0], x[1], x[2]))
+    trio_prob_rows = cand_trio[:CAPS["trio"]]
+
+# 三連単（1列目：◎ or 〇、2列目：◎〇▲、3列目：L3）
+first_col  = [x for x in [result_marks.get("◎"), result_marks.get("〇")] if x is not None]
+second_col = [x for x in [result_marks.get("◎"), result_marks.get("〇"), result_marks.get("▲")] if x is not None]
+third_col  = list(L3) if L3 else []
+if first_col and second_col and third_col:
+    cand_tri = []
+    seen = set()
+    for a in first_col:
+        for b in second_col:
+            for c in third_col:
+                if len({a,b,c}) != 3:
+                    continue
+                key = (int(a), int(b), int(c))
+                if key in seen:
+                    continue
+                seen.add(key)
+                p = prob_trifecta_ordered(*key)
+                if p >= P_TH_BASE:
+                    cand_tri.append((key[0], key[1], key[2], float(p), "確率枠"))
+    cand_tri.sort(key=lambda x: (-x[3], x[0], x[1], x[2]))
+    trifecta_prob_rows = cand_tri[:CAPS["trifecta"]]
+
+# 二車複（L1×L2 の順不同）
+if L1 and L2:
+    cand_qn = []
+    seen = set()
+    for a in L1:
+        for b in L2:
+            if a == b: 
+                continue
+            i, j = sorted((int(a), int(b)))
+            if (i, j) in seen:
+                continue
+            seen.add((i, j))
+            p = prob_top2_pair_pl(i, j)
+            if p >= P_TH_BASE:
+                cand_qn.append((i, j, float(p), "確率枠"))
+    cand_qn.sort(key=lambda x: (-x[2], x[0], x[1]))
+    qn_prob_rows = cand_qn[:CAPS["qn"]]
+
+# 二車単（L1→L2 の順付き）
+if L1 and L2:
+    cand_nit = []
+    seen = set()
+    for a in L1:
+        for b in L2:
+            if a == b:
+                continue
+            key = f"{int(a)}-{int(b)}"
+            if key in seen:
+                continue
+            seen.add(key)
+            p = prob_nitan_ordered(int(a), int(b))
+            if p >= P_TH_BASE:
+                cand_nit.append((key, float(p), "確率枠"))
+    cand_nit.sort(key=lambda x: (-x[1], x[0]))
+    nitan_prob_rows = cand_nit[:CAPS["nitan"]]
+
+# ===== 確率枠：基準 & 上限 =====
+P_TH_BASE = float(globals().get("P_TH_BASE", 0.08))  # 8% 以上
+CAPS = {
+    "trio":     int(globals().get("CAP_TRIO_PROB", 3)),
+    "trifecta": int(globals().get("CAP_TRIF_PROB", 3)),
+    "qn":       int(globals().get("CAP_QN_PROB", 3)),
+    "nitan":    int(globals().get("CAP_NITAN_PROB", 3)),
+}
+
+
+
 # 7) 印（◎〇▲）＝ T↓ → SBなし↓ → 車番↑（βは除外）
 if "select_beta" not in globals():
     def select_beta(cars): return None
@@ -2111,6 +2228,114 @@ cutoff_nit              = float(_g("cutoff_nit", 0.0))
 rows_nitan_filtered     = _g("rows_nitan_filtered", [])
 n_nit                   = int(_g("n_nit", len(rows_nitan_filtered)))
 has_nit                 = bool(_g("has_nit", bool(rows_nitan_filtered)))
+
+# ===== 確率枠：基準 & 上限 =====
+# ※ 必ず「確率枠 生成」より前に置く（NameError対策）
+P_TH_BASE = float(globals().get("P_TH_BASE", 0.08))  # 8% 以上
+CAPS = {
+    "trio":     int(globals().get("CAP_TRIO_PROB", 3)),
+    "trifecta": int(globals().get("CAP_TRIF_PROB", 3)),
+    "qn":       int(globals().get("CAP_QN_PROB", 3)),
+    "nitan":    int(globals().get("CAP_NITAN_PROB", 3)),
+}
+
+# ===== 並び順ありの確率（Plackett–Luce 型） =====
+def prob_nitan_ordered(a: int, b: int) -> float:
+    # a→b の順
+    wa, wb = w_idx[a], w_idx[b]
+    d1 = max(S_w, EPS)
+    d2 = max(S_w - wa, EPS)
+    return (wa / d1) * (wb / d2)
+
+def prob_trifecta_ordered(a: int, b: int, c: int) -> float:
+    # a→b→c の順
+    wa, wb, wc = w_idx[a], w_idx[b], w_idx[c]
+    d1 = max(S_w, EPS)
+    d2 = max(S_w - wa, EPS)
+    d3 = max(S_w - wa - wb, EPS)
+    return (wa / d1) * (wb / d2) * (wc / d3)
+
+# ===== 確率枠 生成（重複歓迎・フォーメーションから作る） =====
+trio_prob_rows, trifecta_prob_rows = [], []
+qn_prob_rows, nitan_prob_rows = [], []
+
+# 三連複（L1-L2-L3 のユニーク三つ組）
+if L1 and L2 and L3:
+    seen = set()
+    cand_trio = []
+    for a in L1:
+        for b in L2:
+            for c in L3:
+                if len({a,b,c}) != 3:
+                    continue
+                key = tuple(sorted((int(a), int(b), int(c))))
+                if key in seen:
+                    continue
+                seen.add(key)
+                p = prob_top3_triple_pl(key[0], key[1], key[2])  # 既存の順不同三連複近似
+                if p >= P_TH_BASE:
+                    cand_trio.append((key[0], key[1], key[2], float(p), "確率枠"))
+    cand_trio.sort(key=lambda x: (-x[3], x[0], x[1], x[2]))
+    trio_prob_rows = cand_trio[:CAPS["trio"]]
+
+# 三連単（1列目：◎ or 〇、2列目：◎〇▲、3列目：L3）
+first_col  = [x for x in [result_marks.get("◎"), result_marks.get("〇")] if x is not None]
+second_col = [x for x in [result_marks.get("◎"), result_marks.get("〇"), result_marks.get("▲")] if x is not None]
+third_col  = list(L3) if L3 else []
+if first_col and second_col and third_col:
+    seen = set()
+    cand_tri = []
+    for a in first_col:
+        for b in second_col:
+            for c in third_col:
+                if len({a,b,c}) != 3:
+                    continue
+                key = (int(a), int(b), int(c))
+                if key in seen:
+                    continue
+                seen.add(key)
+                p = prob_trifecta_ordered(*key)
+                if p >= P_TH_BASE:
+                    cand_tri.append((key[0], key[1], key[2], float(p), "確率枠"))
+    cand_tri.sort(key=lambda x: (-x[3], x[0], x[1], x[2]))
+    trifecta_prob_rows = cand_tri[:CAPS["trifecta"]]
+
+# 二車複（L1×L2 の順不同）
+if L1 and L2:
+    seen = set()
+    cand_qn = []
+    for a in L1:
+        for b in L2:
+            if a == b:
+                continue
+            i, j = sorted((int(a), int(b)))
+            if (i, j) in seen:
+                continue
+            seen.add((i, j))
+            p = prob_top2_pair_pl(i, j)   # 既存の二車複近似
+            if p >= P_TH_BASE:
+                cand_qn.append((i, j, float(p), "確率枠"))
+    cand_qn.sort(key=lambda x: (-x[2], x[0], x[1]))
+    qn_prob_rows = cand_qn[:CAPS["qn"]]
+
+# 二車単（L1→L2 の順付き）
+if L1 and L2:
+    seen = set()
+    cand_nit = []
+    for a in L1:
+        for b in L2:
+            if a == b:
+                continue
+            key = f"{int(a)}-{int(b)}"
+            if key in seen:
+                continue
+            seen.add(key)
+            p = prob_nitan_ordered(int(a), int(b))
+            if p >= P_TH_BASE:
+                cand_nit.append((key, float(p), "確率枠"))
+    cand_nit.sort(key=lambda x: (-x[1], x[0]))
+    nitan_prob_rows = cand_nit[:CAPS["nitan"]]
+
 
 
 # =========================
