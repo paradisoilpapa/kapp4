@@ -1513,15 +1513,6 @@ if L1 and L2:
     cand_nit.sort(key=lambda x: (-x[1], x[0]))
     nitan_prob_rows = cand_nit[:CAPS["nitan"]]
 
-# ===== 確率枠：基準 & 上限 =====
-P_TH_BASE = float(globals().get("P_TH_BASE", 0.08))  # 8% 以上
-CAPS = {
-    "trio":     int(globals().get("CAP_TRIO_PROB", 3)),
-    "trifecta": int(globals().get("CAP_TRIF_PROB", 3)),
-    "qn":       int(globals().get("CAP_QN_PROB", 3)),
-    "nitan":    int(globals().get("CAP_NITAN_PROB", 3)),
-}
-
 
 
 # 7) 印（◎〇▲）＝ T↓ → SBなし↓ → 車番↑（βは除外）
@@ -2239,21 +2230,7 @@ CAPS = {
     "nitan":    int(globals().get("CAP_NITAN_PROB", 3)),
 }
 
-# ===== 並び順ありの確率（Plackett–Luce 型） =====
-def prob_nitan_ordered(a: int, b: int) -> float:
-    # a→b の順
-    wa, wb = w_idx[a], w_idx[b]
-    d1 = max(S_w, EPS)
-    d2 = max(S_w - wa, EPS)
-    return (wa / d1) * (wb / d2)
 
-def prob_trifecta_ordered(a: int, b: int, c: int) -> float:
-    # a→b→c の順
-    wa, wb, wc = w_idx[a], w_idx[b], w_idx[c]
-    d1 = max(S_w, EPS)
-    d2 = max(S_w - wa, EPS)
-    d3 = max(S_w - wa - wb, EPS)
-    return (wa / d1) * (wb / d2) * (wc / d3)
 
 # ===== 確率枠 生成（重複歓迎・フォーメーションから作る） =====
 trio_prob_rows, trifecta_prob_rows = [], []
@@ -2335,6 +2312,22 @@ if L1 and L2:
                 cand_nit.append((key, float(p), "確率枠"))
     cand_nit.sort(key=lambda x: (-x[1], x[0]))
     nitan_prob_rows = cand_nit[:CAPS["nitan"]]
+
+
+
+# ===== 並び順ありの確率（Plackett–Luce 型） =====
+def prob_nitan_ordered(a: int, b: int) -> float:
+    wa, wb = w_idx[a], w_idx[b]
+    d1 = max(S_w, EPS)
+    d2 = max(S_w - wa, EPS)
+    return (wa / d1) * (wb / d2)
+
+def prob_trifecta_ordered(a: int, b: int, c: int) -> float:
+    wa, wb, wc = w_idx[a], w_idx[b], w_idx[c]
+    d1 = max(S_w, EPS)
+    d2 = max(S_w - wa, EPS)
+    d3 = max(S_w - wa - wb, EPS)
+    return (wa / d1) * (wb / d2) * (wc / d3)
 
 
 
