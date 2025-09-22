@@ -850,40 +850,91 @@ for no in active_cars:
     prof_base[no] = base + clamp(venue_bonus, -0.06, +0.06)
 
 # ======== 個人補正（得点/脚質上位/着順分布） ========
-ratings_sorted = sorted(active_cars, key=lambda n: ratings_val[n], reverse=True)
-ratings_rank = {no: i+1 for i,no in enumerate(ratings_sorted)}
-def tenscore_bonus(no):
-    r = ratings_rank[no]
-    top_n = min(3, len(active_cars))
-    bottom_n = min(3, len(active_cars))
-    if r <= top_n: return +0.03
-    if r >= len(active_cars)-bottom_n+1: return -0.02
+# 依存する変数を安全に取り出し
+_active_cars = list(globals().get("active_cars", []))
+if not _active_cars:
+    _active_cars = list(range(1, int(globals().get("n_cars", 7))+1))
+
+_ratings_val = dict(globals().get("ratings_val", {}))
+def _num(x, default=0.0):
+    try:
+        return float(x)
+    except Exception:
+        return float(default)
+
+# 1) 得点トップ/ボトム補正
+ratings_sorted = sorted(_active_cars, key=lambda n: _num(_ratings_val.get(n, 0.0)), reverse=True)
+ratings_rank = {no: i+1 for i, no in enumerate(ratings_sorted)}
+
+def tenscore_bonus(no: int) -> float:
+    r = ratings_rank.get(no, len(_active_cars))
+    if not _active_cars:
+        return 0.0
+    top_n = min(3, len(_active_cars))
+    bottom_n = min(3, len(_active_cars))
+    if r <= top_n:
+        return +0.03
+    if r >= len(_active_cars) - bottom_n + 1:
+        return -0.02
     return 0.0
-def topk_bonus(k_dict, topn=3, val=0.02):
-    order = sorted(k_dict.items(), key=lambda x:(x[1], -x[0]), reverse=True)
-    grant = set([no for i,(no,v) in enumerate(order) if i<topn])
-    return {no:(val if no in grant else 0.0) for no in k_dict}
-esc_bonus   = topk_bonus(k_esc,   topn=3, val=0.02)
-mak_bonus   = topk_bonus(k_mak,   topn=3, val=0.02)
-sashi_bonus = topk_bonus(k_sashi, topn=3, val=0.015)
-mark_bonus  = topk_bonus(k_mark,  topn=3, val=0.01)
-def finish_bonus(no):
-    tot = x1[no]+x2[no]+x3[no]+x_out[no]
-    if tot == 0: return 0.0
-    in3 = (x1[no]+x2[no]+x3[no]) / tot
-    out = x_out[no] / tot
+
+# 2) 脚質回数トップ補正（k_esc/k_mak/k_sashi/k_mark が無くてもOK）
+_k_esc   = dict(globals().get("k_esc",   {}))
+_k_mak   = dict(globals().get("k_mak",   {}))
+_k_sashi = dict(globals().get("k_sashi", {}))
+_k_mark  = dict(globals().get("k_mark",  {}))
+
+def _topk_bonus(k_dict: dict, topn=3, val=0.02) -> dict[int, float]:
+    items = [(int(no), _num(v, 0.0)) for no, v in k_dict.items()]
+    items.sort(key=lambda x: (x[1], -x[0]), reverse=True)
+    grant = {no for i, (no, _v) in enumerate(items) if i < max(0, int(topn))}
+    out = {}
+    for no in _active_cars:
+        out[no] = (val if no in grant else 0.0)
+    return out
+
+esc_bonus   = _topk_bonus(_k_esc,   topn=3, val=0.02)
+mak_bonus   = _topk_bonus(_k_mak,   topn=3, val=0.02)
+sashi_bonus = _topk_bonus(_k_sashi, topn=3, val=0.015)
+mark_bonus  = _topk_bonus(_k_mark,  topn=3, val=0.01)
+
+# 3) 直近着順分布補正（x1,x2,x3,x_out が無くてもOK）
+_x1   = dict(globals().get("x1",   {}))
+_x2   = dict(globals().get("x2",   {}))
+_x3   = dict(globals().get("x3",   {}))
+_xout = dict(globals().get("x_out",{}))
+
+def finish_bonus(no: int) -> float:
+    n1 = int(_num(_x1.get(no, 0),   0))
+    n2 = int(_num(_x2.get(no, 0),   0))
+    n3 = int(_num(_x3.get(no, 0),   0))
+    nO = int(_num(_xout.get(no, 0), 0))
+    tot = n1 + n2 + n3 + nO
+    if tot <= 0:
+        return 0.0
+    in3 = (n1 + n2 + n3) / tot
+    out = nO / tot
     bonus = 0.0
     if in3 > 0.50: bonus += 0.03
     if out > 0.70: bonus -= 0.03
     if out < 0.40: bonus += 0.02
-    return bonus
-extra_bonus = {}
-for no in active_cars:
-    total = (tenscore_bonus(no) +
-             esc_bonus.get(no,0.0) + mak_bonus.get(no,0.0) +
-             sashi_bonus.get(no,0.0) + mark_bonus.get(no,0.0) +
-             finish_bonus(no))
-    extra_bonus[no] = clamp(total, -0.10, +0.10)
+    return float(bonus)
+
+# 4) まとめ（±0.10でクリップ）
+def clamp(x, a, b): 
+    return max(a, min(b, x))
+
+extra_bonus: dict[int, float] = {}
+for no in _active_cars:
+    total = (
+        tenscore_bonus(no)
+        + esc_bonus.get(no, 0.0) + mak_bonus.get(no, 0.0)
+        + sashi_bonus.get(no, 0.0) + mark_bonus.get(no, 0.0)
+        + finish_bonus(no)
+    )
+    extra_bonus[no] = clamp(float(total), -0.10, +0.10)
+
+# 以降は extra_bonus[車番] をそのまま使えます
 
 # ===== 会場個性を“個人スコア”に浸透：bank系補正を差し替え =====
 def bank_character_bonus(bank_angle, straight_length, prof_escape, prof_sashi):
