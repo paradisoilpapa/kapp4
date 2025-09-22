@@ -152,8 +152,8 @@ VELODROME_MASTER = {
 }
 
 # --- 最新の印別実測率（写真ベース：小数＝実測％/100） -----------------
-# グローバル（全体）
-RANK_STATS_GLOBAL = {
+# --- 実測率テーブル（写真の数値をそのまま反映。小数は0.000〜1.000で） ---
+RANK_STATS_TOTAL = {
     "◎": {"p1": 0.361, "pTop2": 0.475, "pTop3": 0.574},
     "〇": {"p1": 0.131, "pTop2": 0.262, "pTop3": 0.426},
     "▲": {"p1": 0.131, "pTop2": 0.311, "pTop3": 0.475},
@@ -163,33 +163,19 @@ RANK_STATS_GLOBAL = {
     "無": {"p1": 0.060, "pTop2": 0.181, "pTop3": 0.325},
 }
 
-def _clone_rankstats(src):
-    return {k: {"p1":v["p1"], "pTop2":v["pTop2"], "pTop3":v["pTop3"]} for k,v in src.items()}
+RANK_STATS_F2 = {
+    "◎": {"p1": 0.476, "pTop2": 0.619, "pTop3": 0.714},
+    "〇": {"p1": 0.095, "pTop2": 0.286, "pTop3": 0.524},
+    "▲": {"p1": 0.190, "pTop2": 0.476, "pTop3": 0.667},
+    "△": {"p1": 0.095, "pTop2": 0.333, "pTop3": 0.571},
+    "×": {"p1": 0.048, "pTop2": 0.095, "pTop3": 0.190},
+    "α": {"p1": 0.095, "pTop2": 0.143, "pTop3": 0.143},
+    "無": {"p1": 0.000, "pTop2": 0.048, "pTop3": 0.190},
+    }
 
-# グレード別（写真そのまま）
-RANK_STATS_BY_GRADE = {
-    # ガールズ（L級）
-    "L": {
-        "◎": {"p1": 0.50, "pTop2": 0.50, "pTop3": 0.75},
-        "〇": {"p1": 0.00, "pTop2": 0.50, "pTop3": 0.75},
-        "▲": {"p1": 0.50, "pTop2": 0.75, "pTop3": 1.00},
-        "△": {"p1": 0.00, "pTop2": 0.00, "pTop3": 0.00},
-        "×": {"p1": 0.00, "pTop2": 0.25, "pTop3": 0.50},
-        "α": {"p1": 0.00, "pTop2": 0.00, "pTop3": 0.00},
-        "無": {"p1": 0.00, "pTop2": 0.00, "pTop3": 0.00},
-    },
-    # F2
-    "F2": {
-        "◎": {"p1": 0.476, "pTop2": 0.619, "pTop3": 0.714},
-        "〇": {"p1": 0.095, "pTop2": 0.286, "pTop3": 0.524},
-        "▲": {"p1": 0.190, "pTop2": 0.476, "pTop3": 0.667},
-        "△": {"p1": 0.095, "pTop2": 0.333, "pTop3": 0.571},
-        "×": {"p1": 0.048, "pTop2": 0.095, "pTop3": 0.190},
-        "α": {"p1": 0.095, "pTop2": 0.143, "pTop3": 0.143},
-        "無": {"p1": 0.000, "pTop2": 0.048, "pTop3": 0.190},
-    },
+
     # F1
-    "F1": {
+    RANK_STATS_F1 = {
         "◎": {"p1": 0.250, "pTop2": 0.333, "pTop3": 0.458},
         "〇": {"p1": 0.250, "pTop2": 0.292, "pTop3": 0.458},
         "▲": {"p1": 0.042, "pTop2": 0.167, "pTop3": 0.292},
@@ -198,9 +184,10 @@ RANK_STATS_BY_GRADE = {
         "α": {"p1": 0.125, "pTop2": 0.375, "pTop3": 0.667},
         "β": {"p1": 0.125, "pTop2": 0.292, "pTop3": 0.375},  # 画像にβ行があるので保持
         "無": {"p1": 0.000, "pTop2": 0.000, "pTop3": 0.000},  # 無行が無ければ 0 で埋め
-    },
+    }
+        
     # G（=S級相当の集計表）
-    "G": {
+    RANK_STATS_G = {{
         "◎": {"p1": 0.333, "pTop2": 0.500, "pTop3": 0.500},
         "〇": {"p1": 0.083, "pTop2": 0.083, "pTop3": 0.083},
         "▲": {"p1": 0.083, "pTop2": 0.167, "pTop3": 0.333},
@@ -208,36 +195,46 @@ RANK_STATS_BY_GRADE = {
         "×": {"p1": 0.167, "pTop2": 0.167, "pTop3": 0.250},
         "α": {"p1": 0.083, "pTop2": 0.250, "pTop3": 0.250},
         "無": {"p1": 0.059, "pTop2": 0.206, "pTop3": 0.412},
-    },
+    }
+
+     RANK_STATS_GIRLS = {   
+    # ガールズ（L級）
+  RANK_STATS_G = {
+        "◎": {"p1": 0.50, "pTop2": 0.50, "pTop3": 0.75},
+        "〇": {"p1": 0.00, "pTop2": 0.50, "pTop3": 0.75},
+        "▲": {"p1": 0.50, "pTop2": 0.75, "pTop3": 1.00},
+        "△": {"p1": 0.00, "pTop2": 0.00, "pTop3": 0.00},
+        "×": {"p1": 0.00, "pTop2": 0.25, "pTop3": 0.50},
+        "α": {"p1": 0.00, "pTop2": 0.00, "pTop3": 0.00},
+        "無": {"p1": 0.00, "pTop2": 0.00, "pTop3": 0.00},
+    }
+# 連動用のマップ（キーは固定）
+RANK_STATS_BY_GRADE = {
+    "TOTAL":  RANK_STATS_TOTAL,
+    "F2":     RANK_STATS_F2,
+    "F1":     RANK_STATS_F1,
+    "G":      RANK_STATS_G,
+    "GIRLS":  RANK_STATS_GIRLS,
 }
 
-# 既存APIの都合：未指定グレードは GLOBAL で埋める
-for g in ("F2","F1","G","L"):
-    for mk, vals in RANK_STATS_GLOBAL.items():
-        RANK_STATS_BY_GRADE[g].setdefault(mk, {"p1": vals["p1"], "pTop2": vals["pTop2"], "pTop3": vals["pTop3"]})
-
-# サンプル数（λ計算用の目安値：写真のN）
-SAMPLES_BY_GRADE = {
-    "L": 4,
-    "F2": 21,
-    "F1": 24,
-    "G": 12,
-}
-
-# フォールバック（既存ロジックを維持）
+# フォールバック用（印が無い車に与える既定分布）←残してOK
 RANK_FALLBACK_MARK = "△"
-if RANK_FALLBACK_MARK not in RANK_STATS_GLOBAL:
-    RANK_FALLBACK_MARK = next(iter(RANK_STATS_GLOBAL.keys()))
-FALLBACK_DIST = RANK_STATS_GLOBAL.get(RANK_FALLBACK_MARK, {"p1": 0.15, "pTop2": 0.30, "pTop3": 0.45})
+FALLBACK_DIST = RANK_STATS_TOTAL.get(RANK_FALLBACK_MARK, {"p1": 0.15, "pTop2": 0.30, "pTop3": 0.45})
 # ------------------------------------------------------------------------
 
 def _grade_from_race_class(race_class: str) -> str:
-    # L=ガールズ, G=Ｓ級, F1=Ａ級, F2=チャレンジ
-    if "ガール" in race_class: return "L"
-    if "Ｓ級" in race_class:   return "G"
-    if "チャレンジ" in race_class: return "F2"
-    if "Ａ級" in race_class:   return "F1"
-    return "F1"
+    s = str(race_class or "")
+    if "ガール" in s:
+        return "GIRLS"
+    if "Ｓ級" in s or "S級" in s or "S" in s:
+        return "G"
+    if "チャレンジ" in s:
+        return "F2"
+    if "Ａ級" in s or "A級" in s or "A" in s:
+        return "F1"
+    return "TOTAL"  # 不明なら全体
+
+
 
 
 # KO(勝ち上がり)関連
@@ -607,20 +604,20 @@ race_class = st.sidebar.selectbox("級別", ["Ｓ級","Ａ級","Ａ級チャレ�
 # === 確率基準（印→想定率の参照先） ===
 st.sidebar.subheader("確率の基準")
 grade_default = "auto"  # デフォルト：自動（開催グレード）
-grade_choice = st.sidebar.radio(
-    "基準の選択",
-    options=[("自動（開催グレード）","auto"),("全体固定","global"),("F2","F2"),("F1","F1"),("G","G")],
-    format_func=lambda x: x[0],
-    horizontal=False
-)[1]
+grade_choice = st.sidebar.radio
 
 if "_grade_from_race_class" not in globals():
     def _grade_from_race_class(race_class: str) -> str:
-        if "ガール" in race_class: return "L"
-        if "Ｓ級" in race_class:   return "G"
-        if "チャレンジ" in race_class: return "F2"
-        if "Ａ級" in race_class:   return "F1"
+    s = str(race_class or "")
+    if "ガール" in s:
+        return "GIRLS"
+    if "Ｓ級" in s or "S級" in s or "S" in s:
+        return "G"
+    if "チャレンジ" in s:
+        return "F2"
+    if "Ａ級" in s or "A級" in s or "A" in s:
         return "F1"
+    return "TOTAL"  # 不明なら全体
 
 # ---- SAFETY GUARD: pick_rank_stats を呼ぶ前に必ず定義しておく ----
 if "pick_rank_stats" not in globals():
@@ -647,43 +644,25 @@ if "pick_rank_stats" not in globals():
     if "SAMPLES_BY_GRADE" not in globals():
         SAMPLES_BY_GRADE = {"F2":0, "F1":0, "G":0, "L":0}
 
-    def pick_rank_stats(grade_choice: str, detected_grade: str, samples_by_grade: dict, H: int = 60):
-        """
-        戻り: (stats_dict, lambda_used, source_label)
-        データ薄(N<=10)は GLOBAL を返す安全設計。
-        """
-        base = RANK_STATS_GLOBAL
-        if grade_choice == "global":
-            return base, 0.0, "GLOBAL"
-        key = detected_grade if grade_choice == "auto" else grade_choice
-        grade_stats = RANK_STATS_BY_GRADE.get(key, base)
-        N = int(max(0, samples_by_grade.get(key, 0)))
-        if N <= 10:
-            return base, 0.0, f"{key}(fallback)"
-        lam = N / (N + H)
-        mixed = {}
-        for mk in base.keys():
-            g = grade_stats.get(mk, base[mk])
-            mixed[mk] = {
-                "p1":    lam*g["p1"]    + (1-lam)*base[mk]["p1"],
-                "pTop2": lam*g["pTop2"] + (1-lam)*base[mk]["pTop2"],
-                "pTop3": lam*g["pTop3"] + (1-lam)*base[mk]["pTop3"],
-            }
-        return mixed, lam, key
+    def pick_rank_stats(grade_choice: str, detected_grade: str):
+    """
+    grade_choice: 'auto' | 'TOTAL' | 'F2' | 'F1' | 'G' | 'GIRLS'
+    detected_grade: _grade_from_race_class の結果
+    戻り: (stats_dict, source_key)
+    """
+    key = detected_grade if grade_choice == "auto" else grade_choice
+    key = key if key in RANK_STATS_BY_GRADE else "TOTAL"
+    return RANK_STATS_BY_GRADE[key], key
+
 # ---- /SAFETY GUARD ----
 
 
 detected_grade = _grade_from_race_class(race_class)
-RANK_IN_USE, lam_used, source_key = pick_rank_stats(
-    grade_choice=grade_choice,
-    detected_grade=detected_grade,
-    samples_by_grade=SAMPLES_BY_GRADE,
-    H=60
+RANK_IN_USE, source_key = pick_rank_stats(
+    grade_choice=grade_choice, detected_grade=detected_grade
 )
-st.sidebar.caption(f"基準: {source_key}｜λ={lam_used:.2f}｜判定グレード={detected_grade}")
-# 必要ならどこからでも使えるように session_state に保存
-st.session_state["RANK_IN_USE"] = RANK_IN_USE
-st.session_state["RANK_SOURCE"] = {"key": source_key, "lambda": lam_used, "grade": detected_grade}
+st.sidebar.caption(f"実測率ソース: {source_key}")
+
 
 
 # === 会場styleを「得意会場平均」を基準に再定義
@@ -1456,40 +1435,34 @@ st.dataframe(hen_df, use_container_width=True)
 #       result_marks で各印の車番が決まっていること（◎〇▲…）
 #       FALLBACK_DIST は既存どおり（印なしの既定分布）
 
-# ---- 調整ノブ（効き具合が強すぎ／弱すぎの時はここだけ触ればOK）----
-TAU_PL     = float(globals().get("TAU_PL", 1.0))     # race_z 温度（従来 tau）
-GAMMA_P1   = float(globals().get("GAMMA_P1", 0.8))   # p1 の差分の効き
-GAMMA_TOP3 = float(globals().get("GAMMA_TOP3", 0.6)) # pTop3 の差分の効き
-MARK_FLOOR = float(globals().get("MARK_FLOOR", 0.20))# マーク補正の下限
+# ここはそのままでOK（w = exp(race_z*tau) × 印分布の係数）
+TAU_PL     = float(globals().get("TAU_PL", 1.0))
+GAMMA_P1   = float(globals().get("GAMMA_P1", 0.8))
+GAMMA_TOP3 = float(globals().get("GAMMA_TOP3", 0.6))
+MARK_FLOOR = float(globals().get("MARK_FLOOR", 0.20))
 
-# ---- 1) 基礎：従来どおり race_z から指数重み ----
 w_base = np.exp(race_z * TAU_PL)
 
-# ---- 2) 車ごとの印→グレード別の実測率（RANK_IN_USE）を引く ----
 car_mark = {int(v): k for k, v in (result_marks.items() if isinstance(result_marks, dict) else {}).items()}
-fallback_key = RANK_FALLBACK_MARK if 'RANK_FALLBACK_MARK' in globals() else '△'
-base_dist = RANK_STATS_GLOBAL.get(fallback_key, FALLBACK_DIST) if 'RANK_STATS_GLOBAL' in globals() else FALLBACK_DIST
+fallback_key = RANK_FALLBACK_MARK
+base_dist = FALLBACK_DIST
 
-# ---- 3) 印の実測率差分を線形で係数化 ----
 w_mark_list = []
 for car in USED_IDS:
     mk = car_mark.get(int(car), fallback_key)
-    prior = RANK_IN_USE.get(mk, base_dist)  # ← ★ここが“連動”の要（F2/F1/G/auto で切替）
+    prior = RANK_IN_USE.get(mk, base_dist)
     delta_p1   = float(prior["p1"])    - float(base_dist["p1"])
     delta_top3 = float(prior["pTop3"]) - float(base_dist["pTop3"])
     coeff = 1.0 + GAMMA_P1*delta_p1 + GAMMA_TOP3*delta_top3
     w_mark_list.append(max(MARK_FLOOR, coeff))
 w_mark = np.array(w_mark_list, dtype=float)
 
-# ---- 4) 合成 → これが購入計算に使う重み ----
 w = w_base * w_mark
-
-# 正規化セット（以降の確率近似で使用）
 S_w = float(np.sum(w))
 if S_w <= 0:
-    w = np.ones_like(w, dtype=float)
-    S_w = float(np.sum(w))
+    w = np.ones_like(w, dtype=float); S_w = float(np.sum(w))
 w_idx = {USED_IDS[idx]: float(w[idx]) for idx in range(M)}
+
 
 
 def prob_top2_pair_pl(i: int, j: int) -> float:
