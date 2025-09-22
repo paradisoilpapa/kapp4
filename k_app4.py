@@ -713,10 +713,6 @@ HEADCOUNT_SHIFT = {5: -0.20, 6: -0.10, 7: -0.05, 8: 0.0, 9: +0.10}
 
 def fatigue_extra(eff_laps: int, day_label: str, n_cars: int, race_class: str) -> float:
     """
-    # 既存の extra = max(eff_laps - 2, 0) をベースに、
-    ・日程シフト：初日 -0.5／2日目 0／最終日 +0.5
-    ・級別シフト：A級/チャレンジをやや重め、ガールズはやや軽め
-    ・頭数シフト：9車は少し重く、5〜7車は少し軽く
     """
     d = float(DAY_SHIFT.get(day_label, 0.0))
     c = float(CLASS_SHIFT.get(race_class, 0.0))
