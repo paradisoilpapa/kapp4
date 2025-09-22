@@ -1393,6 +1393,20 @@ def prob_wide_pair_pl(i: int, j: int) -> float:
         total += prob_top3_triple_pl(i, j, k)
     return total
 
+def prob_nitan_ordered(i: int, j: int) -> float:
+    """二車単 i→j の順序付き近似"""
+    wi, wj = w_idx[i], w_idx[j]
+    d1 = max(S_w - wi, EPS)
+    return (wi / S_w) * (wj / d1)
+
+def prob_trifecta_ordered(a: int, b: int, c: int) -> float:
+    """三連単 a→b→c の順序付き近似"""
+    wa, wb, wc = w_idx[a], w_idx[b], w_idx[c]
+    d1 = max(S_w - wa, EPS)
+    d2 = max(S_w - wa - wb, EPS)
+    return (wa / S_w) * (wb / d1) * (wc / d2)
+
+
 # 7) 印（◎〇▲）＝ T↓ → SBなし↓ → 車番↑（βは除外）
 if "select_beta" not in globals():
     def select_beta(cars): return None
