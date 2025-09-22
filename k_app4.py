@@ -650,11 +650,18 @@ if "pick_rank_stats" not in globals():
     if "SAMPLES_BY_GRADE" not in globals():
         SAMPLES_BY_GRADE = {"F2":0, "F1":0, "G":0, "L":0}
 
-    def pick_rank_stats(grade_choice: str, detected_grade: str):
+    def pick_rank_stats(detected_grade, grade_choice, rank_stats_by_grade):
     """
-    grade_choice: 'auto' | 'TOTAL' | 'F2' | 'F1' | 'G' | 'GIRLS'
-    detected_grade: _grade_from_race_class の結果
-    戻り: (stats_dict, source_key)
+    グレード判定結果とユーザー選択から、使用するRANK_STATSを決める
+    """
+    # grade_choice が "auto" の場合は detected_grade を優先
+    key = detected_grade if grade_choice == "auto" else grade_choice
+    # マップに無ければ TOTAL にフォールバック
+    if key not in rank_stats_by_grade:
+        key = "TOTAL"
+    rank_stats = rank_stats_by_grade[key]
+    return rank_stats, key
+
     """
     key = detected_grade if grade_choice == "auto" else grade_choice
     key = key if key in RANK_STATS_BY_GRADE else "TOTAL"
