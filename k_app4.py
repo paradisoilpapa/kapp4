@@ -1408,7 +1408,7 @@ def prob_trifecta_ordered(a: int, b: int, c: int) -> float:
 
 
 # ===== 確率枠：基準 & 上限 =====
-P_TH_BASE = float(globals().get("P_TH_BASE", 0.08))  # 8% 以上
+P_TH_BASE = float(globals().get("P_TH_BASE", 0.07))  # 8% 以上
 CAPS = {
     "trio":     int(globals().get("CAP_TRIO_PROB", 3)),   # 三連複 最大3
     "trifecta": int(globals().get("CAP_TRIF_PROB", 3)),   # 三連単 最大3
@@ -2244,7 +2244,7 @@ has_nit                 = bool(_g("has_nit", bool(rows_nitan_filtered)))
 
 # ===== 確率枠：基準 & 上限 =====
 # ※ 必ず「確率枠 生成」より前に置く（NameError対策）
-P_TH_BASE = float(globals().get("P_TH_BASE", 0.08))  # 8% 以上
+P_TH_BASE = float(globals().get("P_TH_BASE", 0.07))  # 8% 以上
 CAPS = {
     "trio":     int(globals().get("CAP_TRIO_PROB", 3)),
     "trifecta": int(globals().get("CAP_TRIF_PROB", 3)),
@@ -2390,7 +2390,7 @@ else:
     st.markdown("対象外")
 
 # ===== 確率枠の安全フォールバック（表示用）=====
-P_TH_BASE = float(globals().get("P_TH_BASE", 0.08))  # 8% 既定
+P_TH_BASE = float(globals().get("P_TH_BASE", 0.07))  # 8% 既定
 trio_prob_rows      = globals().get("trio_prob_rows", [])
 trifecta_prob_rows  = globals().get("trifecta_prob_rows", [])
 qn_prob_rows        = globals().get("qn_prob_rows", [])
@@ -2691,7 +2691,7 @@ def _fmt_prob_rows_nitan(rows):
     return "\n".join([f"{k}（P={p*100:.1f}%｜{tag}）" for (k,p,tag) in rows])
 
 # ===== 安全フォールバック：確率枠のしきい・行データ（未定義でも落ちない）=====
-P_TH_BASE = float(globals().get("P_TH_BASE", 0.08))  # 8% を既定
+P_TH_BASE = float(globals().get("P_TH_BASE", 0.07))  # 8% を既定
 trio_prob_rows      = globals().get("trio_prob_rows", [])
 trifecta_prob_rows  = globals().get("trifecta_prob_rows", [])
 qn_prob_rows        = globals().get("qn_prob_rows", [])
