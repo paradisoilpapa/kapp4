@@ -151,53 +151,80 @@ VELODROME_MASTER = {
     "手入力":{"lat":None,"lon":None,"home_azimuth":None},
 }
 
-# --- 最新の印別実測率（表示はしないが内部保持）
-RANK_STATS = {
-    "◎": {"p1": 0.216, "pTop2": 0.456, "pTop3": 0.624},
-    "〇": {"p1": 0.193, "pTop2": 0.360, "pTop3": 0.512},
-    "▲": {"p1": 0.208, "pTop2": 0.384, "pTop3": 0.552},
-    "△": {"p1": 0.152, "pTop2": 0.248, "pTop3": 0.384},
-    "×": {"p1": 0.128, "pTop2": 0.256, "pTop3": 0.384},
-    "α": {"p1": 0.088, "pTop2": 0.152, "pTop3": 0.312},
-    "β": {"p1": 0.076, "pTop2": 0.151, "pTop3": 0.244},
+# --- 最新の印別実測率（あなたの集計で上書き） ---
+# 率は小数(=確率)で記入。列は 1着率=p1 / 連対率=pTop2 / 3着内率=pTop3
+
+# ①全体（画像「全体」）
+RANK_STATS_GLOBAL = {
+    "◎": {"p1": 0.361, "pTop2": 0.475, "pTop3": 0.574},
+    "〇": {"p1": 0.131, "pTop2": 0.262, "pTop3": 0.426},
+    "▲": {"p1": 0.131, "pTop2": 0.311, "pTop3": 0.475},
+    "△": {"p1": 0.098, "pTop2": 0.279, "pTop3": 0.443},
+    "×": {"p1": 0.098, "pTop2": 0.180, "pTop3": 0.279},
+    "α": {"p1": 0.098, "pTop2": 0.246, "pTop3": 0.361},
+    "無": {"p1": 0.060, "pTop2": 0.181, "pTop3": 0.325},
 }
 
-# === グレード別 実測率テーブル（最初はGLOBALを複製→後で実データで上書き） ===
-RANK_STATS_GLOBAL = dict(RANK_STATS)  # 既存の全体平均
 def _clone_rankstats(src):
     return {k: {"p1":v["p1"], "pTop2":v["pTop2"], "pTop3":v["pTop3"]} for k,v in src.items()}
 
+# ②グレード別（画像 F2 / F1 / G）
 RANK_STATS_BY_GRADE = {
-    "F2": _clone_rankstats(RANK_STATS_GLOBAL),
-    "F1": _clone_rankstats(RANK_STATS_GLOBAL),
-    "G":  _clone_rankstats(RANK_STATS_GLOBAL),
+    # F2（N=21）
+    "F2": {
+        "◎": {"p1": 0.476, "pTop2": 0.619, "pTop3": 0.714},
+        "〇": {"p1": 0.095, "pTop2": 0.286, "pTop3": 0.524},
+        "▲": {"p1": 0.190, "pTop2": 0.476, "pTop3": 0.667},
+        "△": {"p1": 0.095, "pTop2": 0.333, "pTop3": 0.571},
+        "×": {"p1": 0.048, "pTop2": 0.095, "pTop3": 0.190},
+        "α": {"p1": 0.095, "pTop2": 0.143, "pTop3": 0.143},
+        "無": {"p1": 0.000, "pTop2": 0.048, "pTop3": 0.190},
+    },
+    # F1（N=24）※画像の数値から算出。3着内%は(1+2+3)/24で再計算しています。
+    "F1": {
+        "◎": {"p1": 0.250, "pTop2": 0.333, "pTop3": (6+2+3)/24},  # = 0.458
+        "〇": {"p1": 0.250, "pTop2": 0.292, "pTop3": (6+1+4)/24},  # = 0.458
+        "▲": {"p1": 0.042, "pTop2": 0.167, "pTop3": (1+3+3)/24},  # = 0.292
+        "△": {"p1": 0.083, "pTop2": 0.292, "pTop3": (2+5+3)/24},  # = 0.417
+        "×": {"p1": 0.125, "pTop2": 0.250, "pTop3": (3+3+3)/24},  # = 0.375
+        "α": {"p1": 0.125, "pTop2": 0.375, "pTop3": (3+6+7)/24},  # = 0.667
+        "β": {"p1": 0.125, "pTop2": 0.292, "pTop3": (3+4+2)/24},  # = 0.375
+        "無": {"p1": 0.000, "pTop2": 0.000, "pTop3": 0.000},
+    },
+    # G（S級相当。画像 G、N=12）
+    "G": {
+        "◎": {"p1": 0.333, "pTop2": 0.500, "pTop3": 0.500},
+        "〇": {"p1": 0.000, "pTop2": 0.083, "pTop3": 0.083},
+        "▲": {"p1": 0.083, "pTop2": 0.167, "pTop3": 0.333},
+        "△": {"p1": 0.167, "pTop2": 0.250, "pTop3": 0.417},
+        "×": {"p1": 0.167, "pTop2": 0.167, "pTop3": 0.250},
+        "α": {"p1": 0.083, "pTop2": 0.250, "pTop3": 0.250},
+        "無": {"p1": 0.059, "pTop2": 0.206, "pTop3": 0.412},  # 無だけN=34（画像の行）
+    },
 }
-SAMPLES_BY_GRADE = {"F2": 0, "F1": 0, "G": 0}  # 後で実集計で差し替え
 
+# ③サンプル数（画像のNを転記）
+SAMPLES_BY_GRADE = {"F2": 21, "F1": 24, "G": 12}
+
+# ④級判定（既存通り。ガールズはF1に寄せる運用ならこのまま）
 def _grade_from_race_class(race_class: str) -> str:
-    # ざっくり対応：S級→G／A級→F1／A級チャレンジ→F2／ガールズ→F1
     if "Ｓ級" in race_class: return "G"
     if "チャレンジ" in race_class: return "F2"
     if "Ａ級" in race_class: return "F1"
-    if "ガールズ" in race_class: return "F1"
+    if "ガールズ" in race_class: return "F1"  # ガールズ(L級)はF1扱い
     return "F1"
 
+# ⑤ミックス（サンプル数に応じて GLOBAL と混合：既存の仕組みそのまま）
 def pick_rank_stats(grade_choice: str, detected_grade: str, samples_by_grade: dict, H: int = 60):
-    """
-    grade_choice: 'auto'|'global'|'F2'|'F1'|'G'
-    detected_grade: レースから判定した 'F2'|'F1'|'G'
-    samples_by_grade: {'F2':N, 'F1':N, 'G':N}
-    戻り: (stats_dict, lambda_used:float, source_label:str)
-    """
     base = RANK_STATS_GLOBAL
     if grade_choice == 'global':
         return base, 0.0, 'GLOBAL'
     key = detected_grade if grade_choice == 'auto' else grade_choice
     grade_stats = RANK_STATS_BY_GRADE.get(key, base)
     N = int(max(0, samples_by_grade.get(key, 0)))
-    if N <= 10:  # データ薄 → 全体へフォールバック
+    if N <= 10:
         return base, 0.0, f'{key}(fallback)'
-    lam = N / (N + H)  # λ∈[0,1)
+    lam = N / (N + H)
     mixed = {}
     for mk in base.keys():
         g = grade_stats.get(mk, base[mk])
@@ -207,6 +234,11 @@ def pick_rank_stats(grade_choice: str, detected_grade: str, samples_by_grade: di
             "pTop3": lam*g["pTop3"] + (1-lam)*base[mk]["pTop3"],
         }
     return mixed, lam, key
+
+# ⑥ 互換のため（古いRANK_STATS参照が残っていても落ちないように）
+RANK_STATS = dict(RANK_STATS_GLOBAL)
+
+
 
 
 RANK_FALLBACK_MARK = "△"
