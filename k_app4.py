@@ -2064,6 +2064,8 @@ xs_base_raw       = _g("xs_base_raw", [])
 line_inputs       = _g("line_inputs", [])
 _format_rank_from_array = _g("_format_rank_from_array", lambda ids, xs: " ".join(map(str, ids)))
 
+
+
 # =========================
 #  画面出力（順番固定）
 # =========================
@@ -2221,6 +2223,14 @@ def _fmt_prob_rows_pairs(rows):
     return "\n".join([f"{a}-{b}（P={p*100:.1f}%｜{tag}）" for (a,b,p,tag) in rows])
 def _fmt_prob_rows_nitan(rows):
     return "\n".join([f"{k}（P={p*100:.1f}%｜{tag}）" for (k,p,tag) in rows])
+
+# ===== 安全フォールバック：確率枠のしきい・行データ（未定義でも落ちない）=====
+P_TH_BASE = float(globals().get("P_TH_BASE", 0.08))  # 8% を既定
+trio_prob_rows      = globals().get("trio_prob_rows", [])
+trifecta_prob_rows  = globals().get("trifecta_prob_rows", [])
+qn_prob_rows        = globals().get("qn_prob_rows", [])
+nitan_prob_rows     = globals().get("nitan_prob_rows", [])
+
 
 note_sections.append("\n【確率枠】（P≥{:.0f}%｜重複歓迎）".format(P_TH_BASE*100))
 if trio_prob_rows:
