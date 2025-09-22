@@ -622,6 +622,56 @@ if "_grade_from_race_class" not in globals():
         if "Ａ級" in race_class:   return "F1"
         return "F1"
 
+# ---- SAFETY GUARD: pick_rank_stats を呼ぶ前に必ず定義しておく ----
+if "pick_rank_stats" not in globals():
+    # 最低限のフォールバック（写真ベースのテーブルが未用意でも動く）
+    if "RANK_STATS_GLOBAL" not in globals():
+        # 全体平均デフォルト（適当でなく既存 RANK_STATS があればそれを使う）
+        base = globals().get("RANK_STATS", {
+            "◎": {"p1":0.216, "pTop2":0.456, "pTop3":0.624},
+            "〇": {"p1":0.193, "pTop2":0.360, "pTop3":0.512},
+            "▲": {"p1":0.208, "pTop2":0.384, "pTop3":0.552},
+            "△": {"p1":0.152, "pTop2":0.248, "pTop3":0.384},
+            "×": {"p1":0.128, "pTop2":0.256, "pTop3":0.384},
+            "α": {"p1":0.088, "pTop2":0.152, "pTop3":0.312},
+            "β": {"p1":0.076, "pTop2":0.151, "pTop3":0.244},
+        })
+        RANK_STATS_GLOBAL = dict(base)
+    if "RANK_STATS_BY_GRADE" not in globals():
+        RANK_STATS_BY_GRADE = {
+            "F2": dict(RANK_STATS_GLOBAL),
+            "F1": dict(RANK_STATS_GLOBAL),
+            "G":  dict(RANK_STATS_GLOBAL),
+            "L":  dict(RANK_STATS_GLOBAL),  # ガールズ(L)も用意
+        }
+    if "SAMPLES_BY_GRADE" not in globals():
+        SAMPLES_BY_GRADE = {"F2":0, "F1":0, "G":0, "L":0}
+
+    def pick_rank_stats(grade_choice: str, detected_grade: str, samples_by_grade: dict, H: int = 60):
+        """
+        戻り: (stats_dict, lambda_used, source_label)
+        データ薄(N<=10)は GLOBAL を返す安全設計。
+        """
+        base = RANK_STATS_GLOBAL
+        if grade_choice == "global":
+            return base, 0.0, "GLOBAL"
+        key = detected_grade if grade_choice == "auto" else grade_choice
+        grade_stats = RANK_STATS_BY_GRADE.get(key, base)
+        N = int(max(0, samples_by_grade.get(key, 0)))
+        if N <= 10:
+            return base, 0.0, f"{key}(fallback)"
+        lam = N / (N + H)
+        mixed = {}
+        for mk in base.keys():
+            g = grade_stats.get(mk, base[mk])
+            mixed[mk] = {
+                "p1":    lam*g["p1"]    + (1-lam)*base[mk]["p1"],
+                "pTop2": lam*g["pTop2"] + (1-lam)*base[mk]["pTop2"],
+                "pTop3": lam*g["pTop3"] + (1-lam)*base[mk]["pTop3"],
+            }
+        return mixed, lam, key
+# ---- /SAFETY GUARD ----
+
 
 detected_grade = _grade_from_race_class(race_class)
 RANK_IN_USE, lam_used, source_key = pick_rank_stats(
