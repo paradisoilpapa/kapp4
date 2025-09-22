@@ -2412,6 +2412,83 @@ def _df_prob_nitan(rows):
     return pd.DataFrame([{"買い目": k, "P(%)": f"{p*100:.1f}", "備考": tag}
                          for (k,p,tag) in rows])
 
+# --- 重複（S×P）のキー抽出ヘルパー ---
+def _find_overlaps(keys_a, keys_b):
+    """2リストの重複を返す（文字列キーで比較）"""
+    set_a = set(keys_a)
+    set_b = set(keys_b)
+    return sorted(set_a & set_b)
+
+def _keys_trio_S(rows):
+    # 三連複（順不同）：(a,b,c,s,tag)
+    keys = []
+    for a,b,c, *_ in rows:
+        i,j,k = sorted((int(a),int(b),int(c)))
+        keys.append(f"{i}-{j}-{k}")
+    return keys
+
+def _keys_trio_P(rows):
+    # 三連複（順不同）：(a,b,c,p,tag)
+    keys = []
+    for a,b,c, *_ in rows:
+        i,j,k = sorted((int(a),int(b),int(c)))
+        keys.append(f"{i}-{j}-{k}")
+    return keys
+
+def _keys_triS_S(rows):
+    # 三連単（順序あり）：(a,b,c,s,tag)
+    return [f"{int(a)}-{int(b)}-{int(c)}" for a,b,c, *_ in rows]
+
+def _keys_triS_P(rows):
+    # 三連単（順序あり）：(a,b,c,p,tag)
+    return [f"{int(a)}-{int(b)}-{int(c)}" for a,b,c, *_ in rows]
+
+def _keys_qn_S(rows):
+    # 二車複（順不同）：(a,b,s,tag)
+    keys = []
+    for a,b, *_ in rows:
+        i,j = sorted((int(a),int(b)))
+        keys.append(f"{i}-{j}")
+    return keys
+
+def _keys_qn_P(rows):
+    # 二車複（順不同）：(a,b,p,tag)
+    keys = []
+    for a,b, *_ in rows:
+        i,j = sorted((int(a),int(b)))
+        keys.append(f"{i}-{j}")
+    return keys
+
+def _keys_nitan_S(rows):
+    # 二車単（順序あり）：( "a-b", s, tag )
+    return [str(k) for k, *_ in rows]
+
+def _keys_nitan_P(rows):
+    # 二車単（順序あり）：( "a-b", p, tag )
+    return [str(k) for k, *_ in rows]
+
+# 表示用：SとPをまとめたテーブルを作る
+def _df_overlap(keys, s_map, p_map, bet_type):
+    """
+    keys: 重複キーのリスト（'1-2-3' / '1-2' / '1-2-3' / 'a-b'）
+    s_map: key -> スコア(S)  の辞書
+    p_map: key -> 確率(%)    の辞書（0-100 で渡す）
+    bet_type: '三連複'|'三連単'|'二車複'|'二車単'
+    """
+    rows = []
+    for k in keys:
+        s = s_map.get(k, float('nan'))
+        p = p_map.get(k, float('nan'))
+        rows.append({"買い目": k, "S(点)": f"{s:.1f}", "P(%)": f"{p:.1f}"})
+    # P降順→S降順→キー昇順で見やすく
+    import math
+    rows.sort(key=lambda r: (-(float(r["P(%)"].rstrip('%')) if isinstance(r["P(%)"], str) else float(r["P(%)"])),
+                             -(float(r["S(点)"]) if r["S(点)"] not in ("", "—") else -math.inf),
+                             r["買い目"]))
+    return pd.DataFrame(rows)
+
+
+
 st.markdown("#### 【確率枠】（P≥{:.0f}%｜重複歓迎）".format(P_TH_BASE*100))
 if trio_prob_rows:
     st.markdown("**三連複**")
@@ -2425,6 +2502,100 @@ if qn_prob_rows:
 if nitan_prob_rows:
     st.markdown("**二車単**")
     st.dataframe(_df_prob_nitan(nitan_prob_rows), use_container_width=True)
+
+# =========================
+#  🎯 狙い目（S×Pの重複）
+# =========================
+# S 側の辞書（スコア）と P 側の辞書（確率%）を準備
+overlap_trio_keys = overlap_triS_keys = overlap_qn_keys = overlap_nitan_keys = []
+overlap_trio_df = overlap_triS_df = overlap_qn_df = overlap_nitan_df = None
+
+# --- 三連複 ---
+if trios_filtered_display and trio_prob_rows:
+    # key -> S
+    trio_S_map = {}
+    for a,b,c,s, *_ in trios_filtered_display:
+        i,j,k = sorted((int(a),int(b),int(c)))
+        trio_S_map[f"{i}-{j}-{k}"] = float(s)
+    # key -> P(%)
+    trio_P_map = {}
+    for a,b,c,p, *_ in trio_prob_rows:
+        i,j,k = sorted((int(a),int(b),int(c)))
+        trio_P_map[f"{i}-{j}-{k}"] = float(p)*100.0
+
+    ks_S = _keys_trio_S(trios_filtered_display)
+    ks_P = _keys_trio_P(trio_prob_rows)
+    overlap_trio_keys = _find_overlaps(ks_S, ks_P)
+    if overlap_trio_keys:
+        overlap_trio_df = _df_overlap(overlap_trio_keys, trio_S_map, trio_P_map, "三連複")
+
+# --- 三連単 ---
+if santan_filtered_display and trifecta_prob_rows:
+    triS_S_map = {f"{int(a)}-{int(b)}-{int(c)}": float(s) for a,b,c,s, *_ in santan_filtered_display}
+    triS_P_map = {f"{int(a)}-{int(b)}-{int(c)}": float(p)*100.0 for a,b,c,p, *_ in trifecta_prob_rows}
+    ks_S = _keys_triS_S(santan_filtered_display)
+    ks_P = _keys_triS_P(trifecta_prob_rows)
+    overlap_triS_keys = _find_overlaps(ks_S, ks_P)
+    if overlap_triS_keys:
+        overlap_triS_df = _df_overlap(overlap_triS_keys, triS_S_map, triS_P_map, "三連単")
+
+# --- 二車複 ---
+if pairs_qn2_filtered and qn_prob_rows:
+    qn_S_map = {}
+    for a,b,s, *_ in pairs_qn2_filtered:
+        i,j = sorted((int(a),int(b)))
+        qn_S_map[f"{i}-{j}"] = float(s)
+    qn_P_map = {}
+    for a,b,p, *_ in qn_prob_rows:
+        i,j = sorted((int(a),int(b)))
+        qn_P_map[f"{i}-{j}"] = float(p)*100.0
+    ks_S = _keys_qn_S(pairs_qn2_filtered)
+    ks_P = _keys_qn_P(qn_prob_rows)
+    overlap_qn_keys = _find_overlaps(ks_S, ks_P)
+    if overlap_qn_keys:
+        overlap_qn_df = _df_overlap(overlap_qn_keys, qn_S_map, qn_P_map, "二車複")
+
+# --- 二車単 ---
+if rows_nitan_filtered and nitan_prob_rows:
+    nit_S_map = {str(k): float(s) for k,s, *_ in rows_nitan_filtered}
+    nit_P_map = {str(k): float(p)*100.0 for k,p, *_ in nitan_prob_rows}
+    ks_S = _keys_nitan_S(rows_nitan_filtered)
+    ks_P = _keys_nitan_P(nitan_prob_rows)
+    overlap_nitan_keys = _find_overlaps(ks_S, ks_P)
+    if overlap_nitan_keys:
+        overlap_nitan_df = _df_overlap(overlap_nitan_keys, nit_S_map, nit_P_map, "二車単")
+
+# ---- 画面出力（あるものだけ表示）----
+has_any_overlap = any([overlap_trio_df is not None,
+                       overlap_triS_df is not None,
+                       overlap_qn_df is not None,
+                       overlap_nitan_df is not None])
+
+st.markdown("#### 🎯 狙い目（S×P重複）")
+if not has_any_overlap:
+    st.caption("※ S候補と確率枠の重複はありません")
+else:
+    if overlap_trio_df is not None:
+        st.markdown("**三連複**")
+        st.dataframe(overlap_trio_df, use_container_width=True)
+    if overlap_triS_df is not None:
+        st.markdown("**三連単**")
+        st.dataframe(overlap_triS_df, use_container_width=True)
+    if overlap_qn_df is not None:
+        st.markdown("**二車複**")
+        st.dataframe(overlap_qn_df, use_container_width=True)
+    if overlap_nitan_df is not None:
+        st.markdown("**二車単**")
+        st.dataframe(overlap_nitan_df, use_container_width=True)
+
+# note 用に保持（後段で使う）
+OVERLAP_NOTE = {
+    "trio":   overlap_trio_keys,
+    "triS":   overlap_triS_keys,
+    "qn":     overlap_qn_keys,
+    "nitan":  overlap_nitan_keys,
+}
+
 
 
 # =========================
@@ -2537,6 +2708,19 @@ if qn_prob_rows:
 if nitan_prob_rows:
     note_sections.append("\n二車単\n" + _fmt_prob_rows_nitan(nitan_prob_rows))
 
+# --- 狙い目（S×P重複） note ---
+def _fmt_overlap_lines(keys):
+    return ("なし" if not keys else "\n".join(keys))
+
+note_sections.append("\n🎯狙い目（S×P重複）")
+if OVERLAP_NOTE.get("trio"):
+    note_sections.append("\n三連複\n" + _fmt_overlap_lines(OVERLAP_NOTE["trio"]))
+if OVERLAP_NOTE.get("triS"):
+    note_sections.append("\n三連単\n" + _fmt_overlap_lines(OVERLAP_NOTE["triS"]))
+if OVERLAP_NOTE.get("qn"):
+    note_sections.append("\n二車複\n" + _fmt_overlap_lines(OVERLAP_NOTE["qn"]))
+if OVERLAP_NOTE.get("nitan"):
+    note_sections.append("\n二車単\n" + _fmt_overlap_lines(OVERLAP_NOTE["nitan"]))
 
 
 note_text = "\n".join(note_sections)
