@@ -2101,6 +2101,36 @@ else:
     st.markdown("対象外")
 
 # =========================
+#  【確率枠】表示
+# =========================
+def _df_prob_trio(rows):
+    return pd.DataFrame([{"買い目": f"{a}-{b}-{c}", "P(%)": f"{p*100:.1f}", "備考": tag}
+                         for (a,b,c,p,tag) in rows])
+
+def _df_prob_pairs(rows):
+    return pd.DataFrame([{"買い目": f"{a}-{b}", "P(%)": f"{p*100:.1f}", "備考": tag}
+                         for (a,b,p,tag) in rows])
+
+def _df_prob_nitan(rows):
+    return pd.DataFrame([{"買い目": k, "P(%)": f"{p*100:.1f}", "備考": tag}
+                         for (k,p,tag) in rows])
+
+st.markdown("#### 【確率枠】（P≥{:.0f}%｜重複歓迎）".format(P_TH_BASE*100))
+if trio_prob_rows:
+    st.markdown("**三連複**")
+    st.dataframe(_df_prob_trio(trio_prob_rows), use_container_width=True)
+if trifecta_prob_rows:
+    st.markdown("**三連単**")
+    st.dataframe(_df_prob_trio(trifecta_prob_rows), use_container_width=True)
+if qn_prob_rows:
+    st.markdown("**二車複**")
+    st.dataframe(_df_prob_pairs(qn_prob_rows), use_container_width=True)
+if nitan_prob_rows:
+    st.markdown("**二車単**")
+    st.dataframe(_df_prob_nitan(nitan_prob_rows), use_container_width=True)
+
+
+# =========================
 #  note 出力（最後にまとめて）
 # =========================
 def _fmt_hen_lines(ts_map: dict, ids: list[int]) -> str:
@@ -2183,6 +2213,25 @@ if has_nit:
     )
 else:
     note_sections.append("\n二車単（新方式）\n対象外")
+
+# --- 確率枠 note ---
+def _fmt_prob_rows_trio(rows):
+    return "\n".join([f"{a}-{b}-{c}（P={p*100:.1f}%｜{tag}）" for (a,b,c,p,tag) in rows])
+def _fmt_prob_rows_pairs(rows):
+    return "\n".join([f"{a}-{b}（P={p*100:.1f}%｜{tag}）" for (a,b,p,tag) in rows])
+def _fmt_prob_rows_nitan(rows):
+    return "\n".join([f"{k}（P={p*100:.1f}%｜{tag}）" for (k,p,tag) in rows])
+
+note_sections.append("\n【確率枠】（P≥{:.0f}%｜重複歓迎）".format(P_TH_BASE*100))
+if trio_prob_rows:
+    note_sections.append("\n三連複\n" + _fmt_prob_rows_trio(trio_prob_rows))
+if trifecta_prob_rows:
+    note_sections.append("\n三連単\n" + _fmt_prob_rows_trio(trifecta_prob_rows))
+if qn_prob_rows:
+    note_sections.append("\n二車複\n" + _fmt_prob_rows_pairs(qn_prob_rows))
+if nitan_prob_rows:
+    note_sections.append("\n二車単\n" + _fmt_prob_rows_nitan(nitan_prob_rows))
+
 
 
 note_text = "\n".join(note_sections)
