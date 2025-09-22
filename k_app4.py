@@ -2064,6 +2064,53 @@ xs_base_raw       = _g("xs_base_raw", [])
 line_inputs       = _g("line_inputs", [])
 _format_rank_from_array = _g("_format_rank_from_array", lambda ids, xs: " ".join(map(str, ids)))
 
+# ===== 画面出力で使う値の安全フォールバック =====
+def _g(name, default):
+    return globals()[name] if name in globals() else default
+
+# フォーメーションなど
+formation_label = str(_g("formation_label", "—"))
+star_id         = _g("star_id", _g("result_marks", {}).get("◎") if isinstance(_g("result_marks", {}), dict) else None)
+
+# 三連複
+TRIO_L3_MIN             = float(_g("TRIO_L3_MIN", 160.0))
+cutoff_trio             = float(_g("cutoff_trio", 0.0))
+trios_filtered_display  = _g("trios_filtered_display", [])
+n_trio                  = int(_g("n_trio", len(trios_filtered_display)))
+has_trio                = bool(_g("has_trio", bool(trios_filtered_display)))
+
+# 三連単
+san_sig_div_used        = float(_g("san_sig_div_used", _g("TRIFECTA_SIG_DIV", 8.0)))
+san_mu_sig              = float(_g("san_mu_sig", 0.0))
+san_top_den             = int(_g("san_top_den", 8))
+san_topq                = float(_g("san_topq", 0.0))
+san_adopt               = str(_g("san_adopt", "μ+σ/div"))
+cutoff_san              = float(_g("cutoff_san", 0.0))
+santan_filtered_display = _g("santan_filtered_display", [])
+n_triS                  = int(_g("n_triS", len(santan_filtered_display)))
+has_tri                 = bool(_g("has_tri", bool(santan_filtered_display)))
+
+# 二車複
+qn_sig_div_used         = float(_g("qn_sig_div_used", _g("QN_SIG_DIV", 3.0)))
+qn2_mu_sig              = float(_g("qn2_mu_sig", 0.0))
+qn_top_den              = int(_g("qn_top_den", 5))
+qn2_topq                = float(_g("qn2_topq", 0.0))
+qn2_adopt               = str(_g("qn2_adopt", "μ+σ/div"))
+cutoff_qn2              = float(_g("cutoff_qn2", 0.0))
+pairs_qn2_filtered      = _g("pairs_qn2_filtered", [])
+n_qn                    = int(_g("n_qn", len(pairs_qn2_filtered)))
+has_qn                  = bool(_g("has_qn", bool(pairs_qn2_filtered)))
+
+# 二車単
+nit_sig_div_used        = float(_g("nit_sig_div_used", _g("NIT_SIG_DIV", 3.0)))
+nit_mu_sig              = float(_g("nit_mu_sig", 0.0))
+nit_top_den             = int(_g("nit_top_den", 8))
+nit_topq                = float(_g("nit_topq", 0.0))
+nit_adopt               = str(_g("nit_adopt", "μ+σ/div"))
+cutoff_nit              = float(_g("cutoff_nit", 0.0))
+rows_nitan_filtered     = _g("rows_nitan_filtered", [])
+n_nit                   = int(_g("n_nit", len(rows_nitan_filtered)))
+has_nit                 = bool(_g("has_nit", bool(rows_nitan_filtered)))
 
 
 # =========================
@@ -2101,6 +2148,14 @@ if has_nit:
     st.dataframe(_df_nitan(rows_nitan_filtered), use_container_width=True)
 else:
     st.markdown("対象外")
+
+# ===== 確率枠の安全フォールバック（表示用）=====
+P_TH_BASE = float(globals().get("P_TH_BASE", 0.08))  # 8% 既定
+trio_prob_rows      = globals().get("trio_prob_rows", [])
+trifecta_prob_rows  = globals().get("trifecta_prob_rows", [])
+qn_prob_rows        = globals().get("qn_prob_rows", [])
+nitan_prob_rows     = globals().get("nitan_prob_rows", [])
+
 
 # =========================
 #  【確率枠】表示
