@@ -1504,7 +1504,7 @@ def prob_nitan_ordered(i: int, j: int) -> float:
     return (wi / S_w) * (wj / d1)
 
 def prob_trifecta_ordered(a: int, b: int, c: int) -> float:
-    """三連単 a→b→c の順序付き近似"""
+
     wa, wb, wc = w_idx[a], w_idx[b], w_idx[c]
     d1 = max(S_w - wa, EPS)
     d2 = max(S_w - wa - wb, EPS)
@@ -1522,14 +1522,12 @@ CAPS = {
 
 # ===== 並び順ありの確率（Plackett–Luce 型） =====
 def prob_nitan_ordered(a: int, b: int) -> float:
-    # a→b の順
     wa, wb = w_idx[a], w_idx[b]
     d1 = max(S_w, EPS)
     d2 = max(S_w - wa, EPS)
     return (wa / d1) * (wb / d2)
 
 def prob_trifecta_ordered(a: int, b: int, c: int) -> float:
-    # a→b→c の順
     wa, wb, wc = w_idx[a], w_idx[b], w_idx[c]
     d1 = max(S_w, EPS)
     d2 = max(S_w - wa, EPS)
