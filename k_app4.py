@@ -2511,12 +2511,12 @@ no_mark_ids = sorted(
 #   もし `if i != result_marks.get("β")` のような行が残っていたら、単に削除してください。
 
 
+# --- αフォールバック（タブ禁止・全てスペースで） ---
 if "α" not in result_marks:
     used_now = set(result_marks.values())
-   pool = [i for i in USED_IDS if i not in used_now]
-
+    pool = [int(i) for i in USED_IDS if int(i) not in used_now]
     if pool:
-        alpha_pick = pool[-1]
+        alpha_pick = int(pool[-1])
         result_marks["α"] = alpha_pick
         reasons[alpha_pick] = reasons.get(alpha_pick, "α（フォールバック：禁止条件全滅→最弱を採用）")
 
