@@ -604,6 +604,27 @@ eff_laps = int(base_laps) + {"初日":1,"2日目":2,"最終日":3}[day_label]
 
 race_class = st.sidebar.selectbox("級別", ["Ｓ級","Ａ級","Ａ級チャレンジ","ガールズ"], 0)
 
+# ==== 安全ガード：参照前に RANK_STATS_BY_GRADE / pick_rank_stats を必ず定義 ====
+if "RANK_STATS_BY_GRADE" not in globals():
+    # 既に定義済みならこのブロックはスキップされます
+    RANK_STATS_BY_GRADE = {
+        "TOTAL": RANK_STATS_TOTAL,
+        "F2":    RANK_STATS_F2,
+        "F1":    RANK_STATS_F1,
+        "G":     RANK_STATS_G,
+        "GIRLS": RANK_STATS_GIRLS,
+    }
+
+if "pick_rank_stats" not in globals():
+    def pick_rank_stats(grade_choice: str, detected_grade: str):
+        """グレード選択と判定結果から、対応するRANK_STATSを返す。"""
+        key = detected_grade if grade_choice == "auto" else grade_choice
+        if key not in RANK_STATS_BY_GRADE:
+            key = "TOTAL"
+        return RANK_STATS_BY_GRADE[key], key
+# ==== /安全ガード ====
+
+
 # === 確率基準（印→想定率の参照先） ===
 st.sidebar.subheader("確率の基準")
 grade_choice = st.sidebar.radio(
