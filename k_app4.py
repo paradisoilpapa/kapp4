@@ -1752,6 +1752,27 @@ else:
 
     trios_filtered_display.extend(line_power_added[:2])
 
+# === 戦術：三連複「◎入り3点 / ◎抜き3点」 =========================
+try:
+    star_id = int(result_marks.get("◎")) if isinstance(result_marks, dict) else None
+except Exception:
+    star_id = None
+
+tri_inc, tri_exc = [], []
+if trios_filtered_display and star_id is not None:
+    # trios_filtered_display: (a,b,c,score,tag) の並び想定
+    tri_inc = [t for t in trios_filtered_display if star_id in t[:3]]
+    tri_exc = [t for t in trios_filtered_display if star_id not in t[:3]]
+
+    key_tri = lambda r: (-float(r[3]), int(r[0]), int(r[1]), int(r[2]))
+    tri_inc = sorted(tri_inc, key=key_tri)[:3]
+    tri_exc = sorted(tri_exc, key=key_tri)[:3]
+
+    st.markdown("#### 戦術：三連複（◎入り3点／◎抜き3点）")
+    st.write("◎入り3点", [f"{int(a)}-{int(b)}-{int(c)}" for (a,b,c,_,_) in tri_inc])
+    st.write("◎抜き3点", [f"{int(a)}-{int(b)}-{int(c)}" for (a,b,c,_,_) in tri_exc])
+
+
     # ↓ デバッグ短文（任意）：ライン枠が何件入ったかだけ確認
     # st.caption(f"[DBG] Trio line-power added = {len(line_power_added[:2])}")
 
@@ -2406,6 +2427,15 @@ def _note_nit(rows):
 
 # 見出し（共通ヘッダ）
 hdr = f"（グレード={grade_for_marks}／閾={hit_threshold*100:.0f}%）"
+
+# --- note: 戦術（◎入り3点／◎抜き3点） ---
+if (tri_inc or tri_exc):
+    note_sections.append("\n戦術（3連複）")
+    if tri_inc:
+        note_sections.append("確率枠◎入りTOP3: " + " / ".join(f"{int(a)}-{int(b)}-{int(c)}" for (a,b,c,_,_) in tri_inc))
+    if tri_exc:
+        note_sections.append("確率枠◎抜きTOP3: " + " / ".join(f"{int(a)}-{int(b)}-{int(c)}" for (a,b,c,_,_) in tri_exc))
+
 
 # 既存の note_sections に追記
 note_sections.append("\n――――――――――――――――――――")
