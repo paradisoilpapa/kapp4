@@ -2621,7 +2621,8 @@ def _keys_nitan_P(rows):
     return [str(k) for k, *_ in rows]
 
 # 表示用：SとPをまとめたテーブルを作る
-def _format_prob_row
+def _format_prob_row():
+    pass
 
 
 
