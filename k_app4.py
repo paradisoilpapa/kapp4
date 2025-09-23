@@ -2080,31 +2080,36 @@ else:
     st.markdown("対象外")
 
 # =========================
-# サイドバー：印実測率のグレード/的中率 & しきい値オフセット
-# （←「開催情報/バンク・風・頭数」の直後、「メイン：入力」の前に貼る）
+# サイドバー：印実測率テーブル選択 & 的中率しきい値 + 券種しきい値オフセット
+# （← 会場サマリの st.sidebar.caption(...) の直後、st.title(...) より前に置く）
 # =========================
 st.sidebar.markdown("### 印実測率のグレード/しきい値")
+
 grade_for_marks = st.sidebar.selectbox(
     "グレード（印の実測率テーブル）",
     ["TOTAL", "F2", "F1", "G", "GIRLS"],
     index=0,
-    key="grade_mark_stats"
-)
-hit_threshold = float(
-    st.sidebar.slider("的中率しきい値", 0.01, 0.50, 0.10, 0.01, key="hit_threshold")
+    key="grade_mark_stats",
 )
 
-# 選択されたテーブル（後続の実測率ベース計算が参照）
+hit_threshold = float(
+    st.sidebar.slider("的中率しきい値（実測ベース）", 0.01, 0.50, 0.10, 0.01, key="hit_threshold")
+)
+
+# 実測率テーブルを選択（後段の計算がこれを参照）
 RANK_TABLE = RANK_STATS_BY_GRADE.get(grade_for_marks, RANK_STATS_TOTAL)
 
-st.sidebar.markdown("### 車券しきい値（基準オフセット）")
-st.sidebar.caption("μ+σ/割 or top割合で出た基準に±を加算。負で緩め、正で絞る。")
+st.sidebar.markdown("### 車券しきい値（μ+σ/割 or top割合に対するオフセット）")
+st.sidebar.caption("負で緩め、正で絞る。数値は『基準に足す』点数。")
 
-# ここで定義した変数名は後続の計算で globals().get(...) から拾われます
-TRIO_CUTOFF_OFFSET      = st.sidebar.slider("三連複 オフセット",  -20.0, 20.0, 0.0, 0.1, key="TRIO_CUTOFF_OFFSET")
-TRIFECTA_CUTOFF_OFFSET  = st.sidebar.slider("三連単 オフセット",  -20.0, 20.0, 0.0, 0.1, key="TRIFECTA_CUTOFF_OFFSET")
-QN_CUTOFF_OFFSET        = st.sidebar.slider("二車複 オフセット",  -20.0, 20.0, 0.0, 0.1, key="QN_CUTOFF_OFFSET")
-NIT_CUTOFF_OFFSET       = st.sidebar.slider("二車単 オフセット",  -20.0, 20.0, 0.0, 0.1, key="NIT_CUTOFF_OFFSET")
+TRIO_CUTOFF_OFFSET     = st.sidebar.slider("三連複 オフセット",  -20.0, 20.0, 0.0, 0.1, key="TRIO_CUTOFF_OFFSET")
+TRIFECTA_CUTOFF_OFFSET = st.sidebar.slider("三連単 オフセット",  -20.0, 20.0, 0.0, 0.1, key="TRIFECTA_CUTOFF_OFFSET")
+QN_CUTOFF_OFFSET       = st.sidebar.slider("二車複 オフセット",  -20.0, 20.0, 0.0, 0.1, key="QN_CUTOFF_OFFSET")
+NIT_CUTOFF_OFFSET      = st.sidebar.slider("二車単 オフセット",  -20.0, 20.0, 0.0, 0.1, key="NIT_CUTOFF_OFFSET")
+
+# 可視デバッグ（この行が見えればブロックは実行できている）
+st.sidebar.success("印実測率UI: active")
+
 
 
 # --- テーブル選択（あなたが貼ったテーブル群を前提） ---
