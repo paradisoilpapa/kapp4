@@ -2219,7 +2219,7 @@ st.dataframe(hen_df, use_container_width=True)
 #       result_marks で各印の車番が決まっていること（◎〇▲…）
 #       FALLBACK_DIST は既存どおり（印なしの既定分布）
 
-# ここはそのままでOK（w = exp(race_z*tau) × 印分布の係数）
+# 係数（ここは既存どおり）
 TAU_PL     = float(globals().get("TAU_PL", 1.0))
 GAMMA_P1   = float(globals().get("GAMMA_P1", 0.8))
 GAMMA_TOP3 = float(globals().get("GAMMA_TOP3", 0.6))
@@ -2233,7 +2233,7 @@ def _mark_dist(mark: str):
     table = st.session_state.get("RANK_STATS_CURRENT") or RANK_STATS_BY_GRADE["TOTAL"]
     return table.get(mark, FALLBACK_DIST)
 
-# 切替時はキャッシュを剥がす（@st.cache_dataの握り潰し対策）
+# 切替時はキャッシュを剥がす（@st.cache_data の握りつぶし対策）
 try:
     _src_key = st.session_state.get("RANK_SOURCE_KEY", "TOTAL")
     if st.session_state.get("_prob_src_seen") != _src_key:
@@ -2242,10 +2242,7 @@ try:
 except Exception:
     pass
 
-# 係数
-TAU_PL     = float(globals().get("TAU_PL", 1.0))
-MARK_FLOOR = float(globals().get("MARK_FLOOR", 0.20))
-EPS        = float(globals().get("EPS", 1e-12))
+EPS          = float(globals().get("EPS", 1e-12))
 fallback_key = globals().get("RANK_FALLBACK_MARK", "△")
 
 # USED_IDS 保険
@@ -2255,7 +2252,7 @@ if "USED_IDS" not in globals():
     except Exception:
         USED_IDS = list(range(1, int(globals().get("n_cars", 9))+1))
 
-# race_z 復元（T=50→z）
+# race_z 復元（この時点で定義済みの想定だが、安全網）
 if "race_z" not in globals() or not isinstance(globals().get("race_z"), (list, np.ndarray)):
     try:
         if "xs_race_t" in globals():
@@ -2268,7 +2265,7 @@ if "race_z" not in globals() or not isinstance(globals().get("race_z"), (list, n
     except Exception:
         race_z = np.zeros(len(USED_IDS), dtype=float)
 
-# 重み：exp(race_z*tau) × 「選択中テーブルの比率」で必ず効かせる
+# 重み：exp(race_z*tau) × 「選択中テーブルの比率」で確率枠に反映
 w_base = np.exp(np.asarray(race_z, dtype=float) * TAU_PL)
 
 result_marks = globals().get("result_marks", {}) or {}
@@ -2401,11 +2398,10 @@ if L1 and L2:
 # --- 任意の確認表示（切替が効いているか） ---
 try:
     p_star = _mark_dist("◎"); p_fall = _mark_dist(fallback_key)
-    st.caption(f"確率枠ソース={st.session_state.get('RANK_SOURCE_KEY')} / ◎pTop3={p_star.get('pTop3',0):.3f} / 無pTop3={p_fall.get('pTop3',0):.3f}")
+    st.caption(f"実測率ソース={st.session_state.get('RANK_SOURCE_KEY')} / ◎pTop3={p_star.get('pTop3',0):.3f} / 無pTop3={p_fall.get('pTop3',0):.3f}")
 except Exception:
     pass
 # ===== 確率枠（四種一括）ここまで =====
-
 
 
 # 7) 印（◎〇▲）＝ T↓ → SBなし↓ → 車番↑（βは除外）
@@ -2517,7 +2513,8 @@ no_mark_ids = sorted(
 
 if "α" not in result_marks:
     used_now = set(result_marks.values())
-    pool = [i for i in USED_IDS if (i not in used_now and i != beta_id)]
+   pool = [i for i in USED_IDS if i not in used_now]
+
     if pool:
         alpha_pick = pool[-1]
         result_marks["α"] = alpha_pick
