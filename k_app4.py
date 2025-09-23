@@ -603,27 +603,22 @@ day_label = st.sidebar.selectbox("開催日", ["初日","2日目","最終日"], 
 eff_laps = int(base_laps) + {"初日":1,"2日目":2,"最終日":3}[day_label]
 
 race_class = st.sidebar.selectbox("級別", ["Ｓ級","Ａ級","Ａ級チャレンジ","ガールズ"], 0)
+# ==== 実測率テーブルのマップを一意に定義（毎回これを使う） ====
+RANK_STATS_BY_GRADE = {
+    "TOTAL": RANK_STATS_TOTAL,
+    "F2":    RANK_STATS_F2,
+    "F1":    RANK_STATS_F1,
+    "G":     RANK_STATS_G,
+    "GIRLS": RANK_STATS_GIRLS,
+}
 
-# ==== 安全ガード：参照前に RANK_STATS_BY_GRADE / pick_rank_stats を必ず定義 ====
-if "RANK_STATS_BY_GRADE" not in globals():
-    # 既に定義済みならこのブロックはスキップされます
-    RANK_STATS_BY_GRADE = {
-        "TOTAL": RANK_STATS_TOTAL,
-        "F2":    RANK_STATS_F2,
-        "F1":    RANK_STATS_F1,
-        "G":     RANK_STATS_G,
-        "GIRLS": RANK_STATS_GIRLS,
-    }
-
-if "pick_rank_stats" not in globals():
-    def pick_rank_stats(grade_choice: str, detected_grade: str):
-        """グレード選択と判定結果から、対応するRANK_STATSを返す。"""
-        key = detected_grade if grade_choice == "auto" else grade_choice
-        if key not in RANK_STATS_BY_GRADE:
-            key = "TOTAL"
-        return RANK_STATS_BY_GRADE[key], key
-# ==== /安全ガード ====
-
+# pick_rank_stats を1回だけ定義
+def pick_rank_stats(grade_choice: str, detected_grade: str):
+    """グレード選択と判定結果から採用RANK_STATSとキーを返す"""
+    key = detected_grade if grade_choice == "auto" else grade_choice
+    if key not in RANK_STATS_BY_GRADE:
+        key = "TOTAL"
+    return RANK_STATS_BY_GRADE[key], key
 
 # === 確率基準（印→想定率の参照先） ===
 st.sidebar.subheader("確率の基準")
@@ -632,99 +627,25 @@ grade_choice = st.sidebar.radio(
     options=["auto", "TOTAL", "F2", "F1", "G", "GIRLS"],
     index=0,
     horizontal=True,
-    key="grade_choice_radio",  # 任意だが付けておくと安定
+    key="grade_choice_radio",
 )
 
-# 未定義ならだけ定義（インデント注意）
+# 未定義ならだけ定義（既にあれば既存を使う）
 if "_grade_from_race_class" not in globals():
     def _grade_from_race_class(race_class: str) -> str:
-        """race_class の文字列からグレードを推定して返す"""
         s = str(race_class or "")
-        if "F2" in s or "チャレンジ" in s:
-            return "F2"
-        elif "F1" in s:
-            return "F1"
-        elif "G" in s or "Ｓ級" in s:
-            return "G"
-        elif "ガールズ" in s or "L級" in s:
-            return "GIRLS"
-        else:
-            return "TOTAL"  # 該当しなければ全体集計
+        if "F2" in s or "チャレンジ" in s:  return "F2"
+        if "F1" in s:                       return "F1"
+        if "ガール" in s or "L級" in s:     return "GIRLS"
+        if "Ｓ級" in s or "S級" in s or "G" in s:  return "G"
+        return "TOTAL"
 
-# ▼ここを必ず追加（これが“切替が確率枠に反映される”カギ）
+# 採用テーブルを決定し、セッションに固定（下流は常にここを見る）
 detected_grade = _grade_from_race_class(race_class)
-RANK_IN_USE, source_key = pick_rank_stats(
-    grade_choice=grade_choice, detected_grade=detected_grade
-)
+RANK_IN_USE, source_key = pick_rank_stats(grade_choice=grade_choice, detected_grade=detected_grade)
 st.session_state["RANK_STATS_CURRENT"] = RANK_IN_USE
-st.session_state["RANK_SOURCE_KEY"] = source_key
+st.session_state["RANK_SOURCE_KEY"]    = source_key
 st.sidebar.caption(f"実測率ソース: {source_key}")
-
-
-
-# ---- SAFETY GUARD: pick_rank_stats を呼ぶ前に必ず定義しておく ----
-if "pick_rank_stats" not in globals():
-    # 最低限のフォールバック（写真ベースのテーブルが未用意でも動く）
-    if "RANK_STATS_GLOBAL" not in globals():
-        # 全体平均デフォルト（適当でなく既存 RANK_STATS があればそれを使う）
-        base = globals().get("RANK_STATS", {
-            "◎": {"p1":0.216, "pTop2":0.456, "pTop3":0.624},
-            "〇": {"p1":0.193, "pTop2":0.360, "pTop3":0.512},
-            "▲": {"p1":0.208, "pTop2":0.384, "pTop3":0.552},
-            "△": {"p1":0.152, "pTop2":0.248, "pTop3":0.384},
-            "×": {"p1":0.128, "pTop2":0.256, "pTop3":0.384},
-            "α": {"p1":0.088, "pTop2":0.152, "pTop3":0.312},
-            "β": {"p1":0.076, "pTop2":0.151, "pTop3":0.244},
-        })
-        RANK_STATS_GLOBAL = dict(base)
-    if "RANK_STATS_BY_GRADE" not in globals():
-        RANK_STATS_BY_GRADE = {
-            "F2": dict(RANK_STATS_GLOBAL),
-            "F1": dict(RANK_STATS_GLOBAL),
-            "G":  dict(RANK_STATS_GLOBAL),
-            "L":  dict(RANK_STATS_GLOBAL),  # ガールズ(L)も用意
-        }
-    if "SAMPLES_BY_GRADE" not in globals():
-        SAMPLES_BY_GRADE = {"F2":0, "F1":0, "G":0, "L":0}
-
-    # ---- SAFETY GUARD: pick_rank_stats を呼ぶ前に必ず定義しておく（完全差し替え）----
-def pick_rank_stats(grade_choice: str, detected_grade: str):
-    """グレード選択と判定結果から、対応するRANK_STATSを返す。"""
-    key = detected_grade if grade_choice == "auto" else grade_choice
-    if key not in RANK_STATS_BY_GRADE:
-        key = "TOTAL"
-    return RANK_STATS_BY_GRADE[key], key
-# ---- /SAFETY GUARD ----
-
-
-
-
-    """
-    # grade_choice が "auto" の場合は detected_grade を優先
-    key = detected_grade if grade_choice == "auto" else grade_choice
-    # マップに無ければ TOTAL にフォールバック
-    if key not in rank_stats_by_grade:
-        key = "TOTAL"
-    rank_stats = rank_stats_by_grade[key]
-    return rank_stats, key
-
-    """
-    key = detected_grade if grade_choice == "auto" else grade_choice
-    key = key if key in RANK_STATS_BY_GRADE else "TOTAL"
-    return RANK_STATS_BY_GRADE[key], key
-
-# ---- /SAFETY GUARD ----
-
-
-detected_grade = _grade_from_race_class(race_class)
-RANK_IN_USE, source_key = pick_rank_stats(
-    grade_choice=grade_choice, detected_grade=detected_grade
-)
-st.sidebar.caption(f"実測率ソース: {source_key}")
-
-# ★追加：下流が参照する現在の分布を session に固定
-st.session_state["RANK_STATS_CURRENT"] = RANK_IN_USE
-st.session_state["RANK_SOURCE_KEY"] = source_key
 
 
 
