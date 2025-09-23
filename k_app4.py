@@ -2334,6 +2334,86 @@ if has_nit:
 else:
     note_sections.append("\n二車単（新方式）\n対象外")
 
+# =========================
+#  note 追記：印実測率ベースの「おすすめ買目」
+#  依存: grade_for_marks, hit_threshold, trio_prob_hits, tri_prob_hits, qn_prob_hits, nit_prob_hits, star_id
+# =========================
+
+def _fmt_prob(p: float) -> str:
+    try:
+        return f"{float(p)*100:.1f}%"
+    except Exception:
+        return "—"
+
+# セーフティ（未定義でも落ちないように）
+grade_for_marks = globals().get("grade_for_marks", "TOTAL")
+hit_threshold   = float(globals().get("hit_threshold", 0.10))
+trio_prob_hits  = globals().get("trio_prob_hits", [])   # [(a,b,c,p,tag), ...]
+tri_prob_hits   = globals().get("tri_prob_hits", [])    # [(a,b,c,p,tag), ...]
+qn_prob_hits    = globals().get("qn_prob_hits", [])     # [(a,b,p,tag), ...]
+nit_prob_hits   = globals().get("nit_prob_hits", [])    # [(a,b,p,tag), ...]
+star_id         = globals().get("star_id", None)
+
+# 並び順：確率↓ → 号車昇順
+trio_prob_hits = sorted(trio_prob_hits, key=lambda t: (-float(t[3]), int(t[0]), int(t[1]), int(t[2])))
+tri_prob_hits  = sorted(tri_prob_hits,  key=lambda t: (-float(t[3]), int(t[0]), int(t[1]), int(t[2])))
+qn_prob_hits   = sorted(qn_prob_hits,   key=lambda t: (-float(t[2]), int(t[0]), int(t[1])))
+nit_prob_hits  = sorted(nit_prob_hits,  key=lambda t: (-float(t[2]), int(t[0]), int(t[1])))
+
+# 各形式の note ラインを作る
+def _note_trio(rows):
+    if not rows:
+        return "該当なし"
+    return "\n".join(
+        f"{a}-{b}-{c}{('☆' if (star_id is not None and star_id in (a,b,c)) else '')}"
+        f"（{_fmt_prob(p)}{('｜'+str(tag)) if str(tag)=='ライン枠' else ''}）"
+        for (a,b,c,p,tag) in rows
+    )
+
+def _note_tri(rows):
+    if not rows:
+        return "該当なし"
+    return "\n".join(
+        f"{a}-{b}-{c}{('☆' if (star_id is not None and star_id in (a,b,c)) else '')}"
+        f"（{_fmt_prob(p)}{('｜'+str(tag)) if str(tag)=='ライン枠' else ''}）"
+        for (a,b,c,p,tag) in rows
+    )
+
+def _note_qn(rows):
+    if not rows:
+        return "該当なし"
+    return "\n".join(
+        f"{a}-{b}（{_fmt_prob(p)}{('｜'+str(tag)) if str(tag)=='ライン枠' else ''}）"
+        for (a,b,p,tag) in rows
+    )
+
+def _note_nit(rows):
+    if not rows:
+        return "該当なし"
+    return "\n".join(
+        f"{a}-{b}（{_fmt_prob(p)}{('｜'+str(tag)) if str(tag)=='ライン枠' else ''}）"
+        for (a,b,p,tag) in rows
+    )
+
+# 見出し（共通ヘッダ）
+hdr = f"（グレード={grade_for_marks}／閾={hit_threshold*100:.0f}%）"
+
+# 既存の note_sections に追記
+note_sections.append("\n――――――――――――――――――――")
+note_sections.append(f"◎おすすめ買目（印の実測率ベース）{hdr}")
+
+note_sections.append(f"\n三連複〔{len(trio_prob_hits)}点〕")
+note_sections.append(_note_trio(trio_prob_hits))
+
+note_sections.append(f"\n三連単〔{len(tri_prob_hits)}点〕")
+note_sections.append(_note_tri(tri_prob_hits))
+
+note_sections.append(f"\n二車複〔{len(qn_prob_hits)}点〕")
+note_sections.append(_note_qn(qn_prob_hits))
+
+note_sections.append(f"\n二車単〔{len(nit_prob_hits)}点〕")
+note_sections.append(_note_nit(nit_prob_hits))
+
 
 note_text = "\n".join(note_sections)
 st.markdown("### 📋 note用（コピーエリア）")
