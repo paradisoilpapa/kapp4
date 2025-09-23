@@ -1768,6 +1768,39 @@ if trios_filtered_display and star_id is not None:
     tri_inc = sorted(tri_inc, key=key_tri)[:3]
     tri_exc = sorted(tri_exc, key=key_tri)[:3]
 
+    # ◎抜き3点のフォールバック（tri_excが空なら、形成済みの列 or 全組合せから上位3点を拾う）
+if star_id is not None and not tri_exc:
+    pool_triples = set()
+    try:
+        # L1-L2-L3 があれば優先（フォーメーション内で取りにいく）
+        if L1 and L2 and L3:
+            for a in L1:
+                for b in L2:
+                    for c in L3:
+                        if len({a,b,c}) == 3 and star_id not in (a,b,c):
+                            pool_triples.add(tuple(sorted((int(a), int(b), int(c)))))
+        else:
+            # 無ければ全車のC(n,3)から◎抜きを収集
+            from itertools import combinations
+            for a, b, c in combinations(map(int, USED_IDS), 3):
+                if star_id not in (a, b, c):
+                    pool_triples.add(tuple(sorted((a, b, c))))
+    except Exception:
+        pool_triples = set()
+
+    cand = []
+    for a, b, c in pool_triples:
+        try:
+            s = _trio_score(int(a), int(b), int(c))  # 既存のS合計関数を再利用
+        except Exception:
+            # 念のためrace_t直足しでも可
+            s = float(race_t.get(int(a), 50.0)) + float(race_t.get(int(b), 50.0)) + float(race_t.get(int(c), 50.0))
+        cand.append((int(a), int(b), int(c), float(s), "フォールバック"))
+
+    cand.sort(key=lambda t: (-t[3], t[0], t[1], t[2]))
+    tri_exc = cand[:3]
+
+
     st.markdown("#### 戦術：三連複（◎入り3点／◎抜き3点）")
     st.write("◎入り3点", [f"{int(a)}-{int(b)}-{int(c)}" for (a,b,c,_,_) in tri_inc])
     st.write("◎抜き3点", [f"{int(a)}-{int(b)}-{int(c)}" for (a,b,c,_,_) in tri_exc])
