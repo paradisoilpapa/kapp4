@@ -654,15 +654,12 @@ if "pick_rank_stats" not in globals():
         SAMPLES_BY_GRADE = {"F2":0, "F1":0, "G":0, "L":0}
 
     def pick_rank_stats(grade_choice: str, detected_grade: str):
-    """
-    グレード選択と判定結果から、対応するRANK_STATSを返す
-    - grade_choice == "auto" のときは detected_grade を採用
-    - マップに無ければ TOTAL にフォールバック
-    """
-    key = detected_grade if grade_choice == "auto" else grade_choice
-    if key not in RANK_STATS_BY_GRADE:
-        key = "TOTAL"
-    return RANK_STATS_BY_GRADE[key], key
+        """グレード選択と判定結果から、対応するRANK_STATSを返す。"""
+        key = detected_grade if grade_choice == "auto" else grade_choice
+        if key not in RANK_STATS_BY_GRADE:
+            key = "TOTAL"
+        return RANK_STATS_BY_GRADE[key], key
+
 
 
     """
