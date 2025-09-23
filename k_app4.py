@@ -1483,27 +1483,122 @@ if guarantee_top_rating and (race_class == "ガールズ") and len(ratings_sorte
         C = [top_rating_car] + [c for c in C if c != top_rating_car]
         C = C[:min(3, len(cand_sorted))]
 
-ANCHOR_CAND_SB_TOPK   = globals().get("ANCHOR_CAND_SB_TOPK", 5)
-ANCHOR_REQUIRE_TOP_SB = globals().get("ANCHOR_REQUIRE_TOP_SB", 3)
-rank_pure = {int(df_sorted_pure.loc[i, "車番"]): i+1 for i in range(len(df_sorted_pure))}
-cand_pool = [c for c in C if rank_pure.get(c, 999) <= ANCHOR_CAND_SB_TOPK]
+# === ANCHOR選定：安全版（このブロックで置換） ===
+ANCHOR_CAND_SB_TOPK   = int(globals().get("ANCHOR_CAND_SB_TOPK", 5))
+ANCHOR_REQUIRE_TOP_SB = int(globals().get("ANCHOR_REQUIRE_TOP_SB", 3))
+
+# --- ヘルパー ---
+def _df_car_col(df):
+    for name in ("車番", "車"):
+        try:
+            if df is not None and hasattr(df, "columns") and name in df.columns:
+                return name
+        except Exception:
+            pass
+    return None
+
+def _first_car_from_df(df):
+    try:
+        col = _df_car_col(df)
+        if col is not None and df is not None and hasattr(df, "empty") and not df.empty:
+            return int(df.iloc[0][col])  # ilocで安全
+    except Exception:
+        pass
+    return None
+
+def _topk_from_df(df, k):
+    try:
+        col = _df_car_col(df)
+        if col is not None and df is not None and hasattr(df, "empty") and not df.empty and k > 0:
+            return [int(v) for v in df[col].iloc[:k].tolist()]
+    except Exception:
+        pass
+    return []
+
+# anchor_score が未定義でも薄く動かす
+if "anchor_score" not in globals():
+    def anchor_score(i: int) -> float:
+        try:
+            if "race_t" in globals():
+                return float(globals()["race_t"].get(int(i), 0.0))
+            if "SB_BASE_MAP" in globals():
+                return float(globals()["SB_BASE_MAP"].get(int(i), 0.0))
+        except Exception:
+            pass
+        return 0.0
+
+# 入力の取り出し
+df_sorted_pure = globals().get("df_sorted_pure", None)
+C = globals().get("C", [])
+USED_IDS = [int(x) for x in (globals().get("USED_IDS") or [])]
+
+# --- SBなし順位マップを作成（無ければ空でOK）---
+rank_pure = {}
+col = _df_car_col(df_sorted_pure)
+if col is not None and df_sorted_pure is not None and hasattr(df_sorted_pure, "empty") and not df_sorted_pure.empty:
+    for i in range(len(df_sorted_pure)):
+        try:
+            rank_pure[int(df_sorted_pure.iloc[i][col])] = i + 1  # 1始まり順位
+        except Exception:
+            continue
+
+# --- 候補生成 ---
+C_list = [int(x) for x in C if (isinstance(x, (int, str)) and str(x).isdigit())] if C else []
+cand_pool = [c for c in C_list if rank_pure.get(c, 999) <= ANCHOR_CAND_SB_TOPK]
+
 if not cand_pool:
-    cand_pool = [int(df_sorted_pure.loc[i, "車番"]) for i in range(min(ANCHOR_CAND_SB_TOPK, len(df_sorted_pure)))]
-anchor_no_pre = max(cand_pool, key=lambda x: anchor_score(x)) if cand_pool else int(df_sorted_pure.loc[0, "車番"])
-anchor_no = anchor_no_pre
-top2 = sorted(cand_pool, key=lambda x: anchor_score(x), reverse=True)[:2]
+    cand_pool = _topk_from_df(
+        df_sorted_pure,
+        min(ANCHOR_CAND_SB_TOPK, len(df_sorted_pure) if hasattr(df_sorted_pure, "__len__") else 0)
+    )
+
+if not cand_pool:
+    # 最低限：USED_IDS から anchor_score 上位で埋める
+    cand_pool = sorted(USED_IDS, key=lambda x: anchor_score(x), reverse=True)[:max(1, ANCHOR_CAND_SB_TOPK)]
+
+# --- 事前アンカー選出 ---
+anchor_no_pre = None
+if cand_pool:
+    try:
+        anchor_no_pre = max(cand_pool, key=lambda x: anchor_score(x))
+    except Exception:
+        anchor_no_pre = None
+
+if anchor_no_pre is None:
+    anchor_no_pre = _first_car_from_df(df_sorted_pure)
+
+if anchor_no_pre is None:
+    anchor_no_pre = (max(USED_IDS, key=lambda x: anchor_score(x)) if USED_IDS else 1)
+
+anchor_no = int(anchor_no_pre)
+
+# --- 同点のとき rating でブレイク ---
+TIE_EPSILON = float(globals().get("TIE_EPSILON", 1e-9))
+ratings_rank2 = globals().get("ratings_rank2", {}) or {}
+top2 = sorted(set(cand_pool), key=lambda x: (anchor_score(x), -x), reverse=True)[:2]
 if len(top2) >= 2:
     s1 = anchor_score(top2[0]); s2 = anchor_score(top2[1])
     if (s1 - s2) < TIE_EPSILON:
         better_by_rating = min(top2, key=lambda x: ratings_rank2.get(x, 999))
-        anchor_no = better_by_rating
+        anchor_no = int(better_by_rating)
+
+# --- 「SB上位◯位以内」制約を適用 ---
 if rank_pure.get(anchor_no, 999) > ANCHOR_REQUIRE_TOP_SB:
     pool = [c for c in cand_pool if rank_pure.get(c, 999) <= ANCHOR_REQUIRE_TOP_SB]
     if pool:
-        anchor_no = max(pool, key=lambda x: anchor_score(x))
+        anchor_no = int(max(pool, key=lambda x: anchor_score(x)))
     else:
-        anchor_no = int(df_sorted_pure.loc[0, "車番"])
+        _f = _first_car_from_df(df_sorted_pure)
+        if _f is not None:
+            anchor_no = int(_f)
+
+# 表示（Streamlitが無ければ無視）
+try:
     st.caption(f"※ ◎は『SBなし 上位{ANCHOR_REQUIRE_TOP_SB}位以内』縛りで {anchor_no_pre}→{anchor_no} に調整。")
+except Exception:
+    pass
+# === /ANCHOR選定：安全版 ===
+
 
 role_map = {no: role_in_line(no, line_def) for no in active_cars}
 cand_scores = [anchor_score(no) for no in C] if len(C) >= 2 else [0, 0]
