@@ -1575,13 +1575,9 @@ def prob_trifecta_ordered(a: int, b: int, c: int) -> float:
 
 
 # ===== 確率枠：基準 & 上限 =====
-P_TH_BASE = float(globals().get("P_TH_BASE", 0.07))  # 8% 以上
-CAPS = {
-    "trio":     int(globals().get("CAP_TRIO_PROB", 3)),   # 三連複 最大3
-    "trifecta": int(globals().get("CAP_TRIF_PROB", 3)),   # 三連単 最大3
-    "qn":       int(globals().get("CAP_QN_PROB", 3)),     # 二車複 最大3
-    "nitan":    int(globals().get("CAP_NITAN_PROB", 3)),  # 二車単 最大3
-}
+P_TH_BASE = float(globals().get("P_TH_BASE", 0.10))  # 10% 以上
+
+
 
 # ===== 並び順ありの確率（Plackett–Luce 型） =====
 def prob_nitan_ordered(a: int, b: int) -> float:
@@ -1596,6 +1592,7 @@ def prob_trifecta_ordered(a: int, b: int, c: int) -> float:
     d2 = max(S_w - wa, EPS)
     d3 = max(S_w - wa - wb, EPS)
     return (wa / d1) * (wb / d2) * (wc / d3)
+
 
 # ===== 確率枠 生成（重複歓迎・フォーメーションから作る） =====
 trio_prob_rows, trifecta_prob_rows = [], []
@@ -2409,13 +2406,7 @@ has_nit                 = bool(_g("has_nit", bool(rows_nitan_filtered)))
 
 # ===== 確率枠：基準 & 上限 =====
 # ※ 必ず「確率枠 生成」より前に置く（NameError対策）
-P_TH_BASE = float(globals().get("P_TH_BASE", 0.07))  # 8% 以上
-CAPS = {
-    "trio":     int(globals().get("CAP_TRIO_PROB", 3)),
-    "trifecta": int(globals().get("CAP_TRIF_PROB", 3)),
-    "qn":       int(globals().get("CAP_QN_PROB", 3)),
-    "nitan":    int(globals().get("CAP_NITAN_PROB", 3)),
-}
+P_TH_BASE = float(globals().get("P_TH_BASE", 0.10))  # 10% 以上
 
 
 
@@ -2555,11 +2546,12 @@ else:
     st.markdown("対象外")
 
 # ===== 確率枠の安全フォールバック（表示用）=====
-P_TH_BASE = float(globals().get("P_TH_BASE", 0.07))  # 8% 既定
-trio_prob_rows      = globals().get("trio_prob_rows", [])
-trifecta_prob_rows  = globals().get("trifecta_prob_rows", [])
-qn_prob_rows        = globals().get("qn_prob_rows", [])
-nitan_prob_rows     = globals().get("nitan_prob_rows", [])
+P_TH_BASE = float(globals().get("P_TH_BASE", 0.10))  # 10% 以上
+
+trio_prob_rows     = cand_trio
+trifecta_prob_rows = cand_tri
+qn_prob_rows       = cand_qn
+nitan_prob_rows    = cand_nit
 
 
 # =========================
