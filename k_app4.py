@@ -663,8 +663,207 @@ if "_mark_dist" not in globals():
         table = st.session_state.get("RANK_STATS_CURRENT") or RANK_STATS_BY_GRADE["TOTAL"]
         return table.get(mark, FALLBACK_DIST)
 
+# ====== 「確率の基準」切替を確実に反映する自己完結ブロック（貼るだけ） ======
 
-# ====== w_base〜確率枠 まとめ置換（race_zガード込み） ======
+import numpy as _np
+
+# --- 0) 直近の選択テーブルを取得（なければ TOTAL）
+_CURR_TABLE = st.session_state.get("RANK_STATS_CURRENT")
+if _CURR_TABLE is None:
+    # フォールバック：TOTAL
+    _CURR_TABLE = globals().get("RANK_STATS_TOTAL", {})
+    st.session_state["RANK_STATS_CURRENT"] = _CURR_TABLE
+source_key = st.session_state.get("RANK_SOURCE_KEY", "TOTAL")
+
+# --- 1) 切替時にキャッシュを必ず無効化（@st.cache_data を使っていても確実に反映させる）
+_last_src = st.session_state.get("_last_prob_source")
+if _last_src != source_key:
+    try:
+        st.cache_data.clear()
+    except Exception:
+        pass
+    st.session_state["_last_prob_source"] = source_key
+
+# --- 2) 使う列（車番）と race_z を安全に用意
+USED_IDS = list(globals().get("USED_IDS") or [])
+if not USED_IDS:
+    try:
+        USED_IDS = sorted(int(i) for i in (globals().get("active_cars") or range(1, int(globals().get("n_cars", 9))+1)))
+    except Exception:
+        USED_IDS = list(range(1, int(globals().get("n_cars", 9))+1))
+M = len(USED_IDS)
+
+# race_z 復元（T=50基準の偏差値）
+if "race_z" in globals() and isinstance(globals().get("race_z"), (list, _np.ndarray)):
+    race_z = _np.asarray(globals().get("race_z"), dtype=float)
+else:
+    try:
+        if "xs_race_t" in globals():
+            _arr_t = _np.asarray(globals().get("xs_race_t"), dtype=float)
+        elif "race_t" in globals():
+            _rt = globals().get("race_t") or {}
+            _arr_t = _np.array([float(_rt.get(int(i), 50.0)) for i in USED_IDS], dtype=float)
+        else:
+            _arr_t = _np.full(M, 50.0, dtype=float)
+        race_z = (_arr_t - 50.0) / 10.0
+    except Exception:
+        race_z = _np.zeros(M, dtype=float)
+
+# --- 3) 印→想定率を取得するヘルパー（必ず「選択中テーブル」を見る）
+def _mark_dist(mark: str):
+    return st.session_state.get("RANK_STATS_CURRENT", _CURR_TABLE).get(mark, globals().get("FALLBACK_DIST", {"p1":0.15, "pTop2":0.30, "pTop3":0.45}))
+
+# --- 4) パラメータ（未定義でも既定値で動く）
+TAU_PL     = float(globals().get("TAU_PL", 1.0))
+GAMMA_P1   = float(globals().get("GAMMA_P1", 0.8))
+GAMMA_TOP3 = float(globals().get("GAMMA_TOP3", 0.6))
+MARK_FLOOR = float(globals().get("MARK_FLOOR", 0.20))
+EPS        = float(globals().get("EPS", 1e-12))
+RANK_FALLBACK_MARK = globals().get("RANK_FALLBACK_MARK", "△")
+FALLBACK_DIST = globals().get("FALLBACK_DIST", {"p1":0.15, "pTop2":0.30, "pTop3":0.45})
+
+# --- 5) w = exp(race_z * tau) × 印分布係数（基準＝選択中表の「無印」）
+w_base = _np.exp(race_z * TAU_PL)
+
+result_marks = globals().get("result_marks", {}) or {}
+car_mark = {int(v): k for k, v in result_marks.items()} if isinstance(result_marks, dict) else {}
+
+_base_dist = _mark_dist(RANK_FALLBACK_MARK)
+
+w_mark_list = []
+for car in USED_IDS:
+    mk = car_mark.get(int(car), RANK_FALLBACK_MARK)
+    prior = _mark_dist(mk)
+    delta_p1   = float(prior.get("p1",    _base_dist["p1"]))    - float(_base_dist["p1"])
+    delta_top3 = float(prior.get("pTop3", _base_dist["pTop3"])) - float(_base_dist["pTop3"])
+    coeff = 1.0 + GAMMA_P1*delta_p1 + GAMMA_TOP3*delta_top3
+    w_mark_list.append(max(MARK_FLOOR, coeff))
+w_mark = _np.array(w_mark_list, dtype=float)
+
+w = w_base * w_mark
+S_w = float(_np.sum(w)) if w.size else 0.0
+if S_w <= 0:
+    w = _np.ones_like(w, dtype=float); S_w = float(_np.sum(w))
+w_idx = {USED_IDS[idx]: float(w[idx]) for idx in range(M)}
+
+# --- 6) PL 近似の確率関数（1回定義）
+def prob_top2_pair_pl(i: int, j: int) -> float:
+    wi, wj = w_idx[i], w_idx[j]
+    d_i = max(S_w - wi, EPS); d_j = max(S_w - wj, EPS)
+    return (wi / S_w) * (wj / d_i) + (wj / S_w) * (wi / d_j)
+
+def prob_top3_triple_pl(i: int, j: int, k: int) -> float:
+    a, b, c = w_idx[i], w_idx[j], w_idx[k]
+    total = 0.0
+    for x, y, z in ((a,b,c),(a,c,b),(b,a,c),(b,c,a),(c,a,b),(c,b,a)):
+        d1 = max(S_w - x, EPS); d2 = max(S_w - x - y, EPS)
+        total += (x / S_w) * (y / d1) * (z / d2)
+    return total
+
+def prob_nitan_ordered(i: int, j: int) -> float:
+    wi, wj = w_idx[i], w_idx[j]
+    d1 = max(S_w - wi, EPS)
+    return (wi / S_w) * (wj / d1)
+
+def prob_trifecta_ordered(a: int, b: int, c: int) -> float:
+    wa, wb, wc = w_idx[a], w_idx[b], w_idx[c]
+    d1 = max(S_w - wa, EPS); d2 = max(S_w - wa - wb, EPS)
+    return (wa / S_w) * (wb / d1) * (wc / d2)
+
+# --- 7) しきい値（%→小数）
+P_TH_BASE = float(globals().get("P_TH_BASE", 0.10))  # 10% 以上表示
+
+# --- 8) フォーメーション安全取り出し
+L1 = list(globals().get("L1") or [])
+L2 = list(globals().get("L2") or [])
+L3 = list(globals().get("L3") or [])
+
+# --- 9) 確率枠 生成（重複歓迎・上限なし）
+trio_prob_rows, trifecta_prob_rows = [], []
+qn_prob_rows, nitan_prob_rows = [], []
+
+# 三連複：順不同ユニーク
+if L1 and L2 and L3:
+    seen = set(); cand = []
+    for a in L1:
+        for b in L2:
+            for c in L3:
+                if len({a,b,c}) != 3: continue
+                i,j,k = sorted((int(a),int(b),int(c)))
+                key = (i,j,k)
+                if key in seen: continue
+                seen.add(key)
+                p = prob_top3_triple_pl(i,j,k)
+                if p >= P_TH_BASE:
+                    cand.append((i,j,k,float(p),"確率枠"))
+    cand.sort(key=lambda x:(-x[3], x[0], x[1], x[2]))
+    trio_prob_rows = cand
+
+# 三連単：1列=◎/〇、2列=◎/〇/▲、3列=L3（順付き）
+_rm = result_marks
+first_col  = [x for x in [_rm.get("◎"), _rm.get("〇")] if _rm and x is not None]
+second_col = [x for x in [_rm.get("◎"), _rm.get("〇"), _rm.get("▲")] if _rm and x is not None]
+third_col  = list(L3) if L3 else []
+if first_col and second_col and third_col:
+    seen = set(); cand = []
+    for a in first_col:
+        for b in second_col:
+            for c in third_col:
+                if len({a,b,c}) != 3: continue
+                key = (int(a),int(b),int(c))
+                if key in seen: continue
+                seen.add(key)
+                p = prob_trifecta_ordered(*key)
+                if p >= P_TH_BASE:
+                    cand.append((key[0],key[1],key[2],float(p),"確率枠"))
+    cand.sort(key=lambda x:(-x[3], x[0], x[1], x[2]))
+    trifecta_prob_rows = cand
+
+# 二車複：順不同
+if L1 and L2:
+    seen = set(); cand = []
+    for a in L1:
+        for b in L2:
+            if a == b: continue
+            i,j = sorted((int(a),int(b)))
+            if (i,j) in seen: continue
+            seen.add((i,j))
+            p = prob_top2_pair_pl(i,j)
+            if p >= P_TH_BASE:
+                cand.append((i,j,float(p),"確率枠"))
+    cand.sort(key=lambda x:(-x[2], x[0], x[1]))
+    qn_prob_rows = cand
+
+# 二車単：順付き
+if L1 and L2:
+    seen = set(); cand = []
+    for a in L1:
+        for b in L2:
+            if a == b: continue
+            key = f"{int(a)}-{int(b)}"
+            if key in seen: continue
+            seen.add(key)
+            p = prob_nitan_ordered(int(a),int(b))
+            if p >= P_TH_BASE:
+                cand.append((key,float(p),"確率枠"))
+    cand.sort(key=lambda x:(-x[1], x[0]))
+    nitan_prob_rows = cand
+
+# --- 10) デバッグ表示：切替が効いているか可視化（任意）
+try:
+    _p◎ = _mark_dist("◎"); _p無 = _mark_dist(RANK_FALLBACK_MARK)
+    st.caption(
+        "確率枠ソース: {} / ◎p1={:.3f} ◎pTop3={:.3f} / 無p1={:.3f} 無pTop3={:.3f}".format(
+            source_key, float(_p◎.get("p1",0)), float(_p◎.get("pTop3",0)),
+            float(_p無.get("p1",0)), float(_p無.get("pTop3",0))
+        )
+    )
+except Exception:
+    pass
+# ====== ここまで ======
+
+
+# ====== w_base〜確率枠 まとめ（race_zガード込み｜_mark_distは外で定義済みを使用） ======
 
 # 係数の既定（未定義でも落ちない）
 TAU_PL     = float(globals().get("TAU_PL", 1.0))
@@ -693,12 +892,6 @@ if "race_z" not in globals() or not isinstance(globals().get("race_z"), (list, n
     except Exception:
         race_z = np.zeros(len(USED_IDS), dtype=float)
 
-# 現在テーブルから印の分布を取るヘルパー（未定義なら定義）
-if "_mark_dist" not in globals():
-    def _mark_dist(mark: str):
-        table = st.session_state.get("RANK_STATS_CURRENT") or RANK_STATS_BY_GRADE["TOTAL"]
-        return table.get(mark, FALLBACK_DIST)
-
 # ------- 重み作成 -------
 w_base = np.exp(race_z * TAU_PL)
 
@@ -718,7 +911,7 @@ base_dist = st.session_state.get("RANK_STATS_CURRENT", RANK_STATS_BY_GRADE["TOTA
 w_mark_list = []
 for car in USED_IDS:
     mk = car_mark.get(int(car), fallback_key)
-    prior = _mark_dist(mk)  # ← ここが切替の入口
+    prior = _mark_dist(mk)  # ← ここが切替の入口（外で定義済みの _mark_dist を使う）
     delta_p1   = float(prior.get("p1",    base_dist["p1"]))    - float(base_dist["p1"])
     delta_top3 = float(prior.get("pTop3", base_dist["pTop3"])) - float(base_dist["pTop3"])
     coeff = 1.0 + GAMMA_P1*delta_p1 + GAMMA_TOP3*delta_top3
@@ -746,14 +939,6 @@ def prob_top3_triple_pl(i: int, j: int, k: int) -> float:
         d1 = max(S_w - x, EPS)
         d2 = max(S_w - x - y, EPS)
         total += (x / S_w) * (y / d1) * (z / d2)
-    return total
-
-def prob_wide_pair_pl(i: int, j: int) -> float:
-    total = 0.0
-    for k in USED_IDS:
-        if k == i or k == j:
-            continue
-        total += prob_top3_triple_pl(i, j, k)
     return total
 
 def prob_nitan_ordered(i: int, j: int) -> float:
@@ -859,7 +1044,8 @@ if L1 and L2:
                 cand_nit.append((key, float(p), "確率枠"))
     cand_nit.sort(key=lambda x: (-x[1], x[0]))
     nitan_prob_rows = cand_nit  # ← 上限なし
-# ====== 置換ここまで ======
+# ====== ここまで ======
+
 
 
 # ==============================
