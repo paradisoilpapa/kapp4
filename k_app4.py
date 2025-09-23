@@ -1331,6 +1331,51 @@ def _pos_idx(no:int) -> int:
     except Exception:
         return 0
 
+# === ガード：line_factor_eff / cap_SB_eff 未定義でも動くように復元（行1336の直前に貼る） ===
+try:
+    _ = line_factor_eff  # 既にあるなら何もしない
+    _ = cap_SB_eff
+except NameError:
+    try:
+        CLASS_FACTORS = globals().get("CLASS_FACTORS", {
+            "Ｓ級":           {"spread":1.00, "line":1.00},
+            "Ａ級":           {"spread":0.90, "line":0.85},
+            "Ａ級チャレンジ": {"spread":0.80, "line":0.70},
+            "ガールズ":       {"spread":0.85, "line":1.00},
+        })
+        race_class_ = str(globals().get("race_class", "Ｓ級"))
+        cf = CLASS_FACTORS.get(race_class_, {"spread":1.0, "line":1.0})
+
+        DAY_FACTOR = globals().get("DAY_FACTOR", {"初日":1.00, "2日目":1.00, "最終日":1.00})
+        day_label_ = str(globals().get("day_label", "初日"))
+        day_factor = float(DAY_FACTOR.get(day_label_, 1.0))
+
+        # style が未定義でも0.0で復元
+        style_ = float(globals().get("style", 0.0))
+
+        # clamp が未定義でも簡易版で代替
+        if "clamp" in globals():
+            cap_base = float(clamp(0.06 + 0.02*style_, 0.04, 0.08))
+        else:
+            cap_base = max(0.04, min(0.08, 0.06 + 0.02*style_))
+
+        line_factor_eff = float(cf.get("line", 1.0)) * day_factor
+        cap_SB_eff = cap_base * day_factor
+
+        # ミッドナイト補正
+        if str(globals().get("race_time", "")) == "ミッドナイト":
+            line_factor_eff *= 0.95
+            cap_SB_eff *= 0.95
+    except Exception:
+        # 最終フォールバック
+        line_factor_eff = 1.0
+        cap_SB_eff = 0.06
+
+# （任意）確認用
+# st.caption(f"line_factor_eff={line_factor_eff:.3f} / cap_SB_eff={cap_SB_eff:.3f}")
+# === /ガードここまで ===
+
+
 bonus_init,_ = compute_lineSB_bonus(
     line_def, S, B,
     line_factor=line_factor_eff,
