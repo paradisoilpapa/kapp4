@@ -849,14 +849,18 @@ if L1 and L2:
     cand.sort(key=lambda x:(-x[1], x[0]))
     nitan_prob_rows = cand
 
-# --- 10) デバッグ表示：切替が効いているか可視化（任意）
-try:
-    _p◎ = _mark_dist("◎"); _p無 = _mark_dist(RANK_FALLBACK_MARK)
-    st.caption(
-        "確率枠ソース: {} / ◎p1={:.3f} ◎pTop3={:.3f} / 無p1={:.3f} 無pTop3={:.3f}".format(
-            source_key, float(_p◎.get("p1",0)), float(_p◎.get("pTop3",0)),
-            float(_p無.get("p1",0)), float(_p無.get("pTop3",0))
-        )
+# NGだった行（削除してOK）
+# _p◎ = _mark_dist("◎"); _p無 = _mark_dist(RANK_FALLBACK_MARK)
+# st.caption(f"確率枠ソース={st.session_state.get('RANK_SOURCE_KEY')} / ◎pTop3={_p◎.get('pTop3',0):.3f} / 無pTop3={_p無.get('pTop3',0):.3f}")
+
+# ← 代わりにこれを貼る（ASCII変数名）
+_p_star = _mark_dist("◎")
+_p_fallback = _mark_dist(RANK_FALLBACK_MARK)
+st.caption(
+    f"確率枠ソース={st.session_state.get('RANK_SOURCE_KEY')} / "
+    f"◎pTop3={_p_star.get('pTop3',0):.3f} / 無pTop3={_p_fallback.get('pTop3',0):.3f}"
+)
+
     )
 except Exception:
     pass
