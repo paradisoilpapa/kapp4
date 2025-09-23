@@ -1331,57 +1331,98 @@ def _pos_idx(no:int) -> int:
     except Exception:
         return 0
 
-# === ガード：line_factor_eff / cap_SB_eff 未定義でも動くように復元（行1336の直前に貼る） ===
+# ===== ラインSB計算：全面置換（順序依存と未定義連鎖をここで遮断） =====
+# 前提: numpy as np, streamlit as st, USED_IDS, race_class, race_time, day_label,
+#       straight_length, bank_angle, bank_length, clamp, venue_z_terms, venue_mix が
+#       既にどこかで定義済みならそれを使います。無い場合でも落ちないように復元します。
+
+import numpy as _np
+
+# --- style を必ず用意 ---
 try:
-    _ = line_factor_eff  # 既にあるなら何もしない
-    _ = cap_SB_eff
+    _ = style  # 既に定義済みなら何もしない
 except NameError:
     try:
-        CLASS_FACTORS = globals().get("CLASS_FACTORS", {
-            "Ｓ級":           {"spread":1.00, "line":1.00},
-            "Ａ級":           {"spread":0.90, "line":0.85},
-            "Ａ級チャレンジ": {"spread":0.80, "line":0.70},
-            "ガールズ":       {"spread":0.85, "line":1.00},
-        })
-        race_class_ = str(globals().get("race_class", "Ｓ級"))
-        cf = CLASS_FACTORS.get(race_class_, {"spread":1.0, "line":1.0})
-
-        DAY_FACTOR = globals().get("DAY_FACTOR", {"初日":1.00, "2日目":1.00, "最終日":1.00})
-        day_label_ = str(globals().get("day_label", "初日"))
-        day_factor = float(DAY_FACTOR.get(day_label_, 1.0))
-
-        # style が未定義でも0.0で復元
-        style_ = float(globals().get("style", 0.0))
-
-        # clamp が未定義でも簡易版で代替
-        if "clamp" in globals():
-            cap_base = float(clamp(0.06 + 0.02*style_, 0.04, 0.08))
-        else:
-            cap_base = max(0.04, min(0.08, 0.06 + 0.02*style_))
-
-        line_factor_eff = float(cf.get("line", 1.0)) * day_factor
-        cap_SB_eff = cap_base * day_factor
-
-        # ミッドナイト補正
-        if str(globals().get("race_time", "")) == "ミッドナイト":
-            line_factor_eff *= 0.95
-            cap_SB_eff *= 0.95
+        zL, zTH, dC = venue_z_terms(float(straight_length), float(bank_angle), float(bank_length))
+        _style_raw = venue_mix(zL, zTH, dC)
+        _override = float(globals().get("override", 0.0))
+        style = clamp(_style_raw + 0.25*_override, -1.0, +1.0) if "clamp" in globals() else max(-1.0, min(1.0, _style_raw + 0.25*_override))
     except Exception:
-        # 最終フォールバック
-        line_factor_eff = 1.0
-        cap_SB_eff = 0.06
+        style = 0.0  # 最終フォールバック
 
-# （任意）確認用
-# st.caption(f"line_factor_eff={line_factor_eff:.3f} / cap_SB_eff={cap_SB_eff:.3f}")
-# === /ガードここまで ===
+# --- クラス係数 / 日程係数 を必ず用意 ---
+CLASS_FACTORS = globals().get("CLASS_FACTORS", {
+    "Ｓ級":           {"spread":1.00, "line":1.00},
+    "Ａ級":           {"spread":0.90, "line":0.85},
+    "Ａ級チャレンジ": {"spread":0.80, "line":0.70},
+    "ガールズ":       {"spread":0.85, "line":1.00},
+})
+DAY_FACTOR = globals().get("DAY_FACTOR", {"初日":1.00, "2日目":1.00, "最終日":1.00})
 
+_cf = CLASS_FACTORS.get(str(globals().get("race_class", race_class)), {"spread":1.0, "line":1.0})
+_day = str(globals().get("day_label", day_label))
+_day_factor = float(DAY_FACTOR.get(_day, 1.0))
 
-bonus_init,_ = compute_lineSB_bonus(
+# clamp が未定義でも動くように cap_base を計算
+_cap_base_raw = 0.06 + 0.02*float(style)
+cap_base = clamp(_cap_base_raw, 0.04, 0.08) if "clamp" in globals() else max(0.04, min(0.08, _cap_base_raw))
+
+line_factor_eff = float(_cf.get("line", 1.0)) * _day_factor
+cap_SB_eff = float(cap_base) * _day_factor
+if str(globals().get("race_time", race_time)) == "ミッドナイト":
+    line_factor_eff *= 0.95
+    cap_SB_eff *= 0.95
+
+# --- ラインSB有効/無効 ---
+line_sb_enable = (str(globals().get("race_class", race_class)) != "ガールズ")
+
+# --- line_def を必ず用意（なければ line_inputs から簡易生成） ---
+line_def = globals().get("line_def")
+if not isinstance(line_def, dict):
+    _inputs = globals().get("line_inputs", [])
+    def _parse_line_inputs(inputs):
+        d = {}
+        idx = 1
+        for token in inputs:
+            s = str(token).strip()
+            if not s:
+                continue
+            # "625" -> [6,2,5] のように各桁を車番として解釈（2桁車番がない前提）
+            mem = [int(ch) for ch in s if ch.isdigit()]
+            if mem:
+                d[idx] = mem
+                idx += 1
+        return d
+    line_def = _parse_line_inputs(_inputs)
+
+# --- S, B 配列を必ず用意 ---
+USED_IDS = list(globals().get("USED_IDS", [])) or list(range(1, int(globals().get("n_cars", 9))+1))
+M = len(USED_IDS)
+
+S = globals().get("S")
+if not isinstance(S, (list, _np.ndarray)) or len(S) != M:
+    # スコアが未用意なら 0 で埋める（後段が足し込み前提なら安全）
+    S = _np.zeros(M, dtype=float)
+
+B = globals().get("B")
+if not isinstance(B, (list, _np.ndarray)) or len(B) != M:
+    B = _np.zeros(M, dtype=float)
+
+# --- compute_lineSB_bonus を必ず用意（未定義ならスタブで無害化） ---
+if "compute_lineSB_bonus" not in globals():
+    def compute_lineSB_bonus(line_def, S, B, line_factor: float, exclude=None, cap: float=0.06, enable: bool=True):
+        # enable=False や line_def が空なら全ゼロ
+        m = len(S) if hasattr(S, "__len__") else len(USED_IDS)
+        return _np.zeros(m, dtype=float), {"stub": True, "enable": bool(enable), "cap": float(cap), "factor": float(line_factor)}
+
+# --- 実行 ---
+bonus_init, _ = compute_lineSB_bonus(
     line_def, S, B,
     line_factor=line_factor_eff,
     exclude=None, cap=cap_SB_eff,
     enable=line_sb_enable
 )
+# ===== /ラインSB計算：全面置換 ここまで =====
 
 
 
