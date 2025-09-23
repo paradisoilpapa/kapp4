@@ -657,11 +657,7 @@ st.session_state["RANK_STATS_CURRENT"] = RANK_IN_USE
 st.session_state["RANK_SOURCE_KEY"]    = source_key
 st.sidebar.caption(f"実測率ソース: {source_key}")
 
-# 現在テーブルから印の分布を取るヘルパー（未定義なら定義）
-if "_mark_dist" not in globals():
-    def _mark_dist(mark: str):
-        table = st.session_state.get("RANK_STATS_CURRENT") or RANK_STATS_BY_GRADE["TOTAL"]
-        return table.get(mark, FALLBACK_DIST)
+
 
 # ====== 「確率の基準」切替を確実に反映する自己完結ブロック（貼るだけ） ======
 
