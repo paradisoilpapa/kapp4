@@ -218,10 +218,16 @@ RANK_STATS_BY_GRADE = {
     "G":      RANK_STATS_G,
     "GIRLS":  RANK_STATS_GIRLS,
 }
+
+# 互換: 旧コードが参照する RANK_STATS は TOTAL を指す
+RANK_STATS = RANK_STATS_TOTAL
+
 RANK_FALLBACK_MARK = "△"
 if RANK_FALLBACK_MARK not in RANK_STATS:
     RANK_FALLBACK_MARK = next(iter(RANK_STATS.keys()))
 FALLBACK_DIST = RANK_STATS.get(RANK_FALLBACK_MARK, {"p1": 0.15, "pTop2": 0.30, "pTop3": 0.45})
+
+
 
 # KO(勝ち上がり)関連
 KO_GIRLS_SCALE = 0.0
@@ -1488,11 +1494,12 @@ no_mark_ids = sorted(
 
 if "α" not in result_marks:
     used_now = set(result_marks.values())
-    pool = [i for i in USED_IDS if (i not in used_now and i != beta_id)]
+    pool = [i for i in USED_IDS if i not in used_now]
     if pool:
         alpha_pick = pool[-1]
         result_marks["α"] = alpha_pick
         reasons[alpha_pick] = reasons.get(alpha_pick, "α（フォールバック：禁止条件全滅→最弱を採用）")
+
 
 # -*- coding: utf-8 -*-
 import streamlit as st
