@@ -663,11 +663,7 @@ if "_mark_dist" not in globals():
         table = st.session_state.get("RANK_STATS_CURRENT") or RANK_STATS_BY_GRADE["TOTAL"]
         return table.get(mark, FALLBACK_DIST)
 
-NameError: This app has encountered an error. The original error message is redacted to prevent data leaks. Full error details have been recorded in the logs (if you're on Streamlit Cloud, click on 'Manage app' in the lower right of your app).
-Traceback:
-File "/mount/src/kapp4/k_app4.py", line 667, in <module>
-    w_base = np.exp(race_z * TAU_PL)
-                    ^^^^^^
+
 
 # ===== 重み作成（PL用） =====
 w_base = np.exp(race_z * TAU_PL)
