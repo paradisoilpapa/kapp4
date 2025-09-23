@@ -1515,7 +1515,7 @@ from itertools import combinations
 S_TRIFECTA_MIN = globals().get("S_TRIFECTA_MIN", 164.0)  # 三連単基準
 
 # ===== 可変パラメータ（緩め設定：通過数↑）=====
-TRIO_SIG_DIV        = float(globals().get("TRIO_SIG_DIV", 3.0))   # 三連複：1.5→2.0でほんのり緩め
+TRIO_SIG_DIV        = float(globals().get("TRIO_SIG_DIV", 4.0))   # 三連複：1.5→2.0でほんのり緩め
 TRIFECTA_SIG_DIV    = float(globals().get("TRIFECTA_SIG_DIV", 5.5))# 三連単：2.5→3.5で緩め
 
 # L3 / 三連単の固定ゲートも少し緩める（買い目増やしたいなら下げる）
