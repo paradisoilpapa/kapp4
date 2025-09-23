@@ -3254,10 +3254,12 @@ else:
 # ===== 確率枠の安全フォールバック（表示用）=====
 P_TH_BASE = float(globals().get("P_TH_BASE", 0.10))  # 10% 以上
 
-trio_prob_rows     = cand_trio
-trifecta_prob_rows = cand_tri
-qn_prob_rows       = cand_qn
-nitan_prob_rows    = cand_nit
+# ここでは上で作った *_prob_rows をそのまま使う（再代入しない）
+trio_prob_rows     = globals().get("trio_prob_rows", [])
+trifecta_prob_rows = globals().get("trifecta_prob_rows", [])
+qn_prob_rows       = globals().get("qn_prob_rows", [])
+nitan_prob_rows    = globals().get("nitan_prob_rows", [])
+
 
 
 # =========================
