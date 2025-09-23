@@ -2919,7 +2919,6 @@ trifecta_prob_rows  = globals().get("trifecta_prob_rows", [])
 qn_prob_rows        = globals().get("qn_prob_rows", [])
 nitan_prob_rows     = globals().get("nitan_prob_rows", [])
 
-
 note_sections.append("\n【確率枠】（P≥{:.0f}%｜重複歓迎）".format(P_TH_BASE*100))
 if trio_prob_rows:
     note_sections.append("\n三連複\n" + _fmt_prob_rows_trio(trio_prob_rows))
@@ -2929,20 +2928,6 @@ if qn_prob_rows:
     note_sections.append("\n二車複\n" + _fmt_prob_rows_pairs(qn_prob_rows))
 if nitan_prob_rows:
     note_sections.append("\n二車単\n" + _fmt_prob_rows_nitan(nitan_prob_rows))
-
-# 🎯狙い目 用の辞書をここで必ず作る（未定義ガード込み）
-overlap_trio_keys  = globals().get("overlap_trio_keys", []) or []
-overlap_triS_keys  = globals().get("overlap_triS_keys", []) or []
-overlap_qn_keys    = globals().get("overlap_qn_keys", []) or []
-overlap_nitan_keys = globals().get("overlap_nitan_keys", []) or []
-
-OVERLAP_NOTE = {
-    "trio":  overlap_trio_keys,
-    "triS":  overlap_triS_keys,
-    "qn":    overlap_qn_keys,
-    "nitan": overlap_nitan_keys,
-}
-
 
 # === 🎯狙い目（S×P重複）を出力ゾーン内だけで完結生成 ===
 # Trio（順不同）キー → "i-j-k"
@@ -3012,19 +2997,19 @@ def _intersect_keep_P_order(keys_P, keys_S):
 # S側/P側からキーを作って交差（P側の順序を優先）
 overlap_trio_keys   = _intersect_keep_P_order(
     _keys_trio_P(trio_prob_rows),
-    _keys_trio_S(trios_filtered_display) if has_trio else []
+    _keys_trio_S(trios_filtered_display) if globals().get("has_trio") else []
 )
 overlap_triS_keys   = _intersect_keep_P_order(
     _keys_triS_P(trifecta_prob_rows),
-    _keys_triS_S(santan_filtered_display) if has_tri else []
+    _keys_triS_S(santan_filtered_display) if globals().get("has_tri") else []
 )
 overlap_qn_keys     = _intersect_keep_P_order(
     _keys_qn_P(qn_prob_rows),
-    _keys_qn_S(pairs_qn2_filtered) if has_qn else []
+    _keys_qn_S(pairs_qn2_filtered) if globals().get("has_qn") else []
 )
 overlap_nitan_keys  = _intersect_keep_P_order(
     _keys_nitan_P(nitan_prob_rows),
-    _keys_nitan_S(rows_nitan_filtered) if has_nit else []
+    _keys_nitan_S(rows_nitan_filtered) if globals().get("has_nit") else []
 )
 
 OVERLAP_NOTE = {
@@ -3033,6 +3018,11 @@ OVERLAP_NOTE = {
     "qn":    overlap_qn_keys,
     "nitan": overlap_nitan_keys,
 }
+
+# _fmt_overlap_lines が未定義でも落ちないように
+if "_fmt_overlap_lines" not in globals():
+    def _fmt_overlap_lines(keys):
+        return "なし" if not keys else "\n".join(keys)
 
 note_sections.append("\n🎯狙い目（S×P重複）")
 if OVERLAP_NOTE.get("trio"):
@@ -3043,7 +3033,6 @@ if OVERLAP_NOTE.get("qn"):
     note_sections.append("\n二車複\n" + _fmt_overlap_lines(OVERLAP_NOTE["qn"]))
 if OVERLAP_NOTE.get("nitan"):
     note_sections.append("\n二車単\n" + _fmt_overlap_lines(OVERLAP_NOTE["nitan"]))
-
 
 note_text = "\n".join(note_sections)
 st.markdown("### 📋 note用（コピーエリア）")
