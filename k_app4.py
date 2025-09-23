@@ -2072,171 +2072,93 @@ GAMMA_P1   = float(globals().get("GAMMA_P1", 0.8))
 GAMMA_TOP3 = float(globals().get("GAMMA_TOP3", 0.6))
 MARK_FLOOR = float(globals().get("MARK_FLOOR", 0.20))
 
-def _mark_dist(mark: str):
-    # サイドバーで選んだ分布（RANK_STATS_CURRENT）を最優先で使う
-    table = st.session_state.get("RANK_STATS_CURRENT") or RANK_STATS_BY_GRADE.get("TOTAL", {})
-    return table.get(mark, FALLBACK_DIST)
+# === 5.5) クラス別ライン偏差値ボーナス（ライン間→ライン内：低T優先 3:2:1） ===
+# クラス別の総ポイント（Girlsは無効）
+CLASS_LINE_POOL = {
+    "Ｓ級":           21.0,
+    "Ａ級":           15.0,
+    "Ａ級チャレンジ":  9.0,
+    "ガールズ":        0.0,
+}
+pool_total = float(CLASS_LINE_POOL.get(race_class, 0.0))
 
+def _line_rank_weights(n_lines: int) -> list[float]:
+    # 2本: 3:2 / 3本: 5:4:3 / 4本以上: 6,5,4,3,2,1...
+    if n_lines <= 1: return [1.0]
+    if n_lines == 2: return [3.0, 2.0]
+    if n_lines == 3: return [5.0, 4.0, 3.0]
+    base = [6.0, 5.0, 4.0, 3.0, 2.0, 1.0]
+    if n_lines <= len(base): return base[:n_lines]
+    ext = base[:]
+    while len(ext) < n_lines:
+        ext.append(max(1.0, ext[-1]-1.0))
+    return ext[:n_lines]
 
-w_base = np.exp(race_z * TAU_PL)
-result_marks = globals().get("result_marks", {})  # 未定義なら空dictに
-car_mark = {int(v): k for k, v in result_marks.items()} if isinstance(result_marks, dict) else {}
+def _in_line_weights(members_sorted_lowT_first: list[int]) -> dict[int, float]:
+    # ライン内は「低T優先で 3:2:1、4人目以降0」→合計1に正規化
+    raw = [3.0, 2.0, 1.0]
+    w = {}
+    for i, car in enumerate(members_sorted_lowT_first):
+        w[int(car)] = (raw[i] if i < len(raw) else 0.0)
+    s = sum(w.values())
+    return {k: (v/s if s > 0 else 0.0) for k, v in w.items()}
 
-fallback_key = RANK_FALLBACK_MARK
-base_dist = FALLBACK_DIST
-
-# ▼ここが最重要：インデントを正して、_mark_dist() で分布を取る
-w_mark_list = []
-for car in USED_IDS:
-    mk = car_mark.get(int(car), fallback_key)
-    prior = _mark_dist(mk)
-    delta_p1   = float(prior.get("p1",    base_dist["p1"]))    - float(base_dist["p1"])
-    delta_top3 = float(prior.get("pTop3", base_dist["pTop3"])) - float(base_dist["pTop3"])
-    coeff = 1.0 + GAMMA_P1*delta_p1 + GAMMA_TOP3*delta_top3
-    w_mark_list.append(max(MARK_FLOOR, coeff))
-w_mark = np.array(w_mark_list, dtype=float)
-
-w = w_base * w_mark
-S_w = float(np.sum(w))
-if S_w <= 0:
-    w = np.ones_like(w, dtype=float)
-    S_w = float(np.sum(w))
-w_idx = {USED_IDS[idx]: float(w[idx]) for idx in range(M)}
-
-def prob_top2_pair_pl(i: int, j: int) -> float:
-    wi, wj = w_idx[i], w_idx[j]
-    d_i = max(S_w - wi, EPS)
-    d_j = max(S_w - wj, EPS)
-    return (wi / S_w) * (wj / d_i) + (wj / S_w) * (wi / d_j)
-
-def prob_top3_triple_pl(i: int, j: int, k: int) -> float:
-    a, b, c = w_idx[i], w_idx[j], w_idx[k]
-    total = 0.0
-    for x, y, z in ((a,b,c), (a,c,b), (b,a,c), (b,c,a), (c,a,b), (c,b,a)):
-        d1 = max(S_w - x, EPS)
-        d2 = max(S_w - x - y, EPS)
-        total += (x / S_w) * (y / d1) * (z / d2)
-    return total
-
-def prob_wide_pair_pl(i: int, j: int) -> float:
-    total = 0.0
-    for k in USED_IDS:
-        if k == i or k == j:
+_lines = list((globals().get("line_def") or {}).values())
+if pool_total > 0.0 and _lines:
+    # ライン強度＝そのラインの race_t 平均
+    line_scores = []
+    for mem in _lines:
+        if not mem: 
             continue
-        total += prob_top3_triple_pl(i, j, k)
-    return total
+        avg_t = float(np.mean([race_t.get(int(c), 50.0) for c in mem]))
+        line_scores.append((tuple(mem), avg_t))
+    # 強い順に並べてライン間ポイント配分
+    line_scores.sort(key=lambda x: (-x[1], x[0]))
+    rank_w = _line_rank_weights(len(line_scores))
+    sum_rank_w = float(sum(rank_w)) if rank_w else 1.0
+    line_share = {}
+    for (mem, _avg), wr in zip(line_scores, rank_w):
+        line_share[mem] = pool_total * (float(wr) / sum_rank_w)
 
-def prob_nitan_ordered(i: int, j: int) -> float:
-    """二車単 (i→j) の順序付き近似"""
-    wi, wj = w_idx[i], w_idx[j]
-    d1 = max(S_w - wi, EPS)
-    return (wi / S_w) * (wj / d1)
+    # 各ラインの配分を「低T→高T」の順に 3:2:1 で割り振り
+    bonus_map = {int(i): 0.0 for i in USED_IDS}
+    for mem, share in line_share.items():
+        mem = list(mem)
+        mem_sorted_lowT = sorted(mem, key=lambda c: (race_t.get(int(c), 50.0), int(c)))
+        w_in = _in_line_weights(mem_sorted_lowT)  # 合計1
+        for car in mem_sorted_lowT:
+            bonus_map[int(car)] += share * w_in[int(car)]
 
-def prob_trifecta_ordered(a: int, b: int, c: int) -> float:
-    wa, wb, wc = w_idx[a], w_idx[b], w_idx[c]
-    d1 = max(S_w - wa, EPS)
-    d2 = max(S_w - wa - wb, EPS)
-    return (wa / S_w) * (wb / d1) * (wc / d2)
+    # 偏差値に加算（xs_race_tが計算本体。race_tは表示用に丸め直す）
+    for idx, car in enumerate(USED_IDS):
+        add = float(bonus_map.get(int(car), 0.0))
+        xs_race_t[idx] = float(xs_race_t[idx]) + add
+        race_t[int(car)] = float(round(xs_race_t[idx], HEN_DEC_PLACES))
+# ← この後に既存の race_z 計算が続く
 
-# ===== 確率枠：基準 =====
-P_TH_BASE = float(globals().get("P_TH_BASE", 0.10))  # 10% 以上
 
-# ===== 確率枠 生成（重複歓迎・フォーメーションから作る） =====
-trio_prob_rows, trifecta_prob_rows = [], []
-qn_prob_rows, nitan_prob_rows = [], []
+race_z = (xs_race_t - 50.0) / 10.0
 
-# --- safety: フォーメーション未生成でも落ちないように ---
-if "L1" not in globals(): L1 = []
-if "L2" not in globals(): L2 = []
-if "L3" not in globals(): L3 = []
+hen_df = pd.DataFrame({
+    "車": USED_IDS,
+    "SBなし(母集団)": [None if not np.isfinite(x) else float(x) for x in xs_base_raw],
+    "偏差値T(レース内)": [race_t[i] for i in USED_IDS],
+}).sort_values(["偏差値T(レース内)","車"], ascending=[False, True]).reset_index(drop=True)
 
-# 三連複（L1-L2-L3 のユニーク三つ組）
-if L1 and L2 and L3:
-    seen = set()
-    cand_trio = []
-    for a in L1:
-        for b in L2:
-            for c in L3:
-                if len({a, b, c}) != 3:
-                    continue
-                key = tuple(sorted((int(a), int(b), int(c))))
-                if key in seen:
-                    continue
-                seen.add(key)
-                p = prob_top3_triple_pl(key[0], key[1], key[2])
-                if p >= P_TH_BASE:
-                    cand_trio.append((key[0], key[1], key[2], float(p), "確率枠"))
-    cand_trio.sort(key=lambda x: (-x[3], x[0], x[1], x[2]))
-    trio_prob_rows = cand_trio   # ← 上限スライス削除
+st.markdown("### 偏差値（レース内T＝平均50・SD10｜SBなしと同一母集団）")
+st.caption(f"μ={mu_sb if np.isfinite(mu_sb) else 'nan'} / σ={sd_sb:.6f} / 有効件数k={k_finite}")
+st.dataframe(hen_df, use_container_width=True)
 
-# --- safety: 印/フォーメーション未定義でも落ちないように ---
-_rm = globals().get("result_marks", {})
-if not isinstance(_rm, dict):
-    _rm = {}
-result_marks = _rm
+# 6) PL用重み（購入計算に使用：グレード×印 連動版）
+# 前提：RANK_IN_USE（写真の実測率テーブルからの採用値）が直前で決まっていること
+#       result_marks で各印の車番が決まっていること（◎〇▲…）
+#       FALLBACK_DIST は既存どおり（印なしの既定分布）
 
-L1 = (globals().get("L1") or [])
-L2 = (globals().get("L2") or [])
-L3 = (globals().get("L3") or [])
-
-# 三連単（1列目：◎ or 〇、2列目：◎〇▲、3列目：L3）
-first_col  = [x for x in [result_marks.get("◎"), result_marks.get("〇")] if x is not None]
-second_col = [x for x in [result_marks.get("◎"), result_marks.get("〇"), result_marks.get("▲")] if x is not None]
-third_col  = list(L3) if L3 else []
-if first_col and second_col and third_col:
-    cand_tri = []
-    seen = set()
-    for a in first_col:
-        for b in second_col:
-            for c in third_col:
-                if len({a, b, c}) != 3:
-                    continue
-                key = (int(a), int(b), int(c))
-                if key in seen:
-                    continue
-                seen.add(key)
-                p = prob_trifecta_ordered(*key)
-                if p >= P_TH_BASE:
-                    cand_tri.append((key[0], key[1], key[2], float(p), "確率枠"))
-    cand_tri.sort(key=lambda x: (-x[3], x[0], x[1], x[2]))
-    trifecta_prob_rows = cand_tri   # ← 上限スライス削除
-
-# 二車複（L1×L2 の順不同）
-if L1 and L2:
-    cand_qn = []
-    seen = set()
-    for a in L1:
-        for b in L2:
-            if a == b:
-                continue
-            i, j = sorted((int(a), int(b)))
-            if (i, j) in seen:
-                continue
-            seen.add((i, j))
-            p = prob_top2_pair_pl(i, j)
-            if p >= P_TH_BASE:
-                cand_qn.append((i, j, float(p), "確率枠"))
-    cand_qn.sort(key=lambda x: (-x[2], x[0], x[1]))
-    qn_prob_rows = cand_qn   # ← 上限スライス削除
-
-# 二車単（L1→L2 の順付き）
-if L1 and L2:
-    cand_nit = []
-    seen = set()
-    for a in L1:
-        for b in L2:
-            if a == b:
-                continue
-            key = f"{int(a)}-{int(b)}"
-            if key in seen:
-                continue
-            seen.add(key)
-            p = prob_nitan_ordered(int(a), int(b))
-            if p >= P_TH_BASE:
-                cand_nit.append((key, float(p), "確率枠"))
-    cand_nit.sort(key=lambda x: (-x[1], x[0]))
-    nitan_prob_rows = cand_nit   # ← 上限スライス削除
-
+# ここはそのままでOK（w = exp(race_z*tau) × 印分布の係数）
+TAU_PL     = float(globals().get("TAU_PL", 1.0))
+GAMMA_P1   = float(globals().get("GAMMA_P1", 0.8))
+GAMMA_TOP3 = float(globals().get("GAMMA_TOP3", 0.6))
+MARK_FLOOR = float(globals().get("MARK_FLOOR", 0.20))
 
 
 
