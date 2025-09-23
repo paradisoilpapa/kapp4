@@ -1447,194 +1447,189 @@ _den_st = (sd_st if sd_st > 1e-12 else 1.0)
 STAB_Z = {int(n): (float(STAB_RAW.get(n, mu_st)) - mu_st) / _den_st for n in active_cars}
 
 
-# ===== KO方式（印に混ぜず：展開・ケンで利用） =====
-v_wo = {int(k): float(v) for k, v in zip(df["車番"].astype(int), df["合計_SBなし"].astype(float))}
-_is_girls = (race_class == "ガールズ")
-head_scale = KO_HEADCOUNT_SCALE.get(int(n_cars), 1.0)
-ko_scale_raw = (KO_GIRLS_SCALE if _is_girls else 1.0) * head_scale
-KO_SCALE_MAX = 0.45
-ko_scale = min(ko_scale_raw, KO_SCALE_MAX)
+# ===== [1450–1636] REPLACEMENT START : KO方式 + LineSB（安全ガード付き） =====
+import numpy as np
 
-if ko_scale > 0.0 and line_def and len(line_def) >= 1:
-    ko_order = _ko_order(v_wo, line_def, S, B,
-                         line_factor=line_factor_eff,
-                         gap_delta=KO_GAP_DELTA)
-    vals = [v_wo[c] for c in v_wo.keys()]
-    mu0  = float(np.mean(vals)); sd0 = float(np.std(vals) + 1e-12)
-    KO_STEP_SIGMA_LOCAL = max(0.25, KO_STEP_SIGMA * 0.7)
-    step = KO_STEP_SIGMA_LOCAL * sd0
+# ---------- guard: line係数/キャップ/enable を必ず定義 ----------
+try:
+    _ = line_factor_eff
+    _ = cap_SB_eff
+except NameError:
+    CLASS_FACTORS = globals().get("CLASS_FACTORS", {
+        "Ｓ級":           {"spread":1.00, "line":1.00},
+        "Ａ級":           {"spread":0.90, "line":0.85},
+        "Ａ級チャレンジ": {"spread":0.80, "line":0.70},
+        "ガールズ":       {"spread":0.85, "line":1.00},
+    })
+    DAY_FACTOR = globals().get("DAY_FACTOR", {"初日":1.00, "2日目":1.00, "最終日":1.00})
+
+    race_class_ = str(globals().get("race_class", "Ｓ級"))
+    day_label_  = str(globals().get("day_label",  "初日"))
+    # style（会場バイアス）がなければ0.0
+    style_      = float(globals().get("style", 0.0))
+
+    # clamp が無くても動く cap_base
+    if "clamp" in globals():
+        cap_base = float(clamp(0.06 + 0.02*style_, 0.04, 0.08))
+    else:
+        cap_base = max(0.04, min(0.08, 0.06 + 0.02*style_))
+
+    cf = CLASS_FACTORS.get(race_class_, {"spread":1.0, "line":1.0})
+    day_factor = float(DAY_FACTOR.get(day_label_, 1.0))
+
+    line_factor_eff = float(cf.get("line", 1.0)) * day_factor
+    cap_SB_eff      = float(cap_base) * day_factor
+
+    # ミッドナイト軽減
+    if str(globals().get("race_time", "")) == "ミッドナイト":
+        line_factor_eff *= 0.95
+        cap_SB_eff      *= 0.95
+
+if "line_sb_enable" not in globals():
+    line_sb_enable = (str(globals().get("race_class", "Ｓ級")) != "ガールズ")
+
+# ---------- KO方式（印に混ぜない：展開・ケン用） ----------
+df_ = globals().get("df", None)
+v_wo = {}
+if df_ is not None and all(c in df_.columns for c in ["車番", "合計_SBなし"]):
+    try:
+        v_wo = {int(k): float(v) for k, v in zip(df_["車番"].astype(int), df_["合計_SBなし"].astype(float))}
+    except Exception:
+        v_wo = {}
+if not v_wo:
+    # フォールバック：SB_BASE_MAP があれば拝借
+    base_map = globals().get("SB_BASE_MAP", {})
+    if isinstance(base_map, dict) and base_map:
+        v_wo = {int(k): float(v) for k, v in base_map.items()}
+
+race_class_ = str(globals().get("race_class", "Ｓ級"))
+n_cars_     = int(globals().get("n_cars", (len(v_wo) if v_wo else 9)))
+
+KO_HEADCOUNT_SCALE = globals().get("KO_HEADCOUNT_SCALE", {5:0.85, 6:0.90, 7:1.00, 8:1.00, 9:1.00})
+KO_GIRLS_SCALE     = float(globals().get("KO_GIRLS_SCALE", 0.90))
+KO_GAP_DELTA       = float(globals().get("KO_GAP_DELTA", 0.0))
+KO_STEP_SIGMA      = float(globals().get("KO_STEP_SIGMA", 0.8))
+KO_SCALE_MAX       = float(globals().get("KO_SCALE_MAX", 0.45))
+
+is_girls     = (race_class_ == "ガールズ")
+head_scale   = float(KO_HEADCOUNT_SCALE.get(n_cars_, 1.0))
+ko_scale_raw = (KO_GIRLS_SCALE if is_girls else 1.0) * head_scale
+ko_scale     = min(ko_scale_raw, KO_SCALE_MAX)
+
+# _ko_order が未定義なら簡易版（値降順）
+if "_ko_order" not in globals():
+    def _ko_order(v_map, line_def, S, B, line_factor: float, gap_delta: float = 0.0):
+        return sorted(v_map.keys(), key=lambda c: (-float(v_map[c]), int(c)))
+
+line_def_ = globals().get("line_def", {})
+line_def_ = line_def_ if isinstance(line_def_, dict) else {}
+S_ = globals().get("S", [])
+B_ = globals().get("B", [])
+
+if ko_scale > 0.0 and line_def_:
+    try:
+        ko_order = _ko_order(v_wo, line_def_, S_, B_, line_factor=line_factor_eff, gap_delta=KO_GAP_DELTA)
+    except Exception:
+        ko_order = sorted(v_wo.keys(), key=lambda c: (-float(v_wo[c]), int(c)))
+    vals = [float(v_wo[c]) for c in v_wo.keys()] or [0.0]
+    mu0  = float(np.mean(vals))
+    sd0  = float(np.std(vals) + 1e-12)
+    step = max(0.25, KO_STEP_SIGMA * 0.7) * sd0
 
     new_scores = {}
+    L = len(ko_order)
+    center = (L - 1) / 2.0 if L > 0 else 0.0
     for rank, car in enumerate(ko_order, start=1):
-        rank_adjust = step * (len(ko_order) - rank)
-        blended = (1.0 - ko_scale) * v_wo[car] + ko_scale * (
-            mu0 + rank_adjust - (len(ko_order)/2.0 - 0.5)*step
-        )
-        new_scores[car] = blended
-    v_final = {int(k): float(v) for k, v in new_scores.items()}
+        rank_adjust = step * (L - rank)
+        blended = (1.0 - ko_scale) * float(v_wo[car]) + ko_scale * (mu0 + rank_adjust - center*step)
+        new_scores[int(car)] = float(blended)
+    v_final = dict(new_scores)
 else:
-    if v_wo:
-        ko_order = sorted(v_wo.keys(), key=lambda c: v_wo[c], reverse=True)
-        v_final = {int(c): float(v_wo[c]) for c in ko_order}
-    else:
-        ko_order = []
-        v_final = {}
+    ko_order = sorted(v_wo.keys(), key=lambda c: (-float(v_wo[c]), int(c))) if v_wo else []
+    v_final  = {int(c): float(v_wo[c]) for c in ko_order} if v_wo else {}
 
-# --- 純SBなしランキング（KOまで／格上げ前）
-df_sorted_pure = pd.DataFrame({
-    "車番": list(v_final.keys()),
-    "合計_SBなし": [round(float(v_final[c]), 6) for c in v_final.keys()]
-}).sort_values("合計_SBなし", ascending=False).reset_index(drop=True)
+# 純SBなしランキング（KOまで／格上げ前）
+try:
+    df_sorted_pure = (pd.DataFrame({
+        "車番": list(v_final.keys()),
+        "合計_SBなし": [round(float(v_final[c]), 6) for c in v_final.keys()]
+    }).sort_values("合計_SBなし", ascending=False).reset_index(drop=True))
+except Exception:
+    df_sorted_pure = pd.DataFrame(columns=["車番","合計_SBなし"])
 
-# ===== 印用（既存の安全弁を維持） =====
-FINISH_WEIGHT   = globals().get("FINISH_WEIGHT", 6.0)
-FINISH_WEIGHT_G = globals().get("FINISH_WEIGHT_G", 3.0)
-POS_BONUS  = globals().get("POS_BONUS", {0: 0.0, 1: -0.6, 2: -0.9, 3: -1.2, 4: -1.4})
-POS_WEIGHT = globals().get("POS_WEIGHT", 1.0)
-SMALL_Z_RATING = globals().get("SMALL_Z_RATING", 0.01)
-FINISH_CLIP = globals().get("FINISH_CLIP", 4.0)
-TIE_EPSILON  = globals().get("TIE_EPSILON", 0.8)
+# ---------- ENV/FORM → z 化（anchor_score より前に） ----------
+active_cars = list(globals().get("active_cars", [])) or (sorted(v_final.keys()) if v_final else list(globals().get("USED_IDS", [])))
+Form = globals().get("Form", {})  # 例: 0.7*p1 + 0.3*p2 を想定
 
-# --- p2のZ化など（従来どおり） ---
-p2_list = [float(p2_eff.get(n, 0.0)) for n in active_cars]
-if len(p2_list) >= 1:
-    mu_p2  = float(np.mean(p2_list))
-    sd_p2  = float(np.std(p2_list) + 1e-12)
-else:
-    mu_p2, sd_p2 = 0.0, 1.0
-p2z_map = {n: (float(p2_eff.get(n, 0.0)) - mu_p2) / sd_p2 for n in active_cars}
-p1_eff_safe = {n: float(p1_eff.get(n, 0.0)) if 'p1_eff' in globals() and p1_eff is not None else 0.0 for n in active_cars}
-p2only_map = {n: max(0.0, float(p2_eff.get(n, 0.0)) - float(p1_eff_safe.get(n, 0.0))) for n in active_cars}
-zt = zscore_list([ratings_val[n] for n in active_cars]) if active_cars else []
-zt_map = {n: float(zt[i]) for i, n in enumerate(active_cars)} if active_cars else {}
+# t_score_from_finite が未定義でも落ちないフォールバック
+if "t_score_from_finite" not in globals():
+    def t_score_from_finite(arr):
+        arr = np.asarray(arr, dtype=float)
+        msk = np.isfinite(arr)
+        k   = int(msk.sum())
+        mu  = float(np.mean(arr[msk])) if k > 0 else 0.0
+        sd  = float(np.std(arr[msk]))  if k > 0 else 1.0
+        sd  = (sd if sd > 1e-12 else 1.0)
+        T   = np.where(msk, 50.0 + 10.0*(arr - mu)/sd, 50.0)
+        return T, mu, sd, k
 
-# === ★Form 偏差値化（anchor_scoreより前に必ず置く！） ===
-# すでに上で Form = 0.7*p1_eff + 0.3*p2_eff を作ってある前提
-# t_score_from_finite はこのファイル内に定義済みである前提
-form_list = [Form[n] for n in active_cars]
-form_T, mu_form, sd_form, _ = t_score_from_finite(np.array(form_list))
-form_T_map = {n: float(form_T[i]) for i, n in enumerate(active_cars)}
+# Form → Tスコア
+try:
+    form_list = [float(Form[n]) for n in active_cars]
+except Exception:
+    form_list = [0.0 for _ in active_cars]
+form_T, mu_form, sd_form, _k = t_score_from_finite(np.array(form_list, dtype=float))
+form_T_map = {int(n): float(form_T[i]) for i, n in enumerate(active_cars)}
 
-# === [PATCH-1] ENV/FORM をレース内で z 化し、目標SDを掛ける（anchor_score の前に置く） ===
-SD_FORM = 0.28   # Balanced 既定
-SD_ENV  = 0.20
-
-# ENV = v_final（風・会場・周回疲労・個人補正・安定度 等を含む“Form以外”）
+# ENV = v_final（会場・風・疲労等）を z 化
 _env_arr = np.array([float(v_final.get(n, np.nan)) for n in active_cars], dtype=float)
-_mask = np.isfinite(_env_arr)
+_mask    = np.isfinite(_env_arr)
 if int(_mask.sum()) >= 2:
     mu_env = float(np.mean(_env_arr[_mask])); sd_env = float(np.std(_env_arr[_mask]))
 else:
     mu_env, sd_env = 0.0, 1.0
 _den = (sd_env if sd_env > 1e-12 else 1.0)
-ENV_Z = {int(n): (float(v_final.get(n, mu_env)) - mu_env) / _den for n in active_cars}
+ENV_Z  = {int(n): (float(v_final.get(n, mu_env)) - mu_env)/_den for n in active_cars}
+FORM_Z = {int(n): (float(form_T_map.get(n, 50.0)) - 50.0)/10.0 for n in active_cars}
 
-# FORM = form_T_map（T=50, SD=10）→ z 化
-FORM_Z = {int(n): (float(form_T_map.get(n, 50.0)) - 50.0) / 10.0 for n in active_cars}
-
-
-def _pos_idx(no:int) -> int:
-    g = car_to_group.get(no, None)
-    if g is None or g not in line_def:
-        return 0
-    grp = line_def[g]
-    try:
-        return max(0, int(grp.index(no)))
-    except Exception:
-        return 0
-
-# ===== ラインSB計算：全面置換（順序依存と未定義連鎖をここで遮断） =====
-# 前提: numpy as np, streamlit as st, USED_IDS, race_class, race_time, day_label,
-#       straight_length, bank_angle, bank_length, clamp, venue_z_terms, venue_mix が
-#       既にどこかで定義済みならそれを使います。無い場合でも落ちないように復元します。
-
-import numpy as _np
-
-# --- style を必ず用意 ---
-try:
-    _ = style  # 既に定義済みなら何もしない
-except NameError:
-    try:
-        zL, zTH, dC = venue_z_terms(float(straight_length), float(bank_angle), float(bank_length))
-        _style_raw = venue_mix(zL, zTH, dC)
-        _override = float(globals().get("override", 0.0))
-        style = clamp(_style_raw + 0.25*_override, -1.0, +1.0) if "clamp" in globals() else max(-1.0, min(1.0, _style_raw + 0.25*_override))
-    except Exception:
-        style = 0.0  # 最終フォールバック
-
-# --- クラス係数 / 日程係数 を必ず用意 ---
-CLASS_FACTORS = globals().get("CLASS_FACTORS", {
-    "Ｓ級":           {"spread":1.00, "line":1.00},
-    "Ａ級":           {"spread":0.90, "line":0.85},
-    "Ａ級チャレンジ": {"spread":0.80, "line":0.70},
-    "ガールズ":       {"spread":0.85, "line":1.00},
-})
-DAY_FACTOR = globals().get("DAY_FACTOR", {"初日":1.00, "2日目":1.00, "最終日":1.00})
-
-_cf = CLASS_FACTORS.get(str(globals().get("race_class", race_class)), {"spread":1.0, "line":1.0})
-_day = str(globals().get("day_label", day_label))
-_day_factor = float(DAY_FACTOR.get(_day, 1.0))
-
-# clamp が未定義でも動くように cap_base を計算
-_cap_base_raw = 0.06 + 0.02*float(style)
-cap_base = clamp(_cap_base_raw, 0.04, 0.08) if "clamp" in globals() else max(0.04, min(0.08, _cap_base_raw))
-
-line_factor_eff = float(_cf.get("line", 1.0)) * _day_factor
-cap_SB_eff = float(cap_base) * _day_factor
-if str(globals().get("race_time", race_time)) == "ミッドナイト":
-    line_factor_eff *= 0.95
-    cap_SB_eff *= 0.95
-
-# --- ラインSB有効/無効 ---
-line_sb_enable = (str(globals().get("race_class", race_class)) != "ガールズ")
-
-# --- line_def を必ず用意（なければ line_inputs から簡易生成） ---
-line_def = globals().get("line_def")
-if not isinstance(line_def, dict):
-    _inputs = globals().get("line_inputs", [])
-    def _parse_line_inputs(inputs):
-        d = {}
-        idx = 1
-        for token in inputs:
-            s = str(token).strip()
-            if not s:
-                continue
-            # "625" -> [6,2,5] のように各桁を車番として解釈（2桁車番がない前提）
-            mem = [int(ch) for ch in s if ch.isdigit()]
-            if mem:
-                d[idx] = mem
-                idx += 1
-        return d
-    line_def = _parse_line_inputs(_inputs)
-
-# --- S, B 配列を必ず用意 ---
-USED_IDS = list(globals().get("USED_IDS", [])) or list(range(1, int(globals().get("n_cars", 9))+1))
-M = len(USED_IDS)
-
-S = globals().get("S")
-if not isinstance(S, (list, _np.ndarray)) or len(S) != M:
-    # スコアが未用意なら 0 で埋める（後段が足し込み前提なら安全）
-    S = _np.zeros(M, dtype=float)
-
-B = globals().get("B")
-if not isinstance(B, (list, _np.ndarray)) or len(B) != M:
-    B = _np.zeros(M, dtype=float)
-
-# --- compute_lineSB_bonus を必ず用意（未定義ならスタブで無害化） ---
+# ---------- Line SB（compute_lineSB_bonus が未定義でも落ちない） ----------
 if "compute_lineSB_bonus" not in globals():
     def compute_lineSB_bonus(line_def, S, B, line_factor: float, exclude=None, cap: float=0.06, enable: bool=True):
-        # enable=False や line_def が空なら全ゼロ
-        m = len(S) if hasattr(S, "__len__") else len(USED_IDS)
-        return _np.zeros(m, dtype=float), {"stub": True, "enable": bool(enable), "cap": float(cap), "factor": float(line_factor)}
+        m = len(S) if hasattr(S, "__len__") and len(S) else (len(B) if hasattr(B, "__len__") and len(B) else len(active_cars))
+        return np.zeros(int(m), dtype=float), {"stub": True, "enable": bool(enable), "cap": float(cap), "factor": float(line_factor)}
 
-# --- 実行 ---
+# line_def を必ず dict に
+line_def_safe = globals().get("line_def", {})
+line_def_safe = line_def_safe if isinstance(line_def_safe, dict) else {}
+
+# S, B の長さを USED_IDS に合わせて補完
+USED_IDS = list(globals().get("USED_IDS", [])) or (active_cars if active_cars else list(range(1, n_cars_+1)))
+M = len(USED_IDS)
+
+S_arr = np.array(globals().get("S", []), dtype=float)
+B_arr = np.array(globals().get("B", []), dtype=float)
+if S_arr.size != M: S_arr = np.zeros(M, dtype=float)
+if B_arr.size != M: B_arr = np.zeros(M, dtype=float)
+
 bonus_init, _ = compute_lineSB_bonus(
-    line_def, S, B,
+    line_def_safe, S_arr, B_arr,
     line_factor=line_factor_eff,
     exclude=None, cap=cap_SB_eff,
     enable=line_sb_enable
 )
-# ===== /ラインSB計算：全面置換 ここまで =====
+
+# 補助：ライン内位置（使う所があれば）
+car_to_group = globals().get("car_to_group", {})
+def _pos_idx(no: int) -> int:
+    g = car_to_group.get(no, None)
+    if g is None or g not in line_def_safe: return 0
+    grp = list(line_def_safe[g])
+    try:
+        return max(0, int(grp.index(no)))
+    except Exception:
+        return 0
+# ===== [1450–1636] REPLACEMENT END =====
+
 
 
 
