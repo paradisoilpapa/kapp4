@@ -2083,6 +2083,14 @@ else:
 #  既存の買い目と重複したもの = 「オススメ買目」
 # =========================
 
+# --- 偏差値スコア由来『基準（μ + σ/div）』のオフセット ---
+st.sidebar.markdown("### 偏差値買目の基準オフセット（点）")
+off_trio = float(st.sidebar.slider("三連複 基準オフセット", -20.0, 20.0, 0.0, 0.1, key="off_trio"))
+off_triS = float(st.sidebar.slider("三連単 基準オフセット", -20.0, 20.0, 0.0, 0.1, key="off_triS"))
+off_qn   = float(st.sidebar.slider("二車複 基準オフセット", -20.0, 20.0, 0.0, 0.1, key="off_qn"))
+off_nit  = float(st.sidebar.slider("二車単 基準オフセット", -20.0, 20.0, 0.0, 0.1, key="off_nit"))
+
+
 # --- サイドバー：グレード選択＆しきい値（初期10%） ---
 st.sidebar.markdown("### 印実測率のグレード/しきい値")
 grade_for_marks = st.sidebar.selectbox(
