@@ -2079,27 +2079,32 @@ else:
     st.markdown("対象外")
 
 # =========================
-#  印の実測率 → グレード別の確率モデル → 買い目抽出（的中率しきい値）
-#  既存の買い目と重複したもの = 「オススメ買目」
+# サイドバー：印実測率のグレード/的中率 & しきい値オフセット
+# （←「開催情報/バンク・風・頭数」の直後、「メイン：入力」の前に貼る）
 # =========================
-
-# --- 偏差値スコア由来『基準（μ + σ/div）』のオフセット ---
-st.sidebar.markdown("### 偏差値買目の基準オフセット（点）")
-off_trio = float(st.sidebar.slider("三連複 基準オフセット", -20.0, 20.0, 0.0, 0.1, key="off_trio"))
-off_triS = float(st.sidebar.slider("三連単 基準オフセット", -20.0, 20.0, 0.0, 0.1, key="off_triS"))
-off_qn   = float(st.sidebar.slider("二車複 基準オフセット", -20.0, 20.0, 0.0, 0.1, key="off_qn"))
-off_nit  = float(st.sidebar.slider("二車単 基準オフセット", -20.0, 20.0, 0.0, 0.1, key="off_nit"))
-
-
-# --- サイドバー：グレード選択＆しきい値（初期10%） ---
 st.sidebar.markdown("### 印実測率のグレード/しきい値")
 grade_for_marks = st.sidebar.selectbox(
     "グレード（印の実測率テーブル）",
-    ["TOTAL","F2","F1","G","GIRLS"],
+    ["TOTAL", "F2", "F1", "G", "GIRLS"],
     index=0,
     key="grade_mark_stats"
 )
-hit_threshold = float(st.sidebar.slider("的中率しきい値", 0.01, 0.50, 0.10, 0.01, key="hit_threshold"))
+hit_threshold = float(
+    st.sidebar.slider("的中率しきい値", 0.01, 0.50, 0.10, 0.01, key="hit_threshold")
+)
+
+# 選択されたテーブル（後続の実測率ベース計算が参照）
+RANK_TABLE = RANK_STATS_BY_GRADE.get(grade_for_marks, RANK_STATS_TOTAL)
+
+st.sidebar.markdown("### 車券しきい値（基準オフセット）")
+st.sidebar.caption("μ+σ/割 or top割合で出た基準に±を加算。負で緩め、正で絞る。")
+
+# ここで定義した変数名は後続の計算で globals().get(...) から拾われます
+TRIO_CUTOFF_OFFSET      = st.sidebar.slider("三連複 オフセット",  -20.0, 20.0, 0.0, 0.1, key="TRIO_CUTOFF_OFFSET")
+TRIFECTA_CUTOFF_OFFSET  = st.sidebar.slider("三連単 オフセット",  -20.0, 20.0, 0.0, 0.1, key="TRIFECTA_CUTOFF_OFFSET")
+QN_CUTOFF_OFFSET        = st.sidebar.slider("二車複 オフセット",  -20.0, 20.0, 0.0, 0.1, key="QN_CUTOFF_OFFSET")
+NIT_CUTOFF_OFFSET       = st.sidebar.slider("二車単 オフセット",  -20.0, 20.0, 0.0, 0.1, key="NIT_CUTOFF_OFFSET")
+
 
 # --- テーブル選択（あなたが貼ったテーブル群を前提） ---
 RANK_TABLE = RANK_STATS_BY_GRADE.get(grade_for_marks, RANK_STATS_TOTAL)
