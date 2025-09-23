@@ -1461,12 +1461,14 @@ try:
 except Exception:
     df_sorted_pure = pd.DataFrame(columns=["車番","合計_SBなし"])
 
-# ========== LineSB（安全ガード付き：drop-in） ==========
+# ===== DROP-IN: S,B を安全に揃えて LineSB を計算（丸ごと置換OK） =====
 import numpy as np
 
-# line_def を安全に用意（無ければ line_inputs から簡易生成）
+# --- line_def を安全に用意（なければ line_inputs から簡易生成） ---
 _line_def = globals().get("line_def", None)
-if not isinstance(_line_def, dict):
+if isinstance(_line_def, dict):
+    line_def_safe = dict(_line_def)
+else:
     _inputs = globals().get("line_inputs", [])
     def _parse_line_inputs(inputs):
         d = {}
@@ -1481,50 +1483,88 @@ if not isinstance(_line_def, dict):
                 idx += 1
         return d
     line_def_safe = _parse_line_inputs(_inputs)
-else:
-    line_def_safe = dict(_line_def)
 
-# USED_IDS を安全に用意（既存→df_sorted_pure→v_final→1..n_cars）
-USED_IDS = list(globals().get("USED_IDS", []))
+# --- USED_IDS を安全に用意（既存→df_sorted_pure→v_final→1..n） ---
+USED_IDS = [int(i) for i in (globals().get("USED_IDS") or [])]
 if not USED_IDS:
-    used_ids_from_df = []
+    used_from_df = []
     try:
-        df_sorted_pure = globals().get("df_sorted_pure", None)
-        if df_sorted_pure is not None:
-            used_ids_from_df = [int(x) for x in df_sorted_pure["車番"].tolist()]
+        _dfsp = globals().get("df_sorted_pure", None)
+        if _dfsp is not None and "車番" in _dfsp.columns:
+            used_from_df = [int(x) for x in _dfsp["車番"].tolist()]
     except Exception:
-        used_ids_from_df = []
-    if used_ids_from_df:
-        USED_IDS = used_ids_from_df
+        used_from_df = []
+    if used_from_df:
+        USED_IDS = used_from_df
     else:
-        v_final = globals().get("v_final", {})
-        if isinstance(v_final, dict) and v_final:
-            USED_IDS = sorted(int(c) for c in v_final.keys())
+        _vf = globals().get("v_final", {})
+        if isinstance(_vf, dict) and _vf:
+            USED_IDS = sorted(int(k) for k in _vf.keys())
         else:
             n_cars_ = int(globals().get("n_cars", 9))
             USED_IDS = list(range(1, n_cars_ + 1))
 M = len(USED_IDS)
 
-# S, B を USED_IDS 長さに合わせて補完
-S_arr = np.array(globals().get("S", []), dtype=float)
-B_arr = np.array(globals().get("B", []), dtype=float)
-if S_arr.size != M:
-    S_arr = np.zeros(M, dtype=float)
-if B_arr.size != M:
-    B_arr = np.zeros(M, dtype=float)
+# --- 任意のオブジェクトを「USED_IDS順のfloat配列」に強制変換するヘルパ ---
+def _to_float(x, default=0.0):
+    try:
+        return float(x)
+    except Exception:
+        return float(default)
 
-# 係数のフォールバック
+def _coerce_vec(var_name: str, default: float = 0.0) -> np.ndarray:
+    v = globals().get(var_name, None)
+
+    # dict（車番→値）なら USED_IDS の並びで取り出す
+    if isinstance(v, dict):
+        return np.array([_to_float(v.get(int(i), default), default) for i in USED_IDS], dtype=float)
+
+    # pandas Series / DataFrame 対応
+    try:
+        import pandas as _pd  # noqa
+        if hasattr(v, "values"):
+            # Series: index が車番っぽければ整列、そうでなければ values を使う
+            if getattr(v, "index", None) is not None and np.issubdtype(getattr(v, "index").dtype, np.number):
+                arr = np.array([_to_float(v.get(int(i), default), default) for i in USED_IDS], dtype=float)
+            else:
+                vals = v.values.ravel()
+                arr = np.array([_to_float(x, default) for x in vals], dtype=float)
+        else:
+            raise Exception()
+    except Exception:
+        # list/tuple/np.ndarray/スカラ
+        if isinstance(v, (list, tuple, np.ndarray)):
+            arr = np.array([_to_float(x, default) for x in v], dtype=float)
+        elif v is None:
+            arr = np.full(M, default, dtype=float)
+        else:
+            # 単一スカラ（または不明）は全要素同じ値で埋める
+            arr = np.full(M, _to_float(v, default), dtype=float)
+
+    # 長さ調整（不足は default で埋め、過剰は切り捨て）
+    if arr.size < M:
+        pad = np.full(M - arr.size, default, dtype=float)
+        arr = np.concatenate([arr, pad])
+    elif arr.size > M:
+        arr = arr[:M]
+    return arr
+
+# --- S, B を揃える（ここが TypeError の主因対策） ---
+S_arr = _coerce_vec("S", 0.0)
+B_arr = _coerce_vec("B", 0.0)
+
+# --- 係数のフォールバック ---
 line_factor_eff = float(globals().get("line_factor_eff", 1.0))
 cap_SB_eff      = float(globals().get("cap_SB_eff", 0.06))
 line_sb_enable  = bool(globals().get("line_sb_enable", True))
 
-# compute_lineSB_bonus が無ければスタブ
+# --- compute_lineSB_bonus が無ければスタブ ---
 if "compute_lineSB_bonus" not in globals():
     def compute_lineSB_bonus(line_def, S, B, line_factor: float, exclude=None, cap: float = 0.06, enable: bool = True):
         m = len(S) if hasattr(S, "__len__") else len(USED_IDS)
         return np.zeros(m, dtype=float), {"stub": True, "enable": bool(enable), "cap": float(cap), "factor": float(line_factor)}
 
-# 実行（失敗してもゼロで継続）
+# --- 実行（失敗してもゼロで継続） ---
 try:
     bonus_init, _ = compute_lineSB_bonus(
         line_def_safe, S_arr, B_arr,
@@ -1534,7 +1574,8 @@ try:
     )
 except Exception:
     bonus_init = np.zeros(M, dtype=float)
-# ========== /LineSB（安全ガード付き：drop-in） ==========
+# ===== /DROP-IN ここまで =====
+
 
 
 # --- ここまでを 1450–1636 の該当範囲に置換すればOK -----------------------
