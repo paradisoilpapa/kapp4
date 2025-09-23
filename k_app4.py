@@ -861,7 +861,6 @@ st.caption(
     f"◎pTop3={_p_star.get('pTop3',0):.3f} / 無pTop3={_p_fallback.get('pTop3',0):.3f}"
 )
 
-    )
 except Exception:
     pass
 # ====== ここまで ======
