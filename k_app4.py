@@ -1706,7 +1706,7 @@ else:
             xs = [s for (*_,s) in trios_from_cols]
             mu, sig = mean(xs), pstdev(xs)
             TRIO_SIG_DIV = float(globals().get("TRIO_SIG_DIV", 3.0))
-           cutoff_mu_sig = mu + (sig/TRIO_SIG_DIV if sig > 0 else 0.0) + off_trio
+            cutoff_mu_sig = mu + (sig/TRIO_SIG_DIV if sig > 0 else 0.0) + off_trio
             q = max(1, int(len(xs)*0.20))  # 上位1/5
             cutoff_topQ = np.partition(xs, -q)[-q]
             cutoff_trio = max(cutoff_mu_sig, float(cutoff_topQ))
