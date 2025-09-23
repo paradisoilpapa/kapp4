@@ -1143,6 +1143,29 @@ eff_wind_speed = globals().get("eff_wind_speed", wind_speed)
 for no in active_cars:
     role = role_in_line(no, line_def)
 
+# ===== fatigue_extra 未定義ガード（呼び出し直前に貼る）=====
+# 既定の係数マップ（未定義ならここで用意）
+DAY_SHIFT = globals().get("DAY_SHIFT", {"初日": -0.5, "2日目": 0.0, "最終日": +0.5})
+CLASS_SHIFT = globals().get("CLASS_SHIFT", {"Ｓ級": 0.0, "Ａ級": +0.10, "Ａ級チャレンジ": +0.20, "ガールズ": -0.10})
+HEADCOUNT_SHIFT = globals().get("HEADCOUNT_SHIFT", {5: -0.20, 6: -0.10, 7: -0.05, 8: 0.0, 9: +0.10})
+
+if "fatigue_extra" not in globals():
+    def fatigue_extra(eff_laps: int, day_label: str, n_cars: int, race_class: str) -> float:
+        d = float(DAY_SHIFT.get(day_label, 0.0))
+        c = float(CLASS_SHIFT.get(race_class, 0.0))
+        h = float(HEADCOUNT_SHIFT.get(int(n_cars), 0.0))
+        x = (float(eff_laps) - 2.0) + d + c + h
+        return max(0.0, x)
+
+# ついでの保険：eff_laps が未定義でも最低限動くように復元
+if "eff_laps" not in globals():
+    _base_laps = int(globals().get("base_laps", 4))
+    _day = str(globals().get("day_label", "初日"))
+    _add = {"初日": 1, "2日目": 2, "最終日": 3}.get(_day, 1)
+    eff_laps = int(_base_laps) + int(_add)
+# ===== /fatigue_extra ガード =====
+
+    
     # 周回疲労（DAY×頭数×級別を反映）
     extra = fatigue_extra(eff_laps, day_label, n_cars, race_class)
     fatigue_scale = (1.0 if race_class == "Ｓ級" else
