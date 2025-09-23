@@ -664,8 +664,42 @@ if "_mark_dist" not in globals():
         return table.get(mark, FALLBACK_DIST)
 
 
+# ====== w_base〜確率枠 まとめ置換（race_zガード込み） ======
 
-# ===== 重み作成（PL用） =====
+# 係数の既定（未定義でも落ちない）
+TAU_PL     = float(globals().get("TAU_PL", 1.0))
+GAMMA_P1   = float(globals().get("GAMMA_P1", 0.8))
+GAMMA_TOP3 = float(globals().get("GAMMA_TOP3", 0.6))
+MARK_FLOOR = float(globals().get("MARK_FLOOR", 0.20))
+EPS        = float(globals().get("EPS", 1e-12))
+
+# USED_IDS の保険
+if "USED_IDS" not in globals():
+    try:
+        USED_IDS = sorted(int(i) for i in (active_cars if active_cars else range(1, int(n_cars)+1)))
+    except Exception:
+        USED_IDS = list(range(1, int(globals().get("n_cars", 9))+1))
+
+# race_z 未定義の保険（xs_race_t or race_t から復元）
+if "race_z" not in globals() or not isinstance(globals().get("race_z"), (list, np.ndarray)):
+    try:
+        if "xs_race_t" in globals():
+            _arr_t = np.asarray(xs_race_t, dtype=float)
+        elif "race_t" in globals():
+            _arr_t = np.array([float(globals()["race_t"].get(int(i), 50.0)) for i in USED_IDS], dtype=float)
+        else:
+            _arr_t = np.full(len(USED_IDS), 50.0, dtype=float)
+        race_z = (_arr_t - 50.0) / 10.0
+    except Exception:
+        race_z = np.zeros(len(USED_IDS), dtype=float)
+
+# 現在テーブルから印の分布を取るヘルパー（未定義なら定義）
+if "_mark_dist" not in globals():
+    def _mark_dist(mark: str):
+        table = st.session_state.get("RANK_STATS_CURRENT") or RANK_STATS_BY_GRADE["TOTAL"]
+        return table.get(mark, FALLBACK_DIST)
+
+# ------- 重み作成 -------
 w_base = np.exp(race_z * TAU_PL)
 
 # 印マップ（未定義でも落ちない）
@@ -698,7 +732,7 @@ if S_w <= 0:
     S_w = float(np.sum(w))
 w_idx = {USED_IDS[idx]: float(w[idx]) for idx in range(len(USED_IDS))}
 
-# ===== 確率関数（Plackett–Luce 近似） =====
+# ------- 確率関数（Plackett–Luce 近似） -------
 def prob_top2_pair_pl(i: int, j: int) -> float:
     wi, wj = w_idx[i], w_idx[j]
     d_i = max(S_w - wi, EPS)
@@ -734,15 +768,15 @@ def prob_trifecta_ordered(a: int, b: int, c: int) -> float:
     d2 = max(S_w - wa - wb, EPS)
     return (wa / S_w) * (wb / d1) * (wc / d2)
 
-# ===== 確率枠：しきい値 =====
+# ------- 確率枠：しきい値 -------
 P_TH_BASE = float(globals().get("P_TH_BASE", 0.10))  # 10% 以上
 
-# ===== フォーメーション安全ガード =====
+# ------- フォーメーション安全ガード -------
 L1 = list(globals().get("L1") or [])
 L2 = list(globals().get("L2") or [])
 L3 = list(globals().get("L3") or [])
 
-# ===== 確率枠 生成（重複歓迎・上限なし） =====
+# ------- 確率枠 生成（重複歓迎・上限なし） -------
 trio_prob_rows, trifecta_prob_rows = [], []
 qn_prob_rows, nitan_prob_rows = [], []
 
@@ -825,17 +859,7 @@ if L1 and L2:
                 cand_nit.append((key, float(p), "確率枠"))
     cand_nit.sort(key=lambda x: (-x[1], x[0]))
     nitan_prob_rows = cand_nit  # ← 上限なし
-
-# （任意）デバッグ表示：今の表と代表値
-st.caption(
-    "確率枠ソース: {} / ◎p1={:.3f} ◎pTop2={:.3f} ◎pTop3={:.3f}".format(
-        st.session_state.get("RANK_SOURCE_KEY"),
-        _mark_dist("◎").get("p1", 0.0),
-        _mark_dist("◎").get("pTop2", 0.0),
-        _mark_dist("◎").get("pTop3", 0.0),
-    )
-)
-# ====== 置換ブロックここまで ======
+# ====== 置換ここまで ======
 
 
 # ==============================
