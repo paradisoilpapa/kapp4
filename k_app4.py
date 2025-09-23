@@ -1681,7 +1681,8 @@ def cutoff_mu_sig_vs_top(xs, sig_div, top_frac):
         return 0.0
     mu = float(mean(xs))
     sig = float(pstdev(xs)) if len(xs) > 1 else 0.0
-    cutoff_mu_sig = mu + (sig / sig_div if sig > 0 else 0.0)
+   cutoff_mu_sig = mu + (sig / TRIO_SIG_DIV if sig > 0 else 0.0) + TRIO_CUTOFF_OFFSET
+
     q = max(1, int(len(xs) * top_frac))
     cutoff_topq = float(np.partition(xs, -q)[-q]) if xs else cutoff_mu_sig
     return max(cutoff_mu_sig, cutoff_topq)
