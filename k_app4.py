@@ -1447,106 +1447,65 @@ _den_st = (sd_st if sd_st > 1e-12 else 1.0)
 STAB_Z = {int(n): (float(STAB_RAW.get(n, mu_st)) - mu_st) / _den_st for n in active_cars}
 
 
-# ===== [1450–1636] REPLACEMENT START : KO方式 + LineSB（安全ガード付き） =====
+# --- ここから “v_final を作った直後” に貼る -----------------------------
+
+# 純SBなしランキング（KOまで／格上げ前）
+import pandas as pd
 import numpy as np
 
-# ---------- guard: line係数/キャップ/enable を必ず定義 ----------
 try:
-    _ = line_factor_eff
-    _ = cap_SB_eff
-except NameError:
-    CLASS_FACTORS = globals().get("CLASS_FACTORS", {
-        "Ｓ級":           {"spread":1.00, "line":1.00},
-        "Ａ級":           {"spread":0.90, "line":0.85},
-        "Ａ級チャレンジ": {"spread":0.80, "line":0.70},
-        "ガールズ":       {"spread":0.85, "line":1.00},
-    })
-    DAY_FACTOR = globals().get("DAY_FACTOR", {"初日":1.00, "2日目":1.00, "最終日":1.00})
+    df_sorted_pure = pd.DataFrame({
+        "車番": list(v_final.keys()),
+        "合計_SBなし": [round(float(v_final[c]), 6) for c in v_final.keys()]
+    }).sort_values("合計_SBなし", ascending=False).reset_index(drop=True)
+except Exception:
+    df_sorted_pure = pd.DataFrame(columns=["車番","合計_SBなし"])
 
-    race_class_ = str(globals().get("race_class", "Ｓ級"))
-    day_label_  = str(globals().get("day_label",  "初日"))
-    # style（会場バイアス）がなければ0.0
-    style_      = float(globals().get("style", 0.0))
+# ========== LineSB（安全ガード付き） ==========
+# line_def / USED_IDS / S / B を安全に用意してから compute_lineSB_bonus を呼ぶ
 
-    # clamp が無くても動く cap_base
-    if "clamp" in globals():
-        cap_base = float(clamp(0.06 + 0.02*style_, 0.04, 0.08))
-    else:
-        cap_base = max(0.04, min(0.08, 0.06 + 0.02*style_))
+line_def_safe = line_def_ if isinstance(line_def_, dict) else {}
 
-    cf = CLASS_FACTORS.get(race_class_, {"spread":1.0, "line":1.0})
-    day_factor = float(DAY_FACTOR.get(day_label_, 1.0))
-
-    line_factor_eff = float(cf.get("line", 1.0)) * day_factor
-    cap_SB_eff      = float(cap_base) * day_factor
-
-    # ミッドナイト軽減
-    if str(globals().get("race_time", "")) == "ミッドナイト":
-        line_factor_eff *= 0.95
-        cap_SB_eff      *= 0.95
-
-if "line_sb_enable" not in globals():
-    line_sb_enable = (str(globals().get("race_class", "Ｓ級")) != "ガールズ")
-
-# ---------- KO方式（印に混ぜない：展開・ケン用） ----------
-df_ = globals().get("df", None)
-v_wo = {}
-if df_ is not None and all(c in df_.columns for c in ["車番", "合計_SBなし"]):
+# USED_IDS は既存を優先→無ければ df_sorted_pure → さらに無ければ v_final から
+USED_IDS = list(globals().get("USED_IDS", []))
+if not USED_IDS:
     try:
-        v_wo = {int(k): float(v) for k, v in zip(df_["車番"].astype(int), df_["合計_SBなし"].astype(float))}
+        USED_IDS = [int(x) for x in df_sorted_pure["車番"].tolist()]
     except Exception:
-        v_wo = {}
-if not v_wo:
-    # フォールバック：SB_BASE_MAP があれば拝借
-    base_map = globals().get("SB_BASE_MAP", {})
-    if isinstance(base_map, dict) and base_map:
-        v_wo = {int(k): float(v) for k, v in base_map.items()}
+        USED_IDS = sorted([int(c) for c in v_final.keys()])
+M = len(USED_IDS)
 
-race_class_ = str(globals().get("race_class", "Ｓ級"))
-n_cars_     = int(globals().get("n_cars", (len(v_wo) if v_wo else 9)))
+# S, B の長さを USED_IDS に合わせて補完
+S_arr = np.array(globals().get("S", []), dtype=float)
+B_arr = np.array(globals().get("B", []), dtype=float)
+if S_arr.size != M:
+    S_arr = np.zeros(M, dtype=float)
+if B_arr.size != M:
+    B_arr = np.zeros(M, dtype=float)
 
-KO_HEADCOUNT_SCALE = globals().get("KO_HEADCOUNT_SCALE", {5:0.85, 6:0.90, 7:1.00, 8:1.00, 9:1.00})
-KO_GIRLS_SCALE     = float(globals().get("KO_GIRLS_SCALE", 0.90))
-KO_GAP_DELTA       = float(globals().get("KO_GAP_DELTA", 0.0))
-KO_STEP_SIGMA      = float(globals().get("KO_STEP_SIGMA", 0.8))
-KO_SCALE_MAX       = float(globals().get("KO_SCALE_MAX", 0.45))
+# compute_lineSB_bonus が未定義ならスタブ
+if "compute_lineSB_bonus" not in globals():
+    def compute_lineSB_bonus(line_def, S, B, line_factor: float, exclude=None, cap: float = 0.06, enable: bool = True):
+        m = len(S) if hasattr(S, "__len__") else len(USED_IDS)
+        return np.zeros(m, dtype=float), {"stub": True, "enable": bool(enable), "cap": float(cap), "factor": float(line_factor)}
 
-is_girls     = (race_class_ == "ガールズ")
-head_scale   = float(KO_HEADCOUNT_SCALE.get(n_cars_, 1.0))
-ko_scale_raw = (KO_GIRLS_SCALE if is_girls else 1.0) * head_scale
-ko_scale     = min(ko_scale_raw, KO_SCALE_MAX)
+# line_factor_eff / cap_SB_eff / line_sb_enable が無ければ既定を入れる（念押し）
+line_factor_eff = float(globals().get("line_factor_eff", 1.0))
+cap_SB_eff      = float(globals().get("cap_SB_eff", 0.06))
+line_sb_enable  = bool(globals().get("line_sb_enable", True))
 
-# _ko_order が未定義なら簡易版（値降順）
-if "_ko_order" not in globals():
-    def _ko_order(v_map, line_def, S, B, line_factor: float, gap_delta: float = 0.0):
-        return sorted(v_map.keys(), key=lambda c: (-float(v_map[c]), int(c)))
+# 実行（失敗してもゼロ配列で継続）
+try:
+    bonus_init, _ = compute_lineSB_bonus(
+        line_def_safe, S_arr, B_arr,
+        line_factor=line_factor_eff,
+        exclude=None, cap=cap_SB_eff,
+        enable=line_sb_enable
+    )
+except Exception:
+    bonus_init = np.zeros(M, dtype=float)
 
-line_def_ = globals().get("line_def", {})
-line_def_ = line_def_ if isinstance(line_def_, dict) else {}
-S_ = globals().get("S", [])
-B_ = globals().get("B", [])
-
-if ko_scale > 0.0 and line_def_:
-    try:
-        ko_order = _ko_order(v_wo, line_def_, S_, B_, line_factor=line_factor_eff, gap_delta=KO_GAP_DELTA)
-    except Exception:
-        ko_order = sorted(v_wo.keys(), key=lambda c: (-float(v_wo[c]), int(c)))
-    vals = [float(v_wo[c]) for c in v_wo.keys()] or [0.0]
-    mu0  = float(np.mean(vals))
-    sd0  = float(np.std(vals) + 1e-12)
-    step = max(0.25, KO_STEP_SIGMA * 0.7) * sd0
-
-    new_scores = {}
-    L = len(ko_order)
-    center = (L - 1) / 2.0 if L > 0 else 0.0
-    for rank, car in enumerate(ko_order, start=1):
-        rank_adjust = step * (L - rank)
-        blended = (1.0 - ko_scale) * float(v_wo[car]) + ko_scale * (mu0 + rank_adjust - center*step)
-        new_scores[int(car)] = float(blended)
-    v_final = dict(new_scores)
-else:
-    ko_order = sorted(v_wo.keys(), key=lambda c: (-float(v_wo[c]), int(c))) if v_wo else []
-    v_final  = {int(c): float(v_wo[c]) for c in ko_order} if v_wo else {}
+# --- ここまでを 1450–1636 の該当範囲に置換すればOK -----------------------
 
 # 純SBなしランキング（KOまで／格上げ前）
 try:
