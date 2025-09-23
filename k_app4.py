@@ -1614,6 +1614,62 @@ form_T, mu_form, sd_form, _k = t_score_from_finite(np.array(form_list, dtype=flo
 form_T_map = {int(n): float(form_T[i]) for i, n in enumerate(active_cars)}
 
 # ENV = v_final（会場・風・疲労等）を z 化
+
+# ===== v_final / active_cars ガード（この下の _env_arr 行の直前に貼る）=====
+import numpy as np
+
+# active_cars が無ければ USED_IDS→n_cars から復元
+if "active_cars" not in globals() or not globals().get("active_cars"):
+    ids_ = list(globals().get("USED_IDS") or [])
+    if not ids_:
+        try:
+            dfsp = globals().get("df_sorted_pure", None)
+            if dfsp is not None and "車番" in dfsp.columns:
+                ids_ = [int(x) for x in dfsp["車番"].tolist()]
+        except Exception:
+            ids_ = []
+    if not ids_:
+        ids_ = list(range(1, int(globals().get("n_cars", 9)) + 1))
+    active_cars = ids_
+
+# v_final が未定義/空なら安全に作る
+if "v_final" not in globals() or not isinstance(globals().get("v_final"), dict) or not v_final:
+    v_final = {}
+
+    # 1) df_sorted_pure があれば優先
+    try:
+        dfsp = globals().get("df_sorted_pure", None)
+        if dfsp is not None and all(c in dfsp.columns for c in ["車番", "合計_SBなし"]):
+            v_final = {int(r["車番"]): float(r["合計_SBなし"]) for _, r in dfsp.iterrows()}
+    except Exception:
+        pass
+
+    # 2) df（元の集計テーブル）から拾う
+    if not v_final:
+        df_ = globals().get("df", None)
+        if df_ is not None and all(c in df_.columns for c in ["車番", "合計_SBなし"]):
+            try:
+                v_final = {int(k): float(v) for k, v in zip(df_["車番"], df_["合計_SBなし"])}
+            except Exception:
+                v_final = {}
+
+    # 3) xs_base_raw + USED_IDS から復元
+    if not v_final:
+        USED_IDS_ = list(globals().get("USED_IDS") or [])
+        xs_base_raw_ = globals().get("xs_base_raw")
+        try:
+            if USED_IDS_ and xs_base_raw_ is not None:
+                v_final = {int(USED_IDS_[i]): float(xs_base_raw_[i])
+                           for i in range(min(len(USED_IDS_), len(xs_base_raw_)))}
+        except Exception:
+            v_final = {}
+
+    # 4) 最後の手段：active_cars を 0.0 で埋める
+    if not v_final:
+        v_final = {int(n): 0.0 for n in (globals().get("active_cars") or [])}
+# ===== /ガードここまで =====
+
+
 _env_arr = np.array([float(v_final.get(n, np.nan)) for n in active_cars], dtype=float)
 _mask    = np.isfinite(_env_arr)
 if int(_mask.sum()) >= 2:
