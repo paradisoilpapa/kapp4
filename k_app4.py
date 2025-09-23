@@ -849,17 +849,20 @@ if L1 and L2:
     cand.sort(key=lambda x:(-x[1], x[0]))
     nitan_prob_rows = cand
 
-# NGだった行（削除してOK）
-# _p◎ = _mark_dist("◎"); _p無 = _mark_dist(RANK_FALLBACK_MARK)
-# st.caption(f"確率枠ソース={st.session_state.get('RANK_SOURCE_KEY')} / ◎pTop3={_p◎.get('pTop3',0):.3f} / 無pTop3={_p無.get('pTop3',0):.3f}")
-
-# ← 代わりにこれを貼る（ASCII変数名）
-_p_star = _mark_dist("◎")
-_p_fallback = _mark_dist(RANK_FALLBACK_MARK)
-st.caption(
-    f"確率枠ソース={st.session_state.get('RANK_SOURCE_KEY')} / "
-    f"◎pTop3={_p_star.get('pTop3',0):.3f} / 無pTop3={_p_fallback.get('pTop3',0):.3f}"
-)
+# --- DEBUG: 確率枠ソース表示（安全ラップ） ---
+try:
+    _p_star = _mark_dist("◎")
+    _p_fallback = _mark_dist(RANK_FALLBACK_MARK)
+    st.caption(
+        "確率枠ソース={src} / ◎pTop3={p1:.3f} / 無pTop3={p2:.3f}".format(
+            src=st.session_state.get("RANK_SOURCE_KEY"),
+            p1=float(_p_star.get("pTop3", 0)),
+            p2=float(_p_fallback.get("pTop3", 0)),
+        )
+    )
+except Exception:
+    pass
+# --- /DEBUG ---
 
 except Exception:
     pass
