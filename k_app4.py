@@ -1513,12 +1513,18 @@ from itertools import combinations
 # ===== 基本データ =====
 S_TRIFECTA_MIN = globals().get("S_TRIFECTA_MIN", 164.0)  # 三連単基準
 
-# ===== 可変パラメータ =====
-TRIO_SIG_DIV = float(globals().get("TRIO_SIG_DIV", 1.5))   # 三連複：上位1/3目安
-TRIFECTA_SIG_DIV = float(globals().get("TRIFECTA_SIG_DIV", 2.5))  # 三連単：上位1/5目安
+# ===== 可変パラメータ（緩め設定：通過数↑）=====
+TRIO_SIG_DIV        = float(globals().get("TRIO_SIG_DIV", 2.0))   # 三連複：1.5→2.0でほんのり緩め
+TRIFECTA_SIG_DIV    = float(globals().get("TRIFECTA_SIG_DIV", 3.5))# 三連単：2.5→3.5で緩め
 
-TRIO_L3_MIN    = float(globals().get("TRIO_L3_MIN", 160.0))    # ★L3候補の固定しきい値（偏差値S合計）
-S_TRIFECTA_MIN = float(globals().get("S_TRIFECTA_MIN", 164.0)) # 三連単の基準（従来どおり）
+# L3 / 三連単の固定ゲートも少し緩める（買い目増やしたいなら下げる）
+TRIO_L3_MIN         = float(globals().get("TRIO_L3_MIN", 155.0))   # 160.0→155.0
+S_TRIFECTA_MIN      = float(globals().get("S_TRIFECTA_MIN", 160.0))# 164.0→160.0
+
+# （もしファイル内にあるなら）二車系も同様に少し緩める
+QN_SIG_DIV          = float(globals().get("QN_SIG_DIV", 3.5))      # 3.0→3.5 など
+NIT_SIG_DIV         = float(globals().get("NIT_SIG_DIV", 3.5))     # 3.0→3.5 など
+
 
 from statistics import mean, pstdev
 from itertools import product, combinations
