@@ -688,6 +688,10 @@ RANK_IN_USE, source_key = pick_rank_stats(
 )
 st.sidebar.caption(f"実測率ソース: {source_key}")
 
+# ★追加：下流が参照する現在の分布を session に固定
+st.session_state["RANK_STATS_CURRENT"] = RANK_IN_USE
+st.session_state["RANK_SOURCE_KEY"] = source_key
+
 
 
 # === 会場styleを「得意会場平均」を基準に再定義
@@ -1513,6 +1517,12 @@ GAMMA_P1   = float(globals().get("GAMMA_P1", 0.8))
 GAMMA_TOP3 = float(globals().get("GAMMA_TOP3", 0.6))
 MARK_FLOOR = float(globals().get("MARK_FLOOR", 0.20))
 
+def _mark_dist(mark: str):
+    # サイドバーで選んだ分布（RANK_STATS_CURRENT）を最優先で使う
+    table = st.session_state.get("RANK_STATS_CURRENT") or RANK_STATS_BY_GRADE.get("TOTAL", {})
+    return table.get(mark, FALLBACK_DIST)
+
+
 w_base = np.exp(race_z * TAU_PL)
 result_marks = globals().get("result_marks", {})  # 未定義なら空dictに
 car_mark = {int(v): k for k, v in result_marks.items()} if isinstance(result_marks, dict) else {}
@@ -1523,9 +1533,9 @@ base_dist = FALLBACK_DIST
 w_mark_list = []
 for car in USED_IDS:
     mk = car_mark.get(int(car), fallback_key)
-    prior = RANK_IN_USE.get(mk, base_dist)
-    delta_p1   = float(prior["p1"])    - float(base_dist["p1"])
-    delta_top3 = float(prior["pTop3"]) - float(base_dist["pTop3"])
+    prior = _mark_dist(mk)  # ← ここでセッションの分布を使う
+    delta_p1   = float(prior.get("p1",    base_dist["p1"]))    - float(base_dist["p1"])
+    delta_top3 = float(prior.get("pTop3", base_dist["pTop3"])) - float(base_dist["pTop3"])
     coeff = 1.0 + GAMMA_P1*delta_p1 + GAMMA_TOP3*delta_top3
     w_mark_list.append(max(MARK_FLOOR, coeff))
 w_mark = np.array(w_mark_list, dtype=float)
@@ -1533,20 +1543,21 @@ w_mark = np.array(w_mark_list, dtype=float)
 w = w_base * w_mark
 S_w = float(np.sum(w))
 if S_w <= 0:
-    w = np.ones_like(w, dtype=float); S_w = float(np.sum(w))
+    w = np.ones_like(w, dtype=float)
+    S_w = float(np.sum(w))
 w_idx = {USED_IDS[idx]: float(w[idx]) for idx in range(M)}
-
 
 
 def prob_top2_pair_pl(i: int, j: int) -> float:
     wi, wj = w_idx[i], w_idx[j]
-    d_i = max(S_w - wi, EPS); d_j = max(S_w - wj, EPS)
+    d_i = max(S_w - wi, EPS)
+    d_j = max(S_w - wj, EPS)
     return (wi / S_w) * (wj / d_i) + (wj / S_w) * (wi / d_j)
 
 def prob_top3_triple_pl(i: int, j: int, k: int) -> float:
     a, b, c = w_idx[i], w_idx[j], w_idx[k]
     total = 0.0
-    for x, y, z in ((a,b,c),(a,c,b),(b,a,c),(b,c,a),(c,a,b),(c,b,a)):
+    for x, y, z in ((a,b,c), (a,c,b), (b,a,c), (b,c,a), (c,a,b), (c,b,a)):
         d1 = max(S_w - x, EPS)
         d2 = max(S_w - x - y, EPS)
         total += (x / S_w) * (y / d1) * (z / d2)
@@ -1555,43 +1566,26 @@ def prob_top3_triple_pl(i: int, j: int, k: int) -> float:
 def prob_wide_pair_pl(i: int, j: int) -> float:
     total = 0.0
     for k in USED_IDS:
-        if k == i or k == j: continue
+        if k == i or k == j:
+            continue
         total += prob_top3_triple_pl(i, j, k)
     return total
 
 def prob_nitan_ordered(i: int, j: int) -> float:
-    """二車単 (iからjへ) の順序付き近似"""
-
+    """二車単 (i→j) の順序付き近似"""
     wi, wj = w_idx[i], w_idx[j]
     d1 = max(S_w - wi, EPS)
     return (wi / S_w) * (wj / d1)
 
 def prob_trifecta_ordered(a: int, b: int, c: int) -> float:
-
     wa, wb, wc = w_idx[a], w_idx[b], w_idx[c]
     d1 = max(S_w - wa, EPS)
     d2 = max(S_w - wa - wb, EPS)
     return (wa / S_w) * (wb / d1) * (wc / d2)
 
 
-# ===== 確率枠：基準 & 上限 =====
+# ===== 確率枠：基準 =====
 P_TH_BASE = float(globals().get("P_TH_BASE", 0.10))  # 10% 以上
-
-
-
-# ===== 並び順ありの確率（Plackett–Luce 型） =====
-def prob_nitan_ordered(a: int, b: int) -> float:
-    wa, wb = w_idx[a], w_idx[b]
-    d1 = max(S_w, EPS)
-    d2 = max(S_w - wa, EPS)
-    return (wa / d1) * (wb / d2)
-
-def prob_trifecta_ordered(a: int, b: int, c: int) -> float:
-    wa, wb, wc = w_idx[a], w_idx[b], w_idx[c]
-    d1 = max(S_w, EPS)
-    d2 = max(S_w - wa, EPS)
-    d3 = max(S_w - wa - wb, EPS)
-    return (wa / d1) * (wb / d2) * (wc / d3)
 
 
 # ===== 確率枠 生成（重複歓迎・フォーメーションから作る） =====
@@ -1603,7 +1597,6 @@ if "L1" not in globals(): L1 = []
 if "L2" not in globals(): L2 = []
 if "L3" not in globals(): L3 = []
 
-
 # 三連複（L1-L2-L3 のユニーク三つ組）
 if L1 and L2 and L3:
     seen = set()
@@ -1611,17 +1604,17 @@ if L1 and L2 and L3:
     for a in L1:
         for b in L2:
             for c in L3:
-                if len({a,b,c}) != 3: 
+                if len({a, b, c}) != 3:
                     continue
                 key = tuple(sorted((int(a), int(b), int(c))))
                 if key in seen:
                     continue
                 seen.add(key)
-                p = prob_top3_triple_pl(int(key[0]), int(key[1]), int(key[2]))
+                p = prob_top3_triple_pl(key[0], key[1], key[2])
                 if p >= P_TH_BASE:
                     cand_trio.append((key[0], key[1], key[2], float(p), "確率枠"))
     cand_trio.sort(key=lambda x: (-x[3], x[0], x[1], x[2]))
-    trio_prob_rows = cand_trio[:CAPS["trio"]]
+    trio_prob_rows = cand_trio   # ← 上限スライス削除
 
 # --- safety: 印/フォーメーション未定義でも落ちないように ---
 _rm = globals().get("result_marks", {})
@@ -1633,12 +1626,6 @@ L1 = (globals().get("L1") or [])
 L2 = (globals().get("L2") or [])
 L3 = (globals().get("L3") or [])
 
-
-first_col  = [x for x in [result_marks.get("◎"), result_marks.get("〇")] if x is not None]
-second_col = [x for x in [result_marks.get("◎"), result_marks.get("〇"), result_marks.get("▲")] if x is not None]
-third_col  = list(L3)  # ← さきほど safety で保証済み
-
-
 # 三連単（1列目：◎ or 〇、2列目：◎〇▲、3列目：L3）
 first_col  = [x for x in [result_marks.get("◎"), result_marks.get("〇")] if x is not None]
 second_col = [x for x in [result_marks.get("◎"), result_marks.get("〇"), result_marks.get("▲")] if x is not None]
@@ -1649,7 +1636,7 @@ if first_col and second_col and third_col:
     for a in first_col:
         for b in second_col:
             for c in third_col:
-                if len({a,b,c}) != 3:
+                if len({a, b, c}) != 3:
                     continue
                 key = (int(a), int(b), int(c))
                 if key in seen:
@@ -1659,7 +1646,7 @@ if first_col and second_col and third_col:
                 if p >= P_TH_BASE:
                     cand_tri.append((key[0], key[1], key[2], float(p), "確率枠"))
     cand_tri.sort(key=lambda x: (-x[3], x[0], x[1], x[2]))
-    trifecta_prob_rows = cand_tri[:CAPS["trifecta"]]
+    trifecta_prob_rows = cand_tri   # ← 上限スライス削除
 
 # 二車複（L1×L2 の順不同）
 if L1 and L2:
@@ -1667,7 +1654,7 @@ if L1 and L2:
     seen = set()
     for a in L1:
         for b in L2:
-            if a == b: 
+            if a == b:
                 continue
             i, j = sorted((int(a), int(b)))
             if (i, j) in seen:
@@ -1677,7 +1664,7 @@ if L1 and L2:
             if p >= P_TH_BASE:
                 cand_qn.append((i, j, float(p), "確率枠"))
     cand_qn.sort(key=lambda x: (-x[2], x[0], x[1]))
-    qn_prob_rows = cand_qn[:CAPS["qn"]]
+    qn_prob_rows = cand_qn   # ← 上限スライス削除
 
 # 二車単（L1→L2 の順付き）
 if L1 and L2:
@@ -1695,7 +1682,8 @@ if L1 and L2:
             if p >= P_TH_BASE:
                 cand_nit.append((key, float(p), "確率枠"))
     cand_nit.sort(key=lambda x: (-x[1], x[0]))
-    nitan_prob_rows = cand_nit[:CAPS["nitan"]]
+    nitan_prob_rows = cand_nit   # ← 上限スライス削除
+
 
 
 
