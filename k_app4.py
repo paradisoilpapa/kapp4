@@ -941,6 +941,28 @@ def n0_by_n(n):
     if n<=29: return 5
     return 3
 
+# === style 未定義ガード（prior_by_class を呼ぶ直前に置く）===
+# 必要な関数・値:
+#  - venue_z_terms, venue_mix, clamp
+#  - straight_length, bank_angle, bank_length
+#  - override（会場バイアスのスライダー値。無ければ0.0で復元）
+
+try:
+    _ = style  # 既に定義済みなら何もしない
+except NameError:
+    try:
+        # 既存サイドバーと同じロジックで復元
+        zL, zTH, dC = venue_z_terms(float(straight_length), float(bank_angle), float(bank_length))
+        style_raw = venue_mix(zL, zTH, dC)
+        _override = float(override) if "override" in globals() else 0.0
+        style = clamp(style_raw + 0.25*_override, -1.0, +1.0)
+    except Exception:
+        # どうしても算出できない場合の最終フォールバック
+        style = 0.0
+# === /style 未定義ガード ===
+
+
+
 # ここは従来通りでOK
 p1_eff, p2_eff = {}, {}
 for no in active_cars:
