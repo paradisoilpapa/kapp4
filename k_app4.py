@@ -606,9 +606,12 @@ race_class = st.sidebar.selectbox("級別", ["Ｓ級","Ａ級","Ａ級チャレ�
 
 # === 確率基準（印→想定率の参照先） ===
 st.sidebar.subheader("確率の基準")
-grade_default = "auto"  # デフォルト：自動（開催グレード）
-grade_choice = st.sidebar.radio
-
+grade_choice = st.sidebar.radio(
+    "確率の基準（印→想定率）",
+    options=["auto", "TOTAL", "F2", "F1", "G", "GIRLS"],
+    index=0,
+    horizontal=True,
+)
 if "_grade_from_race_class" not in globals():
    def _grade_from_race_class(race_class):
     """race_class の文字列からグレードを推定して返す"""
@@ -653,11 +656,14 @@ if "pick_rank_stats" not in globals():
     def pick_rank_stats(grade_choice: str, detected_grade: str):
     """
     グレード選択と判定結果から、対応するRANK_STATSを返す
+    - grade_choice == "auto" のときは detected_grade を採用
+    - マップに無ければ TOTAL にフォールバック
     """
     key = detected_grade if grade_choice == "auto" else grade_choice
     if key not in RANK_STATS_BY_GRADE:
         key = "TOTAL"
     return RANK_STATS_BY_GRADE[key], key
+
 
     """
     # grade_choice が "auto" の場合は detected_grade を優先
