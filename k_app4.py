@@ -1461,21 +1461,51 @@ try:
 except Exception:
     df_sorted_pure = pd.DataFrame(columns=["車番","合計_SBなし"])
 
-# ========== LineSB（安全ガード付き） ==========
-# line_def / USED_IDS / S / B を安全に用意してから compute_lineSB_bonus を呼ぶ
+# ========== LineSB（安全ガード付き：drop-in） ==========
+import numpy as np
 
-line_def_safe = line_def_ if isinstance(line_def_, dict) else {}
+# line_def を安全に用意（無ければ line_inputs から簡易生成）
+_line_def = globals().get("line_def", None)
+if not isinstance(_line_def, dict):
+    _inputs = globals().get("line_inputs", [])
+    def _parse_line_inputs(inputs):
+        d = {}
+        idx = 1
+        for token in inputs or []:
+            s = str(token).strip()
+            if not s:
+                continue
+            mem = [int(ch) for ch in s if ch.isdigit()]
+            if mem:
+                d[idx] = mem
+                idx += 1
+        return d
+    line_def_safe = _parse_line_inputs(_inputs)
+else:
+    line_def_safe = dict(_line_def)
 
-# USED_IDS は既存を優先→無ければ df_sorted_pure → さらに無ければ v_final から
+# USED_IDS を安全に用意（既存→df_sorted_pure→v_final→1..n_cars）
 USED_IDS = list(globals().get("USED_IDS", []))
 if not USED_IDS:
+    used_ids_from_df = []
     try:
-        USED_IDS = [int(x) for x in df_sorted_pure["車番"].tolist()]
+        df_sorted_pure = globals().get("df_sorted_pure", None)
+        if df_sorted_pure is not None:
+            used_ids_from_df = [int(x) for x in df_sorted_pure["車番"].tolist()]
     except Exception:
-        USED_IDS = sorted([int(c) for c in v_final.keys()])
+        used_ids_from_df = []
+    if used_ids_from_df:
+        USED_IDS = used_ids_from_df
+    else:
+        v_final = globals().get("v_final", {})
+        if isinstance(v_final, dict) and v_final:
+            USED_IDS = sorted(int(c) for c in v_final.keys())
+        else:
+            n_cars_ = int(globals().get("n_cars", 9))
+            USED_IDS = list(range(1, n_cars_ + 1))
 M = len(USED_IDS)
 
-# S, B の長さを USED_IDS に合わせて補完
+# S, B を USED_IDS 長さに合わせて補完
 S_arr = np.array(globals().get("S", []), dtype=float)
 B_arr = np.array(globals().get("B", []), dtype=float)
 if S_arr.size != M:
@@ -1483,18 +1513,18 @@ if S_arr.size != M:
 if B_arr.size != M:
     B_arr = np.zeros(M, dtype=float)
 
-# compute_lineSB_bonus が未定義ならスタブ
+# 係数のフォールバック
+line_factor_eff = float(globals().get("line_factor_eff", 1.0))
+cap_SB_eff      = float(globals().get("cap_SB_eff", 0.06))
+line_sb_enable  = bool(globals().get("line_sb_enable", True))
+
+# compute_lineSB_bonus が無ければスタブ
 if "compute_lineSB_bonus" not in globals():
     def compute_lineSB_bonus(line_def, S, B, line_factor: float, exclude=None, cap: float = 0.06, enable: bool = True):
         m = len(S) if hasattr(S, "__len__") else len(USED_IDS)
         return np.zeros(m, dtype=float), {"stub": True, "enable": bool(enable), "cap": float(cap), "factor": float(line_factor)}
 
-# line_factor_eff / cap_SB_eff / line_sb_enable が無ければ既定を入れる（念押し）
-line_factor_eff = float(globals().get("line_factor_eff", 1.0))
-cap_SB_eff      = float(globals().get("cap_SB_eff", 0.06))
-line_sb_enable  = bool(globals().get("line_sb_enable", True))
-
-# 実行（失敗してもゼロ配列で継続）
+# 実行（失敗してもゼロで継続）
 try:
     bonus_init, _ = compute_lineSB_bonus(
         line_def_safe, S_arr, B_arr,
@@ -1504,6 +1534,8 @@ try:
     )
 except Exception:
     bonus_init = np.zeros(M, dtype=float)
+# ========== /LineSB（安全ガード付き：drop-in） ==========
+
 
 # --- ここまでを 1450–1636 の該当範囲に置換すればOK -----------------------
 
