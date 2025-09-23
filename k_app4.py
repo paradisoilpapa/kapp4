@@ -611,21 +611,34 @@ grade_choice = st.sidebar.radio(
     options=["auto", "TOTAL", "F2", "F1", "G", "GIRLS"],
     index=0,
     horizontal=True,
+    key="grade_choice_radio",  # 任意だが付けておくと安定
 )
+
+# 未定義ならだけ定義（インデント注意）
 if "_grade_from_race_class" not in globals():
-   def _grade_from_race_class(race_class):
-    """race_class の文字列からグレードを推定して返す"""
-    s = str(race_class or "")
-    if "F2" in s or "チャレンジ" in s:
-        return "F2"
-    elif "F1" in s:
-        return "F1"
-    elif "G" in s or "Ｓ級" in s:
-        return "G"
-    elif "ガールズ" in s or "L級" in s:
-        return "GIRLS"
-    else:
-        return "TOTAL"  # 該当しなければ全体集計をデフォルトに
+    def _grade_from_race_class(race_class: str) -> str:
+        """race_class の文字列からグレードを推定して返す"""
+        s = str(race_class or "")
+        if "F2" in s or "チャレンジ" in s:
+            return "F2"
+        elif "F1" in s:
+            return "F1"
+        elif "G" in s or "Ｓ級" in s:
+            return "G"
+        elif "ガールズ" in s or "L級" in s:
+            return "GIRLS"
+        else:
+            return "TOTAL"  # 該当しなければ全体集計
+
+# ▼ここを必ず追加（これが“切替が確率枠に反映される”カギ）
+detected_grade = _grade_from_race_class(race_class)
+RANK_IN_USE, source_key = pick_rank_stats(
+    grade_choice=grade_choice, detected_grade=detected_grade
+)
+st.session_state["RANK_STATS_CURRENT"] = RANK_IN_USE
+st.session_state["RANK_SOURCE_KEY"] = source_key
+st.sidebar.caption(f"実測率ソース: {source_key}")
+
 
 
 # ---- SAFETY GUARD: pick_rank_stats を呼ぶ前に必ず定義しておく ----
@@ -1530,10 +1543,11 @@ car_mark = {int(v): k for k, v in result_marks.items()} if isinstance(result_mar
 fallback_key = RANK_FALLBACK_MARK
 base_dist = FALLBACK_DIST
 
+# ▼ここが最重要：インデントを正して、_mark_dist() で分布を取る
 w_mark_list = []
 for car in USED_IDS:
     mk = car_mark.get(int(car), fallback_key)
-    prior = _mark_dist(mk)  # ← ここでセッションの分布を使う
+    prior = _mark_dist(mk)
     delta_p1   = float(prior.get("p1",    base_dist["p1"]))    - float(base_dist["p1"])
     delta_top3 = float(prior.get("pTop3", base_dist["pTop3"])) - float(base_dist["pTop3"])
     coeff = 1.0 + GAMMA_P1*delta_p1 + GAMMA_TOP3*delta_top3
@@ -1546,7 +1560,6 @@ if S_w <= 0:
     w = np.ones_like(w, dtype=float)
     S_w = float(np.sum(w))
 w_idx = {USED_IDS[idx]: float(w[idx]) for idx in range(M)}
-
 
 def prob_top2_pair_pl(i: int, j: int) -> float:
     wi, wj = w_idx[i], w_idx[j]
@@ -1583,10 +1596,8 @@ def prob_trifecta_ordered(a: int, b: int, c: int) -> float:
     d2 = max(S_w - wa - wb, EPS)
     return (wa / S_w) * (wb / d1) * (wc / d2)
 
-
 # ===== 確率枠：基準 =====
 P_TH_BASE = float(globals().get("P_TH_BASE", 0.10))  # 10% 以上
-
 
 # ===== 確率枠 生成（重複歓迎・フォーメーションから作る） =====
 trio_prob_rows, trifecta_prob_rows = [], []
@@ -1683,6 +1694,7 @@ if L1 and L2:
                 cand_nit.append((key, float(p), "確率枠"))
     cand_nit.sort(key=lambda x: (-x[1], x[0]))
     nitan_prob_rows = cand_nit   # ← 上限スライス削除
+
 
 
 
