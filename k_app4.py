@@ -2944,9 +2944,95 @@ OVERLAP_NOTE = {
 }
 
 
-# --- 狙い目（S×P重複） note ---
-def _fmt_overlap_lines(keys):
-    return ("なし" if not keys else "\n".join(keys))
+# === 🎯狙い目（S×P重複）を出力ゾーン内だけで完結生成 ===
+# Trio（順不同）キー → "i-j-k"
+def _keys_trio_S(rows):
+    out = []
+    for a,b,c,*_ in (rows or []):
+        i,j,k = sorted((int(a),int(b),int(c)))
+        out.append(f"{i}-{j}-{k}")
+    return out
+
+def _keys_trio_P(rows):
+    out = []
+    for a,b,c,*_ in (rows or []):
+        i,j,k = sorted((int(a),int(b),int(c)))
+        out.append(f"{i}-{j}-{k}")
+    return out
+
+# TriS（三連単・順付き）キー → "a-b-c"
+def _keys_triS_S(rows):
+    return [f"{int(a)}-{int(b)}-{int(c)}" for a,b,c,*_ in (rows or [])]
+
+def _keys_triS_P(rows):
+    return [f"{int(a)}-{int(b)}-{int(c)}" for a,b,c,*_ in (rows or [])]
+
+# QN（二車複・順不同）キー → "i-j"
+def _keys_qn_S(rows):
+    out = []
+    for a,b,*_ in (rows or []):
+        i,j = sorted((int(a),int(b)))
+        out.append(f"{i}-{j}")
+    return out
+
+def _keys_qn_P(rows):
+    out = []
+    for a,b,*_ in (rows or []):
+        i,j = sorted((int(a),int(b)))
+        out.append(f"{i}-{j}")
+    return out
+
+# NITAN（二車単・順付き）キー → "a-b"
+def _keys_nitan_S(rows):
+    out = []
+    for r in (rows or []):
+        k = r[0]
+        if isinstance(k, str) and "-" in k:
+            out.append(k)
+        else:
+            a,b = r[0], r[1]
+            out.append(f"{int(a)}-{int(b)}")
+    return out
+
+def _keys_nitan_P(rows):
+    out = []
+    for r in (rows or []):
+        k = r[0]
+        if isinstance(k, str) and "-" in k:
+            out.append(k)
+        else:
+            a,b = r[0], r[1]
+            out.append(f"{int(a)}-{int(b)}")
+    return out
+
+def _intersect_keep_P_order(keys_P, keys_S):
+    S = set(keys_S or [])
+    return [k for k in (keys_P or []) if k in S]
+
+# S側/P側からキーを作って交差（P側の順序を優先）
+overlap_trio_keys   = _intersect_keep_P_order(
+    _keys_trio_P(trio_prob_rows),
+    _keys_trio_S(trios_filtered_display) if has_trio else []
+)
+overlap_triS_keys   = _intersect_keep_P_order(
+    _keys_triS_P(trifecta_prob_rows),
+    _keys_triS_S(santan_filtered_display) if has_tri else []
+)
+overlap_qn_keys     = _intersect_keep_P_order(
+    _keys_qn_P(qn_prob_rows),
+    _keys_qn_S(pairs_qn2_filtered) if has_qn else []
+)
+overlap_nitan_keys  = _intersect_keep_P_order(
+    _keys_nitan_P(nitan_prob_rows),
+    _keys_nitan_S(rows_nitan_filtered) if has_nit else []
+)
+
+OVERLAP_NOTE = {
+    "trio":  overlap_trio_keys,
+    "triS":  overlap_triS_keys,
+    "qn":    overlap_qn_keys,
+    "nitan": overlap_nitan_keys,
+}
 
 note_sections.append("\n🎯狙い目（S×P重複）")
 if OVERLAP_NOTE.get("trio"):
