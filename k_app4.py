@@ -2807,7 +2807,10 @@ def _fmt_hen_lines(ts_map: dict, ids: list[int]) -> str:
     lines = []
     for n in ids:
         v = ts_map.get(n, "—")
-        lines.append(f"{n}: {float(v):.1f}" if isinstance(v,(int,float)) else f"{n}: —")
+        try:
+            lines.append(f"{n}: {float(v):.1f}")
+        except Exception:
+            lines.append(f"{n}: —")
     return "\n".join(lines)
 
 note_sections = []
@@ -2820,7 +2823,17 @@ note_sections.append(f"三連複　{n_trio}点　三連単　{n_triS}点")
 note_sections.append(f"二車複　{n_qn}点　二車単　{n_nit}点\n")
 
 note_sections.append(f"{race_time}　{race_class}")
-note_sections.append(f"ライン　{'　'.join([x for x in line_inputs if str(x).strip()])}")
+note_sections.append(f"ライン　{'　'.join(str(x) for x in (line_inputs or []) if str(x).strip())}")
+# 追加（この1ブロックを「スコア順（SBなし）」の行の**上**に挿入）
+if "_format_rank_from_array" not in globals():
+    def _format_rank_from_array(ids, xs):
+        try:
+            pairs = sorted([(int(i), float(xs[int(i)])) for i in ids], key=lambda t: -t[1])
+            return " ".join(str(i) for i, _ in pairs)
+        except Exception:
+            return " ".join(map(str, ids))
+
+
 note_sections.append(f"スコア順（SBなし）　{_format_rank_from_array(USED_IDS, xs_base_raw)}")
 
 # 印＋無印
@@ -2893,7 +2906,7 @@ def _fmt_prob_rows_nitan(rows):
     return "\n".join([f"{k}（P={p*100:.1f}%｜{tag}）" for (k,p,tag) in rows])
 
 # ===== 安全フォールバック：確率枠のしきい・行データ（未定義でも落ちない）=====
-P_TH_BASE = float(globals().get("P_TH_BASE", 0.07))  # 8% を既定
+P_TH_BASE = float(globals().get("P_TH_BASE", 0.10))  # 10% を既定
 trio_prob_rows      = globals().get("trio_prob_rows", [])
 trifecta_prob_rows  = globals().get("trifecta_prob_rows", [])
 qn_prob_rows        = globals().get("qn_prob_rows", [])
@@ -2909,6 +2922,10 @@ if qn_prob_rows:
     note_sections.append("\n二車複\n" + _fmt_prob_rows_pairs(qn_prob_rows))
 if nitan_prob_rows:
     note_sections.append("\n二車単\n" + _fmt_prob_rows_nitan(nitan_prob_rows))
+
+# 追加（🎯狙い目ブロックの直前でOK）
+OVERLAP_NOTE = globals().get("OVERLAP_NOTE", {})
+
 
 # --- 狙い目（S×P重複） note ---
 def _fmt_overlap_lines(keys):
