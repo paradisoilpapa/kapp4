@@ -1666,6 +1666,44 @@ def _pos_idx(no: int) -> int:
         return 0
 # ===== [1450–1636] REPLACEMENT END =====
 
+# ===== SAFETY PRELUDE for anchor_score  ←← これを def anchor_score の直前に貼る =====
+import numpy as np
+
+# 係数・定数（未定義ならデフォルト）
+POS_BONUS  = globals().get("POS_BONUS", {0: 0.0, 1: -0.6, 2: -0.9, 3: -1.2, 4: -1.4})
+POS_WEIGHT = float(globals().get("POS_WEIGHT", 1.0))
+FINISH_WEIGHT   = float(globals().get("FINISH_WEIGHT", 6.0))
+FINISH_WEIGHT_G = float(globals().get("FINISH_WEIGHT_G", 3.0))
+SMALL_Z_RATING  = float(globals().get("SMALL_Z_RATING", 0.01))
+FINISH_CLIP     = float(globals().get("FINISH_CLIP", 4.0))
+race_class      = str(globals().get("race_class", "Ａ級"))
+
+# active_cars を確保（無ければ USED_IDS → 1..n_cars）
+active_cars = list(globals().get("active_cars", globals().get("USED_IDS", [])))
+if not active_cars:
+    active_cars = list(range(1, int(globals().get("n_cars", 9)) + 1))
+
+# マップ類が未定義でも落ちないように埋める
+def _zero_map():
+    return {int(n): 0.0 for n in active_cars}
+
+p1_eff_safe = globals().get("p1_eff_safe", _zero_map())
+p2z_map     = globals().get("p2z_map", _zero_map())
+p2only_map  = globals().get("p2only_map", _zero_map())
+zt_map      = globals().get("zt_map", _zero_map())
+form_T_map  = globals().get("form_T_map", {int(n): 50.0 for n in active_cars})
+ENV_Z       = globals().get("ENV_Z", _zero_map())
+FORM_Z      = globals().get("FORM_Z", _zero_map())
+
+race_t       = globals().get("race_t", {int(n): 50.0 for n in active_cars})
+line_def     = globals().get("line_def", {})
+car_to_group = globals().get("car_to_group", {})
+
+# _pos_idx が無ければ 0 を返す簡易版
+if "_pos_idx" not in globals():
+    def _pos_idx(no: int) -> int:
+        return 0
+# ===== /SAFETY PRELUDE =====
 
 
 
