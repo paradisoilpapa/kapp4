@@ -1793,7 +1793,7 @@ if L1 and L2 and L3:
         xs = [row[3] for row in san_rows]
         san_mu  = float(mean(xs))
         san_sig = float(pstdev(xs)) if len(xs) > 1 else 0.0
-       san_mu_sig = san_mu + (san_sig / TRIFECTA_SIG_DIV if san_sig > 0 else 0.0) + off_triS
+        san_mu_sig = san_mu + (san_sig / TRIFECTA_SIG_DIV if san_sig > 0 else 0.0) + off_triS
 
         q = max(1, int(len(xs) * TRIFECTA_TOP_FRAC))
         san_topq = float(np.partition(xs, -q)[-q])
