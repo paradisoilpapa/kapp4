@@ -2431,7 +2431,7 @@ if L1 and L2 and L3:
                 if p >= P_TH_BASE:
                     cand_trio.append((key[0], key[1], key[2], float(p), "確率枠"))
     cand_trio.sort(key=lambda x: (-x[3], x[0], x[1], x[2]))
-    trio_prob_rows = cand_trio[:CAPS["trio"]]
+    trio_prob_rows     = cand_trio
 
 # 三連単（1列目：◎ or 〇、2列目：◎〇▲、3列目：L3）
 first_col  = [x for x in [result_marks.get("◎"), result_marks.get("〇")] if x is not None]
@@ -2453,7 +2453,7 @@ if first_col and second_col and third_col:
                 if p >= P_TH_BASE:
                     cand_tri.append((key[0], key[1], key[2], float(p), "確率枠"))
     cand_tri.sort(key=lambda x: (-x[3], x[0], x[1], x[2]))
-    trifecta_prob_rows = cand_tri[:CAPS["trifecta"]]
+    trifecta_prob_rows = cand_tri
 
 # 二車複（L1×L2 の順不同）
 if L1 and L2:
@@ -2471,7 +2471,7 @@ if L1 and L2:
             if p >= P_TH_BASE:
                 cand_qn.append((i, j, float(p), "確率枠"))
     cand_qn.sort(key=lambda x: (-x[2], x[0], x[1]))
-    qn_prob_rows = cand_qn[:CAPS["qn"]]
+    qn_prob_rows       = cand_qn
 
 # 二車単（L1→L2 の順付き）
 if L1 and L2:
@@ -2489,7 +2489,7 @@ if L1 and L2:
             if p >= P_TH_BASE:
                 cand_nit.append((key, float(p), "確率枠"))
     cand_nit.sort(key=lambda x: (-x[1], x[0]))
-    nitan_prob_rows = cand_nit[:CAPS["nitan"]]
+    nitan_prob_rows    = cand_nit
 
 
 
