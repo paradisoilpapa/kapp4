@@ -1606,10 +1606,46 @@ line_def_safe = line_def_safe if isinstance(line_def_safe, dict) else {}
 USED_IDS = list(globals().get("USED_IDS", [])) or (active_cars if active_cars else list(range(1, n_cars_+1)))
 M = len(USED_IDS)
 
-S_arr = np.array(globals().get("S", []), dtype=float)
-B_arr = np.array(globals().get("B", []), dtype=float)
-if S_arr.size != M: S_arr = np.zeros(M, dtype=float)
-if B_arr.size != M: B_arr = np.zeros(M, dtype=float)
+# --- REPLACE HERE: robust S_arr / B_arr builder ---
+import numpy as np
+
+def _to_numeric_array(x, order_ids, M):
+    # dict は USED_IDS の順に取り出し
+    if isinstance(x, dict):
+        try:
+            arr = np.array([float(x.get(int(i), 0.0)) for i in order_ids], dtype=float)
+        except Exception:
+            arr = np.zeros(M, dtype=float)
+    # 配列系はそのまま数値化
+    elif isinstance(x, (list, tuple, np.ndarray)):
+        try:
+            arr = np.asarray(x, dtype=float).ravel()
+        except Exception:
+            arr = np.zeros(M, dtype=float)
+    else:
+        arr = np.zeros(M, dtype=float)
+
+    # 長さを M に合わせる（不足は 0 埋め、超過は先頭 M）
+    if arr.size != M:
+        out = np.zeros(M, dtype=float)
+        k = min(arr.size, M)
+        if k > 0:
+            out[:k] = arr[:k]
+        arr = out
+
+    # NaN/inf は 0 に
+    bad = ~np.isfinite(arr)
+    if bad.any():
+        arr[bad] = 0.0
+    return arr
+
+S_arr = _to_numeric_array(globals().get("S", None), USED_IDS, M)
+B_arr = _to_numeric_array(globals().get("B", None), USED_IDS, M)
+
+# line_def_safe が未定義でも落ちない保険（既にあればそのまま）
+line_def_safe = globals().get("line_def_safe", globals().get("line_def", {}) or {})
+# --- REPLACE END ---
+
 
 bonus_init, _ = compute_lineSB_bonus(
     line_def_safe, S_arr, B_arr,
