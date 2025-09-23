@@ -2783,6 +2783,13 @@ else:
         st.markdown("**二車単**")
         st.dataframe(overlap_nitan_df, use_container_width=True)
 
+# --- overlap keys 安全ガード（未定義/Noneなら空リスト）---
+overlap_trio_keys  = globals().get("overlap_trio_keys", []) or []
+overlap_triS_keys  = globals().get("overlap_triS_keys", []) or []
+overlap_qn_keys    = globals().get("overlap_qn_keys", []) or []
+overlap_nitan_keys = globals().get("overlap_nitan_keys", []) or []
+
+
 # note 用に保持（後段で使う）
 OVERLAP_NOTE = {
     "trio":   overlap_trio_keys,
