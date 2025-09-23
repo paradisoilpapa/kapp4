@@ -2849,11 +2849,14 @@ note_sections.append(f"\nフォーメーション：{formation_label}")
 
 # --- 三連複 note ---
 if has_trio:
-    triolist = "\n".join([
-        f"{a}-{b}-{c}{('☆' if (star_id is not None and star_id in (a,b,c)) else '')}"
-        f"（S={float(s):.1f}{'｜'+str(tag) if str(tag)=='ライン枠' else ''}）"
-        for (a,b,c,s,tag) in sorted(trios_filtered_display, key=lambda x:(-float(x[3]), x[0], x[1], x[2]))
-    ])
+    triolist_lines = []
+for (a,b,c,s,tag) in sorted(trios_filtered_display, key=lambda x:(-float(x[3]), x[0], x[1], x[2])):
+    if len({int(a), int(b), int(c)}) != 3:
+        continue
+    star = "☆" if (star_id is not None and star_id in (a,b,c)) else ""
+    lane = ("｜ライン枠" if str(tag)=="ライン枠" else "")
+    triolist_lines.append(f"{a}-{b}-{c}{star}（S={float(s):.1f}{lane}）")
+triolist = "\n".join(triolist_lines)
     note_sections.append(
         f"\n三連複（新方式｜しきい値 {cutoff_trio:.1f}点／基準 L3基準 {TRIO_L3_MIN:.1f}）\n{triolist}"
     )
@@ -2862,11 +2865,14 @@ else:
 
 # --- 三連単 note ---
 if has_tri:
-    trifectalist = "\n".join([
-        f"{a}-{b}-{c}{('☆' if (star_id is not None and star_id in (a,b,c)) else '')}"
-        f"（S={float(s):.1f}{'｜'+str(tag) if str(tag)=='ライン枠' else ''}）"
-        for (a,b,c,s,tag) in sorted(santan_filtered_display, key=lambda x:(-float(x[3]), x[0], x[1], x[2]))
-    ])
+    trifectalist_lines = []
+for (a,b,c,s,tag) in sorted(santan_filtered_display, key=lambda x:(-float(x[3]), x[0], x[1], x[2])):
+    if len({int(a), int(b), int(c)}) != 3:
+        continue
+    star = "☆" if (star_id is not None and star_id in (a,b,c)) else ""
+    lane = ("｜ライン枠" if str(tag)=="ライン枠" else "")
+    trifectalist_lines.append(f"{a}-{b}-{c}{star}（S={float(s):.1f}{lane}）")
+trifectalist = "\n".join(trifectalist_lines)
     note_sections.append(
         f"\n三連単（新方式｜しきい値 {cutoff_san:.1f}点／基準 L3基準 {TRIO_L3_MIN:.1f}）\n{trifectalist}"
     )
@@ -2923,8 +2929,18 @@ if qn_prob_rows:
 if nitan_prob_rows:
     note_sections.append("\n二車単\n" + _fmt_prob_rows_nitan(nitan_prob_rows))
 
-# 追加（🎯狙い目ブロックの直前でOK）
-OVERLAP_NOTE = globals().get("OVERLAP_NOTE", {})
+# 🎯狙い目 用の辞書をここで必ず作る（未定義ガード込み）
+overlap_trio_keys  = globals().get("overlap_trio_keys", []) or []
+overlap_triS_keys  = globals().get("overlap_triS_keys", []) or []
+overlap_qn_keys    = globals().get("overlap_qn_keys", []) or []
+overlap_nitan_keys = globals().get("overlap_nitan_keys", []) or []
+
+OVERLAP_NOTE = {
+    "trio":  overlap_trio_keys,
+    "triS":  overlap_triS_keys,
+    "qn":    overlap_qn_keys,
+    "nitan": overlap_nitan_keys,
+}
 
 
 # --- 狙い目（S×P重複） note ---
