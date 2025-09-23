@@ -2850,13 +2850,13 @@ note_sections.append(f"\nフォーメーション：{formation_label}")
 # --- 三連複 note ---
 if has_trio:
     triolist_lines = []
-for (a,b,c,s,tag) in sorted(trios_filtered_display, key=lambda x:(-float(x[3]), x[0], x[1], x[2])):
-    if len({int(a), int(b), int(c)}) != 3:
-        continue
-    star = "☆" if (star_id is not None and star_id in (a,b,c)) else ""
-    lane = ("｜ライン枠" if str(tag)=="ライン枠" else "")
-    triolist_lines.append(f"{a}-{b}-{c}{star}（S={float(s):.1f}{lane}）")
-triolist = "\n".join(triolist_lines)
+    for (a, b, c, s, tag) in sorted(trios_filtered_display, key=lambda x: (-float(x[3]), x[0], x[1], x[2])):
+        if len({int(a), int(b), int(c)}) != 3:
+            continue
+        star = "☆" if (star_id is not None and star_id in (a, b, c)) else ""
+        lane = ("｜ライン枠" if str(tag) == "ライン枠" else "")
+        triolist_lines.append(f"{a}-{b}-{c}{star}（S={float(s):.1f}{lane}）")
+    triolist = "\n".join(triolist_lines)
     note_sections.append(
         f"\n三連複（新方式｜しきい値 {cutoff_trio:.1f}点／基準 L3基準 {TRIO_L3_MIN:.1f}）\n{triolist}"
     )
@@ -2866,18 +2866,19 @@ else:
 # --- 三連単 note ---
 if has_tri:
     trifectalist_lines = []
-for (a,b,c,s,tag) in sorted(santan_filtered_display, key=lambda x:(-float(x[3]), x[0], x[1], x[2])):
-    if len({int(a), int(b), int(c)}) != 3:
-        continue
-    star = "☆" if (star_id is not None and star_id in (a,b,c)) else ""
-    lane = ("｜ライン枠" if str(tag)=="ライン枠" else "")
-    trifectalist_lines.append(f"{a}-{b}-{c}{star}（S={float(s):.1f}{lane}）")
-trifectalist = "\n".join(trifectalist_lines)
+    for (a, b, c, s, tag) in sorted(santan_filtered_display, key=lambda x: (-float(x[3]), x[0], x[1], x[2])):
+        if len({int(a), int(b), int(c)}) != 3:
+            continue
+        star = "☆" if (star_id is not None and star_id in (a, b, c)) else ""
+        lane = ("｜ライン枠" if str(tag) == "ライン枠" else "")
+        trifectalist_lines.append(f"{a}-{b}-{c}{star}（S={float(s):.1f}{lane}）")
+    trifectalist = "\n".join(trifectalist_lines)
     note_sections.append(
         f"\n三連単（新方式｜しきい値 {cutoff_san:.1f}点／基準 L3基準 {TRIO_L3_MIN:.1f}）\n{trifectalist}"
     )
 else:
     note_sections.append("\n三連単（新方式）\n対象外")
+
 
 # --- 二車複 note ---
 if has_qn:
