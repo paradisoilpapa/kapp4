@@ -602,8 +602,21 @@ base_laps = st.sidebar.number_input("周回（通常4）", 1, 10, 4, 1)
 day_label = st.sidebar.selectbox("開催日", ["初日","2日目","最終日"], 0)
 eff_laps = int(base_laps) + {"初日":1,"2日目":2,"最終日":3}[day_label]
 
+# ====== 確率テーブル選択〜重み作成〜確率枠生成：全面置換ブロック ======
+# 前提:
+#  - RANK_STATS_TOTAL / RANK_STATS_F2 / RANK_STATS_F1 / RANK_STATS_G / RANK_STATS_GIRLS
+#  - RANK_FALLBACK_MARK / FALLBACK_DIST
+#  - USED_IDS, race_class, race_z, TAU_PL, GAMMA_P1, GAMMA_TOP3, MARK_FLOOR
+#  - numpy as np, pandas as pd, streamlit as st
+#  - result_marks（未定義でもガード有り）
+#  - EPS（未定義でも下で既定値にフォールバック）
+
+EPS = float(globals().get("EPS", 1e-12))
+
+# === サイドバー：級別 ===
 race_class = st.sidebar.selectbox("級別", ["Ｓ級","Ａ級","Ａ級チャレンジ","ガールズ"], 0)
-# ==== 実測率テーブルのマップを一意に定義（毎回これを使う） ====
+
+# ==== 実測率マップを一意に定義（ここだけを使う） ====
 RANK_STATS_BY_GRADE = {
     "TOTAL": RANK_STATS_TOTAL,
     "F2":    RANK_STATS_F2,
@@ -611,16 +624,13 @@ RANK_STATS_BY_GRADE = {
     "G":     RANK_STATS_G,
     "GIRLS": RANK_STATS_GIRLS,
 }
-
-# pick_rank_stats を1回だけ定義
 def pick_rank_stats(grade_choice: str, detected_grade: str):
-    """グレード選択と判定結果から採用RANK_STATSとキーを返す"""
     key = detected_grade if grade_choice == "auto" else grade_choice
     if key not in RANK_STATS_BY_GRADE:
         key = "TOTAL"
     return RANK_STATS_BY_GRADE[key], key
 
-# === 確率基準（印→想定率の参照先） ===
+# === 確率の基準（印→想定率） ===
 st.sidebar.subheader("確率の基準")
 grade_choice = st.sidebar.radio(
     "確率の基準（印→想定率）",
@@ -630,75 +640,201 @@ grade_choice = st.sidebar.radio(
     key="grade_choice_radio",
 )
 
-# 未定義ならだけ定義（既にあれば既存を使う）
+# レース級から自動推定（未定義なら定義）
 if "_grade_from_race_class" not in globals():
     def _grade_from_race_class(race_class: str) -> str:
         s = str(race_class or "")
-        if "F2" in s or "チャレンジ" in s:  return "F2"
-        if "F1" in s:                       return "F1"
-        if "ガール" in s or "L級" in s:     return "GIRLS"
-        if "Ｓ級" in s or "S級" in s or "G" in s:  return "G"
+        if "F2" in s or "チャレンジ" in s: return "F2"
+        if "F1" in s:                     return "F1"
+        if "ガール" in s or "L級" in s:   return "GIRLS"
+        if "Ｓ級" in s or "S級" in s or "G" in s: return "G"
         return "TOTAL"
 
-# 採用テーブルを決定し、セッションに固定（下流は常にここを見る）
+# 採用テーブル決定 → セッション固定（下流は必ずここを見る）
 detected_grade = _grade_from_race_class(race_class)
 RANK_IN_USE, source_key = pick_rank_stats(grade_choice=grade_choice, detected_grade=detected_grade)
 st.session_state["RANK_STATS_CURRENT"] = RANK_IN_USE
 st.session_state["RANK_SOURCE_KEY"]    = source_key
 st.sidebar.caption(f"実測率ソース: {source_key}")
 
+# 現在テーブルから印の分布を取るヘルパー（未定義なら定義）
+if "_mark_dist" not in globals():
+    def _mark_dist(mark: str):
+        table = st.session_state.get("RANK_STATS_CURRENT") or RANK_STATS_BY_GRADE["TOTAL"]
+        return table.get(mark, FALLBACK_DIST)
 
+# ===== 重み作成（PL用） =====
+w_base = np.exp(race_z * TAU_PL)
 
-# === 会場styleを「得意会場平均」を基準に再定義
-zL, zTH, dC = venue_z_terms(straight_length, bank_angle, bank_length)
-style_raw = venue_mix(zL, zTH, dC)
-override = st.sidebar.slider("会場バイアス補正（−2差し ←→ +2先行）", -2.0, 2.0, 0.0, 0.1)
-style = clamp(style_raw + 0.25*override, -1.0, +1.0)
+# 印マップ（未定義でも落ちない）
+_result_marks = globals().get("result_marks", {})
+if not isinstance(_result_marks, dict):
+    _result_marks = {}
+result_marks = _result_marks
+car_mark = {int(v): k for k, v in result_marks.items()} if result_marks else {}
 
-CLASS_FACTORS = {
-    "Ｓ級":           {"spread":1.00, "line":1.00},
-    "Ａ級":           {"spread":0.90, "line":0.85},
-    "Ａ級チャレンジ": {"spread":0.80, "line":0.70},
-    "ガールズ":       {"spread":0.85, "line":1.00},
-}
-cf = CLASS_FACTORS[race_class]
-
-# 旧：
-# DAY_FACTOR = {"初日":1.00, "2日目":0.60, "最終日":0.85}
-
-# 新（まずは完全フラット）：
-DAY_FACTOR = {"初日":1.00, "2日目":1.00, "最終日":1.00}
-day_factor = DAY_FACTOR[day_label]
-
-cap_base = clamp(0.06 + 0.02*style, 0.04, 0.08)
-line_factor_eff = cf["line"] * day_factor
-cap_SB_eff = cap_base * day_factor
-if race_time == "ミッドナイト":
-    line_factor_eff *= 0.95
-    cap_SB_eff *= 0.95
-
-# ===== 日程・級別・頭数で“周回疲労の効き”を薄くシフト（出力には出さない） =====
-DAY_SHIFT = {"初日": -0.5, "2日目": 0.0, "最終日": +0.5}
-CLASS_SHIFT = {"Ｓ級": 0.0, "Ａ級": +0.10, "Ａ級チャレンジ": +0.20, "ガールズ": -0.10}
-HEADCOUNT_SHIFT = {5: -0.20, 6: -0.10, 7: -0.05, 8: 0.0, 9: +0.10}
-
-def fatigue_extra(eff_laps: int, day_label: str, n_cars: int, race_class: str) -> float:
-    """
-    """
-    d = float(DAY_SHIFT.get(day_label, 0.0))
-    c = float(CLASS_SHIFT.get(race_class, 0.0))
-    h = float(HEADCOUNT_SHIFT.get(int(n_cars), 0.0))
-    x = (float(eff_laps) - 2.0) + d + c + h
-    return max(0.0, x)
-
-
-line_sb_enable = (race_class != "ガールズ")
-
-st.sidebar.caption(
-    f"会場スタイル: {style:+.2f}（raw {style_raw:+.2f}） / "
-    f"級別: spread={cf['spread']:.2f}, line={cf['line']:.2f} / "
-    f"日程係数(line)={day_factor:.2f} → line係数={line_factor_eff:.2f}, SBcap±{cap_SB_eff:.2f}"
+# “無印”の基準分布も選択中テーブルに合わせる（TOTAL固定にしない）
+fallback_key = RANK_FALLBACK_MARK
+base_dist = st.session_state.get("RANK_STATS_CURRENT", RANK_STATS_BY_GRADE["TOTAL"]).get(
+    fallback_key, FALLBACK_DIST
 )
+
+w_mark_list = []
+for car in USED_IDS:
+    mk = car_mark.get(int(car), fallback_key)
+    prior = _mark_dist(mk)  # ← ここが切替の入口
+    delta_p1   = float(prior.get("p1",    base_dist["p1"]))    - float(base_dist["p1"])
+    delta_top3 = float(prior.get("pTop3", base_dist["pTop3"])) - float(base_dist["pTop3"])
+    coeff = 1.0 + GAMMA_P1*delta_p1 + GAMMA_TOP3*delta_top3
+    w_mark_list.append(max(MARK_FLOOR, coeff))
+w_mark = np.array(w_mark_list, dtype=float)
+
+w = w_base * w_mark
+S_w = float(np.sum(w))
+if S_w <= 0:
+    w = np.ones_like(w, dtype=float)
+    S_w = float(np.sum(w))
+w_idx = {USED_IDS[idx]: float(w[idx]) for idx in range(len(USED_IDS))}
+
+# ===== 確率関数（Plackett–Luce 近似） =====
+def prob_top2_pair_pl(i: int, j: int) -> float:
+    wi, wj = w_idx[i], w_idx[j]
+    d_i = max(S_w - wi, EPS)
+    d_j = max(S_w - wj, EPS)
+    return (wi / S_w) * (wj / d_i) + (wj / S_w) * (wi / d_j)
+
+def prob_top3_triple_pl(i: int, j: int, k: int) -> float:
+    a, b, c = w_idx[i], w_idx[j], w_idx[k]
+    total = 0.0
+    for x, y, z in ((a,b,c), (a,c,b), (b,a,c), (b,c,a), (c,a,b), (c,b,a)):
+        d1 = max(S_w - x, EPS)
+        d2 = max(S_w - x - y, EPS)
+        total += (x / S_w) * (y / d1) * (z / d2)
+    return total
+
+def prob_wide_pair_pl(i: int, j: int) -> float:
+    total = 0.0
+    for k in USED_IDS:
+        if k == i or k == j:
+            continue
+        total += prob_top3_triple_pl(i, j, k)
+    return total
+
+def prob_nitan_ordered(i: int, j: int) -> float:
+    """二車単 (i→j) の順序付き近似"""
+    wi, wj = w_idx[i], w_idx[j]
+    d1 = max(S_w - wi, EPS)
+    return (wi / S_w) * (wj / d1)
+
+def prob_trifecta_ordered(a: int, b: int, c: int) -> float:
+    wa, wb, wc = w_idx[a], w_idx[b], w_idx[c]
+    d1 = max(S_w - wa, EPS)
+    d2 = max(S_w - wa - wb, EPS)
+    return (wa / S_w) * (wb / d1) * (wc / d2)
+
+# ===== 確率枠：しきい値 =====
+P_TH_BASE = float(globals().get("P_TH_BASE", 0.10))  # 10% 以上
+
+# ===== フォーメーション安全ガード =====
+L1 = list(globals().get("L1") or [])
+L2 = list(globals().get("L2") or [])
+L3 = list(globals().get("L3") or [])
+
+# ===== 確率枠 生成（重複歓迎・上限なし） =====
+trio_prob_rows, trifecta_prob_rows = [], []
+qn_prob_rows, nitan_prob_rows = [], []
+
+# 三連複（L1-L2-L3 のユニーク三つ組・順不同）
+if L1 and L2 and L3:
+    seen = set()
+    cand_trio = []
+    for a in L1:
+        for b in L2:
+            for c in L3:
+                if len({a, b, c}) != 3:
+                    continue
+                i, j, k = sorted((int(a), int(b), int(c)))
+                key = (i, j, k)
+                if key in seen:
+                    continue
+                seen.add(key)
+                p = prob_top3_triple_pl(i, j, k)
+                if p >= P_TH_BASE:
+                    cand_trio.append((i, j, k, float(p), "確率枠"))
+    cand_trio.sort(key=lambda x: (-x[3], x[0], x[1], x[2]))
+    trio_prob_rows = cand_trio  # ← 上限なし
+
+# 三連単（1列目：◎/〇、2列目：◎/〇/▲、3列目：L3）
+_rm = globals().get("result_marks", {})
+rm = _rm if isinstance(_rm, dict) else {}
+first_col  = [x for x in [rm.get("◎"), rm.get("〇")] if x is not None]
+second_col = [x for x in [rm.get("◎"), rm.get("〇"), rm.get("▲")] if x is not None]
+third_col  = list(L3) if L3 else []
+if first_col and second_col and third_col:
+    seen = set()
+    cand_tri = []
+    for a in first_col:
+        for b in second_col:
+            for c in third_col:
+                if len({a, b, c}) != 3:
+                    continue
+                key = (int(a), int(b), int(c))
+                if key in seen:
+                    continue
+                seen.add(key)
+                p = prob_trifecta_ordered(*key)
+                if p >= P_TH_BASE:
+                    cand_tri.append((key[0], key[1], key[2], float(p), "確率枠"))
+    cand_tri.sort(key=lambda x: (-x[3], x[0], x[1], x[2]))
+    trifecta_prob_rows = cand_tri  # ← 上限なし
+
+# 二車複（L1×L2 の順不同）
+if L1 and L2:
+    seen = set()
+    cand_qn = []
+    for a in L1:
+        for b in L2:
+            if a == b:
+                continue
+            i, j = sorted((int(a), int(b)))
+            if (i, j) in seen:
+                continue
+            seen.add((i, j))
+            p = prob_top2_pair_pl(i, j)
+            if p >= P_TH_BASE:
+                cand_qn.append((i, j, float(p), "確率枠"))
+    cand_qn.sort(key=lambda x: (-x[2], x[0], x[1]))
+    qn_prob_rows = cand_qn  # ← 上限なし
+
+# 二車単（L1→L2 の順付き）
+if L1 and L2:
+    seen = set()
+    cand_nit = []
+    for a in L1:
+        for b in L2:
+            if a == b:
+                continue
+            key = f"{int(a)}-{int(b)}"
+            if key in seen:
+                continue
+            seen.add(key)
+            p = prob_nitan_ordered(int(a), int(b))
+            if p >= P_TH_BASE:
+                cand_nit.append((key, float(p), "確率枠"))
+    cand_nit.sort(key=lambda x: (-x[1], x[0]))
+    nitan_prob_rows = cand_nit  # ← 上限なし
+
+# （任意）デバッグ表示：今の表と代表値
+st.caption(
+    "確率枠ソース: {} / ◎p1={:.3f} ◎pTop2={:.3f} ◎pTop3={:.3f}".format(
+        st.session_state.get("RANK_SOURCE_KEY"),
+        _mark_dist("◎").get("p1", 0.0),
+        _mark_dist("◎").get("pTop2", 0.0),
+        _mark_dist("◎").get("pTop3", 0.0),
+    )
+)
+# ====== 置換ブロックここまで ======
+
 
 # ==============================
 # メイン：入力
