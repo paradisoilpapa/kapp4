@@ -2643,67 +2643,110 @@ if nitan_prob_rows:
     st.markdown("**二車単**")
     st.dataframe(_df_prob_nitan(nitan_prob_rows), use_container_width=True)
 
-# =========================
-#  🎯 狙い目（S×Pの重複）
-# =========================
-# S 側の辞書（スコア）と P 側の辞書（確率%）を準備
-overlap_trio_keys = overlap_triS_keys = overlap_qn_keys = overlap_nitan_keys = []
-overlap_trio_df = overlap_triS_df = overlap_qn_df = overlap_nitan_df = None
+# ========= ここを「狙い目（S×P）」ブロックの**手前**に追記 =========
+# 既に定義済みなら触れません（globals()チェック）
 
-# --- 三連複 ---
-if trios_filtered_display and trio_prob_rows:
-    # key -> S
-    trio_S_map = {}
-    for a,b,c,s, *_ in trios_filtered_display:
-        i,j,k = sorted((int(a),int(b),int(c)))
-        trio_S_map[f"{i}-{j}-{k}"] = float(s)
-    # key -> P(%)
-    trio_P_map = {}
-    for a,b,c,p, *_ in trio_prob_rows:
-        i,j,k = sorted((int(a),int(b),int(c)))
-        trio_P_map[f"{i}-{j}-{k}"] = float(p)*100.0
+if "_df_overlap" not in globals():
+    def _df_overlap(keys, S_map=None, P_map=None, kind=""):
+        import pandas as pd
+        keys = keys or []
+        S_map = S_map or {}
+        P_map = P_map or {}
 
-    ks_S = _keys_trio_S(trios_filtered_display)
-    ks_P = _keys_trio_P(trio_prob_rows)
-    overlap_trio_keys = _find_overlaps(ks_S, ks_P)
-    if overlap_trio_keys:
-        overlap_trio_df = _df_overlap(overlap_trio_keys, trio_S_map, trio_P_map, "三連複")
+        rows = []
+        for k in keys:
+            # 受け取りは tuple/list/str 何でもOKにして文字列キーへ統一
+            if isinstance(k, (list, tuple)):
+                s_key = "-".join(map(str, k))
+            else:
+                s_key = str(k)
+            rows.append({
+                "券種": kind,
+                "key": s_key,
+                "P": P_map.get(s_key),
+                "S": S_map.get(s_key),
+            })
+        df = pd.DataFrame(rows, columns=["券種","key","P","S"])
+        if not df.empty:
+            sort_cols = [c for c in ["P","S"] if c in df.columns]
+            if sort_cols:
+                df = df.sort_values(by=sort_cols, ascending=False).reset_index(drop=True)
+        return df
 
-# --- 三連単 ---
-if santan_filtered_display and trifecta_prob_rows:
-    triS_S_map = {f"{int(a)}-{int(b)}-{int(c)}": float(s) for a,b,c,s, *_ in santan_filtered_display}
-    triS_P_map = {f"{int(a)}-{int(b)}-{int(c)}": float(p)*100.0 for a,b,c,p, *_ in trifecta_prob_rows}
-    ks_S = _keys_triS_S(santan_filtered_display)
-    ks_P = _keys_triS_P(trifecta_prob_rows)
-    overlap_triS_keys = _find_overlaps(ks_S, ks_P)
-    if overlap_triS_keys:
-        overlap_triS_df = _df_overlap(overlap_triS_keys, triS_S_map, triS_P_map, "三連単")
+if "_find_overlaps" not in globals():
+    def _find_overlaps(ks_S, ks_P):
+        # 文字列キーに統一して P側の順序を優先（見栄え安定）
+        to_s = lambda x: "-".join(map(str, x)) if isinstance(x, (list, tuple)) else str(x)
+        set_S = {to_s(k) for k in (ks_S or [])}
+        return [to_s(k) for k in (ks_P or []) if to_s(k) in set_S]
 
-# --- 二車複 ---
-if pairs_qn2_filtered and qn_prob_rows:
-    qn_S_map = {}
-    for a,b,s, *_ in pairs_qn2_filtered:
-        i,j = sorted((int(a),int(b)))
-        qn_S_map[f"{i}-{j}"] = float(s)
-    qn_P_map = {}
-    for a,b,p, *_ in qn_prob_rows:
-        i,j = sorted((int(a),int(b)))
-        qn_P_map[f"{i}-{j}"] = float(p)*100.0
-    ks_S = _keys_qn_S(pairs_qn2_filtered)
-    ks_P = _keys_qn_P(qn_prob_rows)
-    overlap_qn_keys = _find_overlaps(ks_S, ks_P)
-    if overlap_qn_keys:
-        overlap_qn_df = _df_overlap(overlap_qn_keys, qn_S_map, qn_P_map, "二車複")
+# ---- キー生成（S側/P側で**同じ表記**を返す）----
+# Trio（順不同） → "i-j-k"（昇順）
+if "_keys_trio_S" not in globals():
+    def _keys_trio_S(rows):  # rows: [(a,b,c,s, ...), ...]
+        out = []
+        for a,b,c,*_ in (rows or []):
+            i,j,k = sorted((int(a),int(b),int(c)))
+            out.append(f"{i}-{j}-{k}")
+        return out
 
-# --- 二車単 ---
-if rows_nitan_filtered and nitan_prob_rows:
-    nit_S_map = {str(k): float(s) for k,s, *_ in rows_nitan_filtered}
-    nit_P_map = {str(k): float(p)*100.0 for k,p, *_ in nitan_prob_rows}
-    ks_S = _keys_nitan_S(rows_nitan_filtered)
-    ks_P = _keys_nitan_P(nitan_prob_rows)
-    overlap_nitan_keys = _find_overlaps(ks_S, ks_P)
-    if overlap_nitan_keys:
-        overlap_nitan_df = _df_overlap(overlap_nitan_keys, nit_S_map, nit_P_map, "二車単")
+if "_keys_trio_P" not in globals():
+    def _keys_trio_P(rows):  # rows: [(a,b,c,p, ...), ...]
+        out = []
+        for a,b,c,*_ in (rows or []):
+            i,j,k = sorted((int(a),int(b),int(c)))
+            out.append(f"{i}-{j}-{k}")
+        return out
+
+# TriS（三連単・順付き） → "a-b-c"（**並び維持**）
+if "_keys_triS_S" not in globals():
+    def _keys_triS_S(rows):  # rows: [(a,b,c,s, ...), ...]
+        return [f"{int(a)}-{int(b)}-{int(c)}" for a,b,c,*_ in (rows or [])]
+
+if "_keys_triS_P" not in globals():
+    def _keys_triS_P(rows):  # rows: [(a,b,c,p, ...), ...]
+        return [f"{int(a)}-{int(b)}-{int(c)}" for a,b,c,*_ in (rows or [])]
+
+# QN（二車複・順不同） → "i-j"（昇順）
+if "_keys_qn_S" not in globals():
+    def _keys_qn_S(rows):   # rows: [(a,b,s, ...), ...]
+        out = []
+        for a,b,*_ in (rows or []):
+            i,j = sorted((int(a),int(b)))
+            out.append(f"{i}-{j}")
+        return out
+
+if "_keys_qn_P" not in globals():
+    def _keys_qn_P(rows):   # rows: [(a,b,p, ...), ...]
+        out = []
+        for a,b,*_ in (rows or []):
+            i,j = sorted((int(a),int(b)))
+            out.append(f"{i}-{j}")
+        return out
+
+# NITAN（二車単・順付き） → "a-b"（**並び維持**）
+if "_keys_nitan_S" not in globals():
+    def _keys_nitan_S(rows):  # rows: [( "a-b", s, ... ) or (a,b,s,...) ]
+        out = []
+        for r in (rows or []):
+            if isinstance(r[0], str) and "-" in r[0]:
+                out.append(r[0])
+            else:
+                a,b = r[0], r[1]
+                out.append(f"{int(a)}-{int(b)}")
+        return out
+
+if "_keys_nitan_P" not in globals():
+    def _keys_nitan_P(rows):  # rows: [( "a-b", p, ... ) or (a,b,p,...) ]
+        out = []
+        for r in (rows or []):
+            if isinstance(r[0], str) and "-" in r[0]:
+                out.append(r[0])
+            else:
+                a,b = r[0], r[1]
+                out.append(f"{int(a)}-{int(b)}")
+        return out
+# ========= /追記ここまで =========
 
 # ---- 画面出力（あるものだけ表示）----
 has_any_overlap = any([overlap_trio_df is not None,
