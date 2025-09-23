@@ -2748,6 +2748,18 @@ if "_keys_nitan_P" not in globals():
         return out
 # ========= /追記ここまで =========
 
+# --- overlap DataFrame 安全ガード（未定義なら None をセット）---
+overlap_trio_df  = globals().get("overlap_trio_df", None)
+overlap_triS_df  = globals().get("overlap_triS_df", None)
+overlap_qn_df    = globals().get("overlap_qn_df", None)
+overlap_nitan_df = globals().get("overlap_nitan_df", None)
+
+def _nonempty(df):
+    return (df is not None) and (getattr(df, "empty", False) is False)
+
+has_any_overlap = any(map(_nonempty, [overlap_trio_df, overlap_triS_df, overlap_qn_df, overlap_nitan_df]))
+
+
 # ---- 画面出力（あるものだけ表示）----
 has_any_overlap = any([overlap_trio_df is not None,
                        overlap_triS_df is not None,
