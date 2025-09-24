@@ -2025,6 +2025,33 @@ if star_id is not None and not tri_exc:
     cand.sort(key=lambda t: (-t[3], t[0], t[1], t[2]))
     tri_exc = cand[:3]
 
+    # === 戦術（3連複）◎入り/◎抜き TOP3 を確率枠→（不足分）偏差値/ライン枠で補完 ===
+anchor = int(result_marks.get("◎", anchor_no))  # ◎の車番
+
+# 確率枠の三連複候補（あなたの“確率枠”リスト名に合わせて ↓ を差し替えてOK）
+# 形式は [(a,b,c,score, "確率枠"), ...] に揃えておく
+prob_trio_rows = trios_prob_filtered  # ←無ければ、あなたの確率枠リスト名に置き換え
+
+# 偏差値/ライン枠（既存の三連複リスト）
+score_trio_rows = trios_filtered_display
+
+# ◎入り
+base_in  = [(a,b,c,s,tag) for (a,b,c,s,tag) in (prob_trio_rows or []) if anchor in (a,b,c)]
+fb_in    = [(a,b,c,s,tag) for (a,b,c,s,tag) in (score_trio_rows or []) if anchor in (a,b,c)]
+top3_in  = _ensure_top3(base_in, fb_in, need=3)
+
+# ◎抜き
+base_out = [(a,b,c,s,tag) for (a,b,c,s,tag) in (prob_trio_rows or []) if anchor not in (a,b,c)]
+fb_out   = [(a,b,c,s,tag) for (a,b,c,s,tag) in (score_trio_rows or []) if anchor not in (a,b,c)]
+top3_out = _ensure_top3(base_out, fb_out, need=3)
+
+def _fmt_trio_list(rows):
+    return " / ".join(f"{a}-{b}-{c}" for a,b,c,_,_ in rows) if rows else "—"
+
+st.markdown(
+    f"**戦術（3連複）** ◎入りTOP3: {_fmt_trio_list(top3_in)}　｜　◎抜きTOP3: {_fmt_trio_list(top3_out)}"
+)
+
 
     st.markdown("#### 戦術：三連複（◎入り3点／◎抜き3点）")
     st.write("◎入り3点", [f"{int(a)}-{int(b)}-{int(c)}" for (a,b,c,_,_) in tri_inc])
@@ -2345,6 +2372,53 @@ xs_base_raw       = _g("xs_base_raw", [])
 line_inputs       = _g("line_inputs", [])
 _format_rank_from_array = _g("_format_rank_from_array", lambda ids, xs: " ".join(map(str, ids)))
 
+# === Trio補助（重複/同一番号の排除＋不足分の補完） =========================
+def _trip_valid(a, b, c) -> bool:
+    # 3連複の同一番号(例:1-5-5)を排除
+    return len({int(a), int(b), int(c)}) == 3
+
+def _ensure_top3(base_rows, fallback_rows, need=3):
+    """
+    base_rows: 優先プール（確率枠） [(a,b,c,score,tag), ...]
+    fallback_rows: 補完プール（偏差値枠/ライン枠など） 同形式
+    - a,b,c は順不同OK。内部で昇順キー化して重複統一
+    - 無効(同一番号)はスキップ
+    - score降順→a,b,c昇順で採用
+    """
+    def _norm_rows(rows):
+        uniq = {}
+        for a,b,c,s,tag in rows or []:
+            if not _trip_valid(a,b,c):
+                continue
+            key = tuple(sorted((int(a),int(b),int(c))))
+            rec = (key[0], key[1], key[2], float(s), str(tag))
+            if (key not in uniq) or (rec[3] > uniq[key][3]):
+                uniq[key] = rec
+        return sorted(uniq.values(), key=lambda r:(-r[3], r[0], r[1], r[2]))
+
+    base_uni = _norm_rows(base_rows)
+    fb_uni   = _norm_rows(fallback_rows)
+
+    picked, seen = [], set()
+    for r in base_uni:
+        k=(r[0],r[1],r[2])
+        if k in seen: 
+            continue
+        picked.append(r); seen.add(k)
+        if len(picked) >= need: 
+            return picked[:need]
+
+    for r in fb_uni:
+        k=(r[0],r[1],r[2])
+        if k in seen: 
+            continue
+        picked.append(r); seen.add(k)
+        if len(picked) >= need: 
+            break
+
+    return picked[:need]
+
+
 # =========================
 #  画面出力（順番固定）
 # =========================
@@ -2586,6 +2660,12 @@ note_sections.append(f"{marks_str} 無{no_str}")
 note_sections.append("\n偏差値（風・ライン込み）")
 note_sections.append(_fmt_hen_lines(race_t, USED_IDS))
 note_sections.append(f"\nフォーメーション：{formation_label}")
+
+# 戦術（三連複）6点を note に追記
+note_sections.append("戦術：三連複『◎入り3点 / ◎抜き3点』")
+note_sections.append("◎入り: " + (", ".join(f"{a}-{b}-{c}" for a,b,c,_,_ in top3_in) if top3_in else "—"))
+note_sections.append("◎抜き: " + (", ".join(f"{a}-{b}-{c}" for a,b,c,_,_ in top3_out) if top3_out else "—"))
+
 
 # --- 三連複 note ---
 if has_trio:
