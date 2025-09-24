@@ -330,6 +330,56 @@ def wind_adjust(wind_dir, wind_speed, role, prof_escape):
     val = (val * float(WIND_SIGN)) * float(WIND_GAIN)
     return round(clamp(val, -float(WIND_CAP), float(WIND_CAP)), 3)
 
+
+
+# === 直線ラスト200m（残脚）補正 =========================================
+L200_ESC_PENALTY = float(globals().get("L200_ESC_PENALTY", -0.06))  # 先行は垂れやすい
+L200_SASHI_BONUS = float(globals().get("L200_SASHI_BONUS", +0.03))  # 差しは伸びやすい
+L200_MARK_BONUS  = float(globals().get("L200_MARK_BONUS",  +0.02))  # 追込は少し上げ
+L200_GRADE_GAIN  = globals().get("L200_GRADE_GAIN", {
+    "F2": 1.18, "F1": 1.10, "G": 1.05, "GIRLS": 0.95, "TOTAL": 1.00
+})
+L200_SHORT_GAIN  = float(globals().get("L200_SHORT_GAIN", 1.15))    # 333mなど短走路で効き増
+L200_LONG_RELAX  = float(globals().get("L200_LONG_RELAX", 0.90))    # 直線長いバンクで緩和
+L200_CAP         = float(globals().get("L200_CAP", 0.08))           # 絶対値キャップ
+L200_WET_GAIN    = float(globals().get("L200_WET_GAIN", 1.15))      # 雨（任意で増幅）
+
+def _grade_key_from_class(race_class: str) -> str:
+    if "ガール" in race_class: return "GIRLS"
+    if "Ｓ級" in race_class or "S級" in race_class: return "G"
+    if "チャレンジ" in race_class: return "F2"
+    if "Ａ級" in race_class or "A級" in race_class: return "F1"
+    return "TOTAL"
+
+def l200_adjust(role: str,
+                straight_length: float,
+                bank_length: float,
+                race_class: str,
+                prof_escape: float,    # 逃
+                prof_sashi: float,     # 差
+                prof_oikomi: float,    # マ
+                is_wet: bool = False) -> float:
+    """
+    ラスト200mの“残脚”を脚質×バンク×グレードで調整した無次元値（±）を返す。
+    ※ ENV合計（total_raw）には足さず、独立柱として z 化→anchor_score へ。
+    """
+    base = (
+        L200_ESC_PENALTY * float(prof_escape) +
+        L200_SASHI_BONUS * float(prof_sashi)  +
+        L200_MARK_BONUS  * float(prof_oikomi)
+    )
+    if float(bank_length) <= 340.0:      # 333m系など短走路
+        base *= L200_SHORT_GAIN
+    if float(straight_length) >= 60.0:   # 直線が長いバンク
+        base *= L200_LONG_RELAX
+    base *= float(L200_GRADE_GAIN.get(_grade_key_from_class(race_class), 1.0))
+    if is_wet:
+        base *= L200_WET_GAIN
+    pos_factor = {'head':1.00,'second':0.85,'thirdplus':0.70,'single':0.80}.get(role, 0.80)
+    base *= pos_factor
+    return round(clamp(base, -float(L200_CAP), float(L200_CAP)), 3)
+
+
 def bank_character_bonus(bank_angle, straight_length, prof_escape, prof_sashi):
     straight_factor = (float(straight_length)-40.0)/10.0
     angle_factor = (float(bank_angle)-25.0)/5.0
@@ -893,6 +943,60 @@ rows = []
 _wind_func = wind_adjust
 eff_wind_dir   = globals().get("eff_wind_dir",   wind_dir)
 eff_wind_speed = globals().get("eff_wind_speed", wind_speed)
+L200_RAW = {}  # ← 新規
+
+for no in active_cars:
+    role = role_in_line(no, line_def)
+
+    # --- L200（残脚）生値を計算：ENV合計には“入れない”観測用 ---
+    l200 = l200_adjust(
+        role=role,
+        straight_length=straight_length,
+        bank_length=bank_length,
+        race_class=race_class,
+        prof_escape=float(prof_escape[no]),
+        prof_sashi=float(prof_sashi[no]),
+        prof_oikomi=float(prof_oikomi[no]),
+        is_wet=st.session_state.get("is_wet", False)  # 雨トグル未実装なら False のまま
+    )
+    L200_RAW[int(no)] = float(l200)
+
+    # --- 周回疲労（既存） ---
+    extra = fatigue_extra(eff_laps, day_label, n_cars, race_class)
+    fatigue_scale = (1.0 if race_class == "Ｓ級" else
+                     1.1 if race_class == "Ａ級" else
+                     1.2 if race_class == "Ａ級チャレンジ" else
+                     1.05)
+    laps_adj = (
+        -0.10 * extra * (1.0 if prof_escape[no] > 0.5 else 0.0)
+        + 0.05 * extra * (1.0 if prof_oikomi[no] > 0.4 else 0.0)
+    ) * fatigue_scale
+
+    # --- 環境・個人補正（既存） ---
+    wind     = _wind_func(eff_wind_dir, float(eff_wind_speed or 0.0), role, float(prof_escape[no]))
+    bank_b   = bank_character_bonus(bank_angle, straight_length, prof_escape[no], prof_sashi[no])
+    length_b = bank_length_adjust(bank_length, prof_oikomi[no])
+    indiv    = extra_bonus.get(no, 0.0)
+    stab     = stability_score(no)
+
+    # ★ 合計（SBなし）…ここには l200 は入れない（観測用に保持だけ）
+    total_raw = (prof_base[no] + wind + cf["spread"] * tens_corr.get(no, 0.0)
+                 + bank_b + length_b + laps_adj + indiv + stab)
+
+    rows.append([
+        int(no), role,
+        round(prof_base[no],3),
+        round(wind,3),
+        round(cf["spread"] * tens_corr.get(no, 0.0),3),
+        round(bank_b,3),
+        round(length_b,3),
+        round(laps_adj,3),
+        round(indiv,3),
+        round(stab,3),
+        total_raw
+    ])
+
+
 
 for no in active_cars:
     role = role_in_line(no, line_def)
