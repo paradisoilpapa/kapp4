@@ -2025,41 +2025,38 @@ if star_id is not None and not tri_exc:
     cand.sort(key=lambda t: (-t[3], t[0], t[1], t[2]))
     tri_exc = cand[:3]
 
-    # === 戦術（3連複）◎入り/◎抜き TOP3 を確率枠→（不足分）偏差値/ライン枠で補完 ===
-anchor = int(result_marks.get("◎", anchor_no))  # ◎の車番
+# === 戦術（3連複）◎入り/◎抜き TOP3 を確率枠→（不足分）偏差値/ライン枠で補完 ===
+anchor = int(result_marks.get("◎", anchor_no)) if ("result_marks" in globals() and result_marks.get("◎") is not None) else int(anchor_no)
 
-# 確率枠の三連複候補（あなたの“確率枠”リスト名に合わせて ↓ を差し替えてOK）
-# 形式は [(a,b,c,score, "確率枠"), ...] に揃えておく
-prob_trio_rows = trios_prob_filtered  # ←無ければ、あなたの確率枠リスト名に置き換え
+# 確率枠の三連複候補（あなたの“確率枠”リスト名に合わせて差し替え可）
+# 形式は [(a,b,c,score,"確率枠"), ...] に揃える
+prob_trio_rows = trios_prob_filtered if "trios_prob_filtered" in globals() else []
 
 # 偏差値/ライン枠（既存の三連複リスト）
-score_trio_rows = trios_filtered_display
+score_trio_rows = trios_filtered_display if "trios_filtered_display" in globals() else []
 
 # ◎入り
-base_in  = [(a,b,c,s,tag) for (a,b,c,s,tag) in (prob_trio_rows or []) if anchor in (a,b,c)]
-fb_in    = [(a,b,c,s,tag) for (a,b,c,s,tag) in (score_trio_rows or []) if anchor in (a,b,c)]
+base_in  = [(a, b, c, s, tag) for (a, b, c, s, tag) in (prob_trio_rows or [])  if anchor in (a, b, c)]
+fb_in    = [(a, b, c, s, tag) for (a, b, c, s, tag) in (score_trio_rows or []) if anchor in (a, b, c)]
 top3_in  = _ensure_top3(base_in, fb_in, need=3)
 
 # ◎抜き
-base_out = [(a,b,c,s,tag) for (a,b,c,s,tag) in (prob_trio_rows or []) if anchor not in (a,b,c)]
-fb_out   = [(a,b,c,s,tag) for (a,b,c,s,tag) in (score_trio_rows or []) if anchor not in (a,b,c)]
+base_out = [(a, b, c, s, tag) for (a, b, c, s, tag) in (prob_trio_rows or [])  if anchor not in (a, b, c)]
+fb_out   = [(a, b, c, s, tag) for (a, b, c, s, tag) in (score_trio_rows or []) if anchor not in (a, b, c)]
 top3_out = _ensure_top3(base_out, fb_out, need=3)
 
 def _fmt_trio_list(rows):
-    return " / ".join(f"{a}-{b}-{c}" for a,b,c,_,_ in rows) if rows else "—"
+    return " / ".join(f"{int(a)}-{int(b)}-{int(c)}" for a, b, c, _, _ in rows) if rows else "—"
 
 st.markdown(
     f"**戦術（3連複）** ◎入りTOP3: {_fmt_trio_list(top3_in)}　｜　◎抜きTOP3: {_fmt_trio_list(top3_out)}"
 )
 
-
-    st.markdown("#### 戦術：三連複（◎入り3点／◎抜き3点）")
-    st.write("◎入り3点", [f"{int(a)}-{int(b)}-{int(c)}" for (a,b,c,_,_) in tri_inc])
-    st.write("◎抜き3点", [f"{int(a)}-{int(b)}-{int(c)}" for (a,b,c,_,_) in tri_exc])
-
-
-    # ↓ デバッグ短文（任意）：ライン枠が何件入ったかだけ確認
-    # st.caption(f"[DBG] Trio line-power added = {len(line_power_added[:2])}")
+st.markdown("#### 戦術：三連複（◎入り3点／◎抜き3点）")
+st.write("◎入り3点",  [f"{int(a)}-{int(b)}-{int(c)}" for (a, b, c, _, _) in top3_in])
+st.write("◎抜き3点", [f"{int(a)}-{int(b)}-{int(c)}" for (a, b, c, _, _) in top3_out])
+# ↓ デバッグ短文（任意）：ライン枠が何件入ったかだけ確認
+# st.caption(f"[DBG] Trio line-power added = {len(line_power_added[:2])}")
 
 
 
