@@ -1042,9 +1042,11 @@ mu = float(df["合計_SBなし_raw"].mean()) if not df.empty else 0.0
 df["合計_SBなし"] = mu + 1.0 * (df["合計_SBなし_raw"] - mu)
 
 # === [PATCH-A] 安定度をENVから分離し、各柱をレース内z化（SD固定） ===
-SD_FORM = 0.28   # Balanced
+SD_FORM = 0.28
 SD_ENV  = 0.20
 SD_STAB = 0.12
+SD_L200 = float(globals().get("SD_L200", 0.22))  # ← 追加。まず0.22〜0.30で様子見
+
 
 # 安定度（raw）と、ENVのベース（= 合計_SBなし_raw から安定度だけ除いたもの）
 STAB_RAW = {int(df.loc[i, "車番"]): float(df.loc[i, "安定度"]) for i in df.index}
@@ -1075,6 +1077,16 @@ else:
     mu_st, sd_st = 0.0, 1.0
 _den_st = (sd_st if sd_st > 1e-12 else 1.0)
 STAB_Z = {int(n): (float(STAB_RAW.get(n, mu_st)) - mu_st) / _den_st for n in active_cars}
+
+# L200（残脚）→ z
+_l200_arr = np.array([float(L200_RAW.get(n, np.nan)) for n in active_cars], dtype=float)
+_m3 = np.isfinite(_l200_arr)
+if int(_m3.sum()) >= 2:
+    mu_l2 = float(np.mean(_l200_arr[_m3])); sd_l2 = float(np.std(_l200_arr[_m3]))
+else:
+    mu_l2, sd_l2 = 0.0, 1.0
+_den_l2 = (sd_l2 if sd_l2 > 1e-12 else 1.0)
+L200_Z = {int(n): (float(L200_RAW.get(n, mu_l2)) - mu_l2) / _den_l2 for n in active_cars}
 
 
 # ===== KO方式（印に混ぜず：展開・ケンで利用） =====
@@ -1184,22 +1196,15 @@ bonus_init,_ = compute_lineSB_bonus(
 
 def anchor_score(no: int) -> float:
     role = role_in_line(no, line_def)
-
-    # 同ラインSBボーナス・位置ペナは既存のまま
-    sb = float(
-        bonus_init.get(car_to_group.get(no, None), 0.0)
-        * (pos_coeff(role, 1.0) if line_sb_enable else 0.0)
-    )
-    pos_term = POS_WEIGHT * POS_BONUS.get(_pos_idx(no), 0.0)
-
-    # SD固定スケールの柱
+    sb = float(bonus_init.get(car_to_group.get(no, None), 0.0) * (pos_coeff(role, 1.0) if line_sb_enable else 0.0))
+    pos_term  = POS_WEIGHT * POS_BONUS.get(_pos_idx(no), 0.0)
     env_term  = SD_ENV  * float(ENV_Z.get(int(no), 0.0))
     form_term = SD_FORM * float(FORM_Z.get(int(no), 0.0))
-    stab_term = (SD_STAB * float(STAB_Z.get(int(no), 0.0))) if 'STAB_Z' in globals() else 0.0
+    stab_term = SD_STAB * float(STAB_Z.get(int(no), 0.0))
+    l200_term = SD_L200 * float(L200_Z.get(int(no), 0.0))   # ← 追加
+    tiny      = SMALL_Z_RATING * float(zt_map.get(int(no), 0.0))
+    return env_term + form_term + stab_term + l200_term + sb + pos_term + tiny
 
-    tiny = SMALL_Z_RATING * float(zt_map.get(int(no), 0.0))  # 微小の得点Z
-
-    return env_term + form_term + stab_term + sb + pos_term + tiny
 
 
 # === デバッグ表示（必要なときだけ / anchor_score定義の後, 印出力の前） ===
