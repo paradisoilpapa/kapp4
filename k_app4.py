@@ -1695,6 +1695,69 @@ def cutoff_mu_sig_vs_top(xs, sig_div, top_frac):
     cutoff_topq = float(np.partition(xs, -q)[-q]) if xs else cutoff_mu_sig
     return max(cutoff_mu_sig, cutoff_topq)
 
+# ---- ユニーク化 & 自己重複ガード（共通ヘルパ：一度だけ読み込めばOK） ----
+if "_uniq_trio" not in globals():
+
+    def _uniq_trio(rows):
+        """三連複: (a,b,c,s,tag) → 三者相違 & 昇順キーで一意化"""
+        seen, out = set(), []
+        for a,b,c,s,tag in rows:
+            a, b, c = int(a), int(b), int(c)
+            if len({a,b,c}) < 3:
+                continue
+            key = tuple(sorted((a,b,c)))
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append((key[0], key[1], key[2], s, tag))
+        return out
+
+    def _uniq_trifecta(rows):
+        """三連単: (a,b,c,s,tag) → 三者相違 & 並び固定で一意化"""
+        seen, out = set(), []
+        for a,b,c,s,tag in rows:
+            a, b, c = int(a), int(b), int(c)
+            if len({a,b,c}) < 3:
+                continue
+            key = (a,b,c)
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append((a,b,c,s,tag))
+        return out
+
+    def _uniq_qn(rows):
+        """二車複: (a,b,s,tag) → a!=b、昇順キーで一意化"""
+        seen, out = set(), []
+        for a,b,s,tag in rows:
+            a, b = int(a), int(b)
+            if a == b:
+                continue
+            key = tuple(sorted((a,b)))
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append((key[0], key[1], s, tag))
+        return out
+
+    def _uniq_nitan(rows):
+        """二車単: ("a-b", s, tag) → a!=b、並び固定で一意化"""
+        seen, out = set(), []
+        for k, s, tag in rows:
+            try:
+                a, b = map(int, str(k).split("-"))
+            except Exception:
+                continue
+            if a == b:
+                continue
+            key = f"{a}-{b}"
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append((key, s, tag))
+        return out
+
+
 # ===== 三連複（上位1/5 + ライン枠）＜LOCK付き＞ =====
 # 先頭にこれを置く：二重定義ガード
 if globals().get("__TRIO_LOCK__", False):
