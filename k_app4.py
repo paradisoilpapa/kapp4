@@ -972,13 +972,15 @@ for no in active_cars:
         + 0.05 * extra * (1.0 if prof_oikomi[no] > 0.4 else 0.0)
     ) * fatigue_scale
 
-   rows = []
+rows = []
 _wind_func = wind_adjust
 eff_wind_dir   = globals().get("eff_wind_dir", wind_dir)
 eff_wind_speed = globals().get("eff_wind_speed", wind_speed)
 
 for no in active_cars:
     role = role_in_line(no, line_def)
+    # ここに各種計算と rows.append(...) が続く
+
 
     # 周回疲労（DAY×頭数×級別を反映）
     extra = fatigue_extra(eff_laps, day_label, n_cars, race_class)
