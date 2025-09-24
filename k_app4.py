@@ -972,69 +972,69 @@ for no in active_cars:
         + 0.05 * extra * (1.0 if prof_oikomi[no] > 0.4 else 0.0)
     ) * fatigue_scale
 
-    # --- 環境・個人補正（既存） ---
-    wind     = _wind_func(eff_wind_dir, float(eff_wind_speed or 0.0), role, float(prof_escape[no]))
-    bank_b   = bank_character_bonus(bank_angle, straight_length, prof_escape[no], prof_sashi[no])
-    length_b = bank_length_adjust(bank_length, prof_oikomi[no])
-    indiv    = extra_bonus.get(no, 0.0)
-    stab     = stability_score(no)
-
-    # ★ 合計（SBなし）…ここには l200 は入れない（観測用に保持だけ）
-    total_raw = (prof_base[no] + wind + cf["spread"] * tens_corr.get(no, 0.0)
-                 + bank_b + length_b + laps_adj + indiv + stab)
-
-    rows.append([
-        int(no), role,
-        round(prof_base[no],3),
-        round(wind,3),
-        round(cf["spread"] * tens_corr.get(no, 0.0),3),
-        round(bank_b,3),
-        round(length_b,3),
-        round(laps_adj,3),
-        round(indiv,3),
-        round(stab,3),
-        total_raw
-    ])
-
-
+   rows = []
+_wind_func = wind_adjust
+eff_wind_dir   = globals().get("eff_wind_dir", wind_dir)
+eff_wind_speed = globals().get("eff_wind_speed", wind_speed)
 
 for no in active_cars:
     role = role_in_line(no, line_def)
 
     # 周回疲労（DAY×頭数×級別を反映）
     extra = fatigue_extra(eff_laps, day_label, n_cars, race_class)
-    fatigue_scale = (1.0 if race_class == "Ｓ級" else
-                     1.1 if race_class == "Ａ級" else
-                     1.2 if race_class == "Ａ級チャレンジ" else
-                     1.05)
+    fatigue_scale = (
+        1.0  if race_class == "Ｓ級" else
+        1.1  if race_class == "Ａ級" else
+        1.2  if race_class == "Ａ級チャレンジ" else
+        1.05
+    )
     laps_adj = (
         -0.10 * extra * (1.0 if prof_escape[no] > 0.5 else 0.0)
         + 0.05 * extra * (1.0 if prof_oikomi[no] > 0.4 else 0.0)
     ) * fatigue_scale
 
-    wind = _wind_func(eff_wind_dir, float(eff_wind_speed or 0.0), role, float(prof_escape[no]))
+    # 環境・個人補正（既存）
+    wind     = _wind_func(eff_wind_dir, float(eff_wind_speed or 0.0), role, float(prof_escape[no]))
     bank_b   = bank_character_bonus(bank_angle, straight_length, prof_escape[no], prof_sashi[no])
     length_b = bank_length_adjust(bank_length, prof_oikomi[no])
-    indiv = extra_bonus.get(no, 0.0)
-    stab  = stability_score(no)  # 安定度
-    l200  = last200_bonus(no, role)   # ★追加
+    indiv    = extra_bonus.get(no, 0.0)
+    stab     = stability_score(no)  # 安定度
+
+    # ★ ラスト200（必要なら last200_bonus を l200_adjust に変更）
+    l200 = l200_adjust(role, straight_length, bank_length, race_class,
+                   float(prof_escape[no]), float(prof_sashi[no]), float(prof_oikomi[no]),
+                   is_wet=st.session_state.get("is_wet", False))
 
 
-        total_raw = (prof_base[no] + wind + cf["spread"] * tens_corr.get(no, 0.0)
-                 + bank_b + length_b + laps_adj + indiv + stab
-                 + l200)  # ★追加
+    # ★ 合計（SBなし）…ここでは l200 も加算する版
+    total_raw = (
+        prof_base[no] +
+        wind +
+        cf["spread"] * tens_corr.get(no, 0.0) +
+        bank_b + length_b +
+        laps_adj + indiv + stab +
+        l200
+    )
 
-
-        rows.append([int(no), role, round(prof_base[no],3), round(wind,3),
-                 round(cf["spread"] * tens_corr.get(no, 0.0),3),
-                 round(bank_b,3), round(length_b,3), round(laps_adj,3),
-                 round(indiv,3), round(stab,3), round(l200,3), total_raw])
-
+    rows.append([
+        int(no), role,
+        round(prof_base[no], 3),
+        round(wind, 3),
+        round(cf["spread"] * tens_corr.get(no, 0.0), 3),
+        round(bank_b, 3),
+        round(length_b, 3),
+        round(laps_adj, 3),
+        round(indiv, 3),
+        round(stab, 3),
+        round(l200, 3),
+        total_raw
+    ])
 
 df = pd.DataFrame(rows, columns=[
     "車番","役割","脚質基準(会場)","風補正","得点補正","バンク補正",
     "周長補正","周回補正","個人補正","安定度","ラスト200","合計_SBなし_raw",
 ])
+
 
 mu = float(df["合計_SBなし_raw"].mean()) if not df.empty else 0.0
 df["合計_SBなし"] = mu + 1.0 * (df["合計_SBなし_raw"] - mu)
