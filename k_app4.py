@@ -640,6 +640,46 @@ def fatigue_extra(eff_laps: int, day_label: str, n_cars: int, race_class: str) -
     x = (float(eff_laps) - 2.0) + d + c + h
     return max(0.0, x)
 
+# === PATCH-L200: 直線ラスト200mの残脚補正 =========================
+# 目的: 逃げ先行が直線で苦しくなる場面を少しだけ減点、差し・マークは微加点。
+# 強さはミッドナイト/短走路で少しだけ強めに。
+
+L200_ESC_PENALTY   = -0.06   # 逃げ(先行)の基礎マイナス
+L200_SASHI_BONUS   = +0.03   # 差しの基礎プラス
+L200_MARK_BONUS    = +0.02   # マーク(追込)の基礎プラス
+L200_MNIGHT_GAIN   = 1.20    # ミッドナイトの倍率
+L200_SHORT_GAIN    = 1.15    # 333mなど短走路の倍率
+L200_LONG_RELAX    = 0.90    # 直線長めはやや緩和
+L200_CAP           = 0.08    # 絶対値キャップ（安全弁）
+
+def last200_bonus(no: int, role: str) -> float:
+    """脚質×バンク条件からラスト200mの微調整を返す（±0.08程度）。"""
+    esc   = float(prof_escape.get(no, 0.0))
+    sashi = float(prof_sashi.get(no, 0.0))
+    mark  = float(prof_oikomi.get(no, 0.0))
+
+    # 基礎：脚質ミックス
+    base = (L200_ESC_PENALTY * esc) + (L200_SASHI_BONUS * sashi) + (L200_MARK_BONUS * mark)
+
+    # トラック条件
+    gain = 1.0
+    if race_time == "ミッドナイト":
+        gain *= L200_MNIGHT_GAIN
+    if float(bank_length) <= 360.0:
+        gain *= L200_SHORT_GAIN
+    if float(straight_length) >= 58.0:
+        gain *= L200_LONG_RELAX
+
+    # 位置（先頭＝重め、後ろ薄め）
+    pos_w = {'head': 1.00, 'second': 0.70, 'thirdplus': 0.55, 'single': 0.80}.get(role, 0.80)
+
+    val = base * gain * pos_w
+    # 会場バイアス（style>0=先行寄り→減点を少し緩める）
+    val *= (0.95 if style > 0 else 1.05)
+
+    return round(max(-L200_CAP, min(L200_CAP, val)), 3)
+# === PATCH-L200: ここまで ==========================================
+
 
 line_sb_enable = (race_class != "ガールズ")
 
@@ -873,20 +913,25 @@ for no in active_cars:
     length_b = bank_length_adjust(bank_length, prof_oikomi[no])
     indiv = extra_bonus.get(no, 0.0)
     stab  = stability_score(no)  # 安定度
+    l200  = last200_bonus(no, role)   # ★追加
 
-    total_raw = (prof_base[no] + wind + cf["spread"] * tens_corr.get(no, 0.0)
-                 + bank_b + length_b + laps_adj + indiv + stab)
 
-    rows.append([int(no), role, round(prof_base[no],3), round(wind,3),
+        total_raw = (prof_base[no] + wind + cf["spread"] * tens_corr.get(no, 0.0)
+                 + bank_b + length_b + laps_adj + indiv + stab
+                 + l200)  # ★追加
+
+
+        rows.append([int(no), role, round(prof_base[no],3), round(wind,3),
                  round(cf["spread"] * tens_corr.get(no, 0.0),3),
                  round(bank_b,3), round(length_b,3), round(laps_adj,3),
-                 round(indiv,3), round(stab,3), total_raw])
+                 round(indiv,3), round(stab,3), round(l200,3), total_raw])
 
 
 df = pd.DataFrame(rows, columns=[
     "車番","役割","脚質基準(会場)","風補正","得点補正","バンク補正",
-    "周長補正","周回補正","個人補正","安定度","合計_SBなし_raw",
+    "周長補正","周回補正","個人補正","安定度","ラスト200","合計_SBなし_raw",
 ])
+
 mu = float(df["合計_SBなし_raw"].mean()) if not df.empty else 0.0
 df["合計_SBなし"] = mu + 1.0 * (df["合計_SBなし_raw"] - mu)
 
