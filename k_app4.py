@@ -2025,6 +2025,63 @@ if star_id is not None and not tri_exc:
     cand.sort(key=lambda t: (-t[3], t[0], t[1], t[2]))
     tri_exc = cand[:3]
 
+# ====== Trioユーティリティ（戦術ブロックの直前に貼る） =====================
+
+def _is_valid_trio(a, b, c) -> bool:
+    """三連複候補として同一番号を排除（例: 1-5-5 を弾く）"""
+    try:
+        aa, bb, cc = int(a), int(b), int(c)
+    except Exception:
+        return False
+    return len({aa, bb, cc}) == 3
+
+def _trio_key(a, b, c):
+    """順不同の一意キー（1-3-4 と 4-3-1 を同一視）"""
+    aa, bb, cc = sorted(map(int, (a, b, c)))
+    return (aa, bb, cc)
+
+def _ensure_top3(primary_rows, fallback_rows, need=3):
+    """
+    primary_rows / fallback_rows: [(a,b,c,score,tag), ...]
+    1) primary からスコア優先で採用
+    2) 足りない分を fallback から補完
+    3) 1-5-5 等は無効、重複は1点化
+    4) 同点は偏差値T合計でタイブレーク
+    """
+    def _rank_tuple(row):
+        a, b, c, s, _ = row
+        # 同点時のタイブレークに偏差値T合計を使用（race_t が無い時は 150 扱い）
+        tsum = (
+            float((race_t.get(int(a), 50.0) if 'race_t' in globals() else 50.0)) +
+            float((race_t.get(int(b), 50.0) if 'race_t' in globals() else 50.0)) +
+            float((race_t.get(int(c), 50.0) if 'race_t' in globals() else 50.0))
+        )
+        return (float(s), float(tsum))
+
+    out, seen = [], set()
+
+    # primary → fallback の順に、(score desc, tsum desc) で採用
+    for src in (
+        sorted(primary_rows or [], key=_rank_tuple, reverse=True),
+        sorted(fallback_rows or [], key=_rank_tuple, reverse=True),
+    ):
+        for a, b, c, s, tag in src:
+            if not _is_valid_trio(a, b, c):
+                continue
+            k = _trio_key(a, b, c)
+            if k in seen:
+                continue
+            seen.add(k)
+            out.append((int(a), int(b), int(c), float(s), str(tag)))
+            if len(out) >= int(need):
+                return out
+    return out
+# ======================================================================
+
+
+
+
+
 # === 戦術（3連複）◎入り/◎抜き TOP3 を確率枠→（不足分）偏差値/ライン枠で補完 ===
 anchor = int(result_marks.get("◎", anchor_no)) if ("result_marks" in globals() and result_marks.get("◎") is not None) else int(anchor_no)
 
