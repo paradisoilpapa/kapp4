@@ -1977,55 +1977,13 @@ trios_filtered_display.extend(line_power_added[:2])
 trios_filtered_display = _uniq_trio(trios_filtered_display)
 n_trio = len(trios_filtered_display)
 
-# === 戦術：三連複「◎入り3点 / ◎抜き3点」 =========================
-try:
-    star_id = int(result_marks.get("◎")) if isinstance(result_marks, dict) else None
-except Exception:
-    star_id = None
+# ============================================================
+# 戦術：三連複「◎入り3点 / ◎抜き3点（印別3着率3位の印を軸）」全面交換版
+# ============================================================
 
-tri_inc, tri_exc = [], []
-if trios_filtered_display and star_id is not None:
-    # trios_filtered_display: (a,b,c,score,tag) の並び想定
-    tri_inc = [t for t in trios_filtered_display if star_id in t[:3]]
-    tri_exc = [t for t in trios_filtered_display if star_id not in t[:3]]
+import itertools
 
-    key_tri = lambda r: (-float(r[3]), int(r[0]), int(r[1]), int(r[2]))
-    tri_inc = sorted(tri_inc, key=key_tri)[:3]
-    tri_exc = sorted(tri_exc, key=key_tri)[:3]
-
-    # ◎抜き3点のフォールバック（tri_excが空なら、形成済みの列 or 全組合せから上位3点を拾う）
-if star_id is not None and not tri_exc:
-    pool_triples = set()
-    try:
-        # L1-L2-L3 があれば優先（フォーメーション内で取りにいく）
-        if L1 and L2 and L3:
-            for a in L1:
-                for b in L2:
-                    for c in L3:
-                        if len({a,b,c}) == 3 and star_id not in (a,b,c):
-                            pool_triples.add(tuple(sorted((int(a), int(b), int(c)))))
-        else:
-            # 無ければ全車のC(n,3)から◎抜きを収集
-            from itertools import combinations
-            for a, b, c in combinations(map(int, USED_IDS), 3):
-                if star_id not in (a, b, c):
-                    pool_triples.add(tuple(sorted((a, b, c))))
-    except Exception:
-        pool_triples = set()
-
-    cand = []
-    for a, b, c in pool_triples:
-        try:
-            s = _trio_score(int(a), int(b), int(c))  # 既存のS合計関数を再利用
-        except Exception:
-            # 念のためrace_t直足しでも可
-            s = float(race_t.get(int(a), 50.0)) + float(race_t.get(int(b), 50.0)) + float(race_t.get(int(c), 50.0))
-        cand.append((int(a), int(b), int(c), float(s), "フォールバック"))
-
-    cand.sort(key=lambda t: (-t[3], t[0], t[1], t[2]))
-    tri_exc = cand[:3]
-
-# ====== Trioユーティリティ（戦術ブロックの直前に貼る） =====================
+# ---------------- ユーティリティ ----------------
 
 def _is_valid_trio(a, b, c) -> bool:
     """三連複候補として同一番号を排除（例: 1-5-5 を弾く）"""
@@ -2052,15 +2010,13 @@ def _ensure_top3(primary_rows, fallback_rows, need=3):
         a, b, c, s, _ = row
         # 同点時のタイブレークに偏差値T合計を使用（race_t が無い時は 150 扱い）
         tsum = (
-            float((race_t.get(int(a), 50.0) if 'race_t' in globals() else 50.0)) +
-            float((race_t.get(int(b), 50.0) if 'race_t' in globals() else 50.0)) +
-            float((race_t.get(int(c), 50.0) if 'race_t' in globals() else 50.0))
+            float((race_t.get(int(a), 50.0) if 'race_t' in globals() and isinstance(race_t, dict) else 50.0)) +
+            float((race_t.get(int(b), 50.0) if 'race_t' in globals() and isinstance(race_t, dict) else 50.0)) +
+            float((race_t.get(int(c), 50.0) if 'race_t' in globals() and isinstance(race_t, dict) else 50.0))
         )
         return (float(s), float(tsum))
 
     out, seen = [], set()
-
-    # primary → fallback の順に、(score desc, tsum desc) で採用
     for src in (
         sorted(primary_rows or [], key=_rank_tuple, reverse=True),
         sorted(fallback_rows or [], key=_rank_tuple, reverse=True),
@@ -2076,45 +2032,218 @@ def _ensure_top3(primary_rows, fallback_rows, need=3):
             if len(out) >= int(need):
                 return out
     return out
-# ======================================================================
 
+def _safe_iter(lst):
+    return lst if isinstance(lst, (list, tuple)) else []
 
+def _get_used_ids():
+    try:
+        return sorted(map(int, globals().get("USED_IDS", [])))
+    except Exception:
+        return []
 
+def _trio_score_safe(a, b, c):
+    # 既存の _trio_score があれば使い、無ければ偏差値T合計で代替
+    try:
+        if "_trio_score" in globals() and callable(globals()["_trio_score"]):
+            return float(globals()["_trio_score"](int(a), int(b), int(c)))
+    except Exception:
+        pass
+    rt = globals().get("race_t", {}) if isinstance(globals().get("race_t", {}), dict) else {}
+    return float(rt.get(int(a), 50.0)) + float(rt.get(int(b), 50.0)) + float(rt.get(int(c), 50.0))
 
+# -------- 印別3着率「3番手の印」を得る（可変：RANK_STATS_*を参照） --------
 
-# === 戦術（3連複）◎入り/◎抜き TOP3 を確率枠→（不足分）偏差値/ライン枠で補完 ===
-anchor = int(result_marks.get("◎", anchor_no)) if ("result_marks" in globals() and result_marks.get("◎") is not None) else int(anchor_no)
+def _third_symbol_by_top3(stats: dict) -> str:
+    """
+    印別集計(stats)から3着内率pTop3で3番手の印を返す。
+    stats 例:
+      {"◎":{"pTop3":0.714}, "〇":{"pTop3":0.524}, ...}
+    """
+    if not isinstance(stats, dict):
+        return "△"
+    cand = []
+    for k, v in stats.items():
+        if k in ("◎", "〇", "▲", "△", "×", "α", "無"):
+            try:
+                cand.append((k, float(v.get("pTop3", 0.0))))
+            except Exception:
+                cand.append((k, 0.0))
+    cand.sort(key=lambda x: x[1], reverse=True)
+    return cand[2][0] if len(cand) >= 3 else ("△" if cand else "△")
 
-# 確率枠の三連複候補（あなたの“確率枠”リスト名に合わせて差し替え可）
-# 形式は [(a,b,c,score,"確率枠"), ...] に揃える
-prob_trio_rows = trios_prob_filtered if "trios_prob_filtered" in globals() else []
+def _active_rank_stats():
+    # 優先順：RANK_STATS_CURRENT > RANK_STATS_F2 > RANK_STATS
+    if "RANK_STATS_CURRENT" in globals() and isinstance(RANK_STATS_CURRENT, dict):
+        return RANK_STATS_CURRENT
+    if "RANK_STATS_F2" in globals() and isinstance(RANK_STATS_F2, dict):
+        return RANK_STATS_F2
+    return globals().get("RANK_STATS", {}) if isinstance(globals().get("RANK_STATS", {}), dict) else {}
 
-# 偏差値/ライン枠（既存の三連複リスト）
-score_trio_rows = trios_filtered_display if "trios_filtered_display" in globals() else []
+def _pick_axis_id_for_symbol(symbol: str):
+    """
+    与えられた印(symbol)の選手群から、race_t優先で“軸となる1頭”を返す。
+    """
+    rm = globals().get("result_marks", {})
+    if not isinstance(rm, dict):
+        return None
+    cand_ids = []
+    for k, v in rm.items():
+        try:
+            if str(v) == str(symbol):
+                cand_ids.append(int(k))
+        except Exception:
+            continue
+    if not cand_ids:
+        return None
+    def _axis_score(i):
+        t = float(globals().get("race_t", {}).get(int(i), 50.0)) if isinstance(globals().get("race_t", {}), dict) else 50.0
+        return (t, -int(i))  # 偏差値T優先・同点は番号小さい方
+    cand_ids.sort(key=_axis_score, reverse=True)
+    return cand_ids[0]
 
-# ◎入り
-base_in  = [(a, b, c, s, tag) for (a, b, c, s, tag) in (prob_trio_rows or [])  if anchor in (a, b, c)]
-fb_in    = [(a, b, c, s, tag) for (a, b, c, s, tag) in (score_trio_rows or []) if anchor in (a, b, c)]
+# -------- フォールバック生成（◎側が2点以下など不足時に使用） --------
+
+def _gen_anchor_trios_fallback(anchor_id: int, max_take: int = 12):
+    """
+    ◎(anchor_id)を必ず含む三連複候補を生成。
+    1) L1-L2-L3 があればそれを優先
+    2) 無ければ USED_IDS から C(n-1, 2)（◎+2頭）を全列挙
+    戻り値: [(a,b,c,score,"FB◎"), ...] スコア降順
+    """
+    pool = set()
+    L1 = globals().get("L1"); L2 = globals().get("L2"); L3 = globals().get("L3")
+    try:
+        if L1 and L2 and L3:
+            for a in _safe_iter(L1):
+                for b in _safe_iter(L2):
+                    for c in _safe_iter(L3):
+                        tup = tuple(sorted(map(int, (a, b, c))))
+                        if anchor_id in tup and _is_valid_trio(*tup):
+                            pool.add(tup)
+        else:
+            ids = _get_used_ids()
+            others = [i for i in ids if i != int(anchor_id)]
+            for x, y in itertools.combinations(others, 2):
+                tup = tuple(sorted((int(anchor_id), int(x), int(y))))
+                if _is_valid_trio(*tup):
+                    pool.add(tup)
+    except Exception:
+        pool = set()
+
+    rows = []
+    for a, b, c in pool:
+        s = _trio_score_safe(a, b, c)
+        rows.append((int(a), int(b), int(c), float(s), "FB◎"))
+    rows.sort(key=lambda t: (-t[3], t[0], t[1], t[2]))
+    return rows[:max_take]
+
+# ============================================================
+# ここから本体：三連複「◎入り3点 / ◎抜き3点」
+# ============================================================
+
+# ◎（anchor）取得：result_marks["◎"] が優先、無ければ anchor_no
+try:
+    anchor = int(result_marks.get("◎")) if (isinstance(result_marks, dict) and result_marks.get("◎") is not None) else int(anchor_no)
+except Exception:
+    anchor = int(globals().get("anchor_no", 0) or 0)
+
+# 候補プール
+prob_trio_rows  = globals().get("trios_prob_filtered",  [])
+score_trio_rows = globals().get("trios_filtered_display", [])
+
+# ◎入り（一次候補）
+base_in  = [(a, b, c, float(s), str(tag)) for (a, b, c, s, tag) in (prob_trio_rows or [])  if anchor in (a, b, c)]
+fb_in    = [(a, b, c, float(s), str(tag)) for (a, b, c, s, tag) in (score_trio_rows or []) if anchor in (a, b, c)]
 top3_in  = _ensure_top3(base_in, fb_in, need=3)
 
-# ◎抜き
-base_out = [(a, b, c, s, tag) for (a, b, c, s, tag) in (prob_trio_rows or [])  if anchor not in (a, b, c)]
-fb_out   = [(a, b, c, s, tag) for (a, b, c, s, tag) in (score_trio_rows or []) if anchor not in (a, b, c)]
-top3_out = _ensure_top3(base_out, fb_out, need=3)
+# ◎入りが不足なら、◎固定フォールバックで必ず補完（←2点しか出ない問題の対策）
+if len(top3_in) < 3 and anchor:
+    seen_keys = {_trio_key(a, b, c) for (a, b, c, _, _) in top3_in}
+    fb_more = _gen_anchor_trios_fallback(anchor_id=int(anchor), max_take=24)
+    patched = list(top3_in)
+    for a, b, c, s, tag in fb_more:
+        k = _trio_key(a, b, c)
+        if k in seen_keys:
+            continue
+        patched.append((a, b, c, s, tag))
+        seen_keys.add(k)
+        if len(patched) >= 3:
+            break
+    top3_in = patched
+
+# ---- ◎抜き（“印別3着率3位の印”の選手を必ず含む & ◎を含まない） ----
+RANK_STATS_ACTIVE = _active_rank_stats()
+non_star_symbol = _third_symbol_by_top3(RANK_STATS_ACTIVE)
+axis_id = _pick_axis_id_for_symbol(non_star_symbol)
+
+if axis_id is not None:
+    base_out_axis = [(a, b, c, float(s), str(tag)) for (a, b, c, s, tag) in (prob_trio_rows or [])
+                     if (anchor not in (a, b, c)) and (axis_id in (a, b, c))]
+    fb_out_axis   = [(a, b, c, float(s), str(tag)) for (a, b, c, s, tag) in (score_trio_rows or [])
+                     if (anchor not in (a, b, c)) and (axis_id in (a, b, c))]
+    top3_out = _ensure_top3(base_out_axis, fb_out_axis, need=3)
+else:
+    # 軸にしたい印の選手が存在しない等 → ◎抜きTOP3（従来）にフォールバック
+    base_out = [(a, b, c, float(s), str(tag)) for (a, b, c, s, tag) in (prob_trio_rows or [])  if anchor not in (a, b, c)]
+    fb_out   = [(a, b, c, float(s), str(tag)) for (a, b, c, s, tag) in (score_trio_rows or []) if anchor not in (a, b, c)]
+    top3_out = _ensure_top3(base_out, fb_out, need=3)
+
+# 万一、それでも◎が混入している組合せが入った場合に最終フィルタ（安全網）
+top3_out = [row for row in top3_out if anchor not in row[:3]]
+
+# tri_outが不足するケース（極端に候補が少ない等）は、◎抜き全列挙から補完
+if len(top3_out) < 3:
+    used_ids = _get_used_ids()
+    pool = set()
+    for a, b, c in itertools.combinations(used_ids, 3):
+        if anchor in (a, b, c):
+            continue
+        # 可能なら“axis_idを含む”組合せを優先
+        if axis_id is None or axis_id in (a, b, c):
+            pool.add(tuple(sorted((a, b, c))))
+    # それでも無ければ◎抜きの全組合せへ
+    if not pool:
+        for a, b, c in itertools.combinations(used_ids, 3):
+            if anchor not in (a, b, c):
+                pool.add(tuple(sorted((a, b, c))))
+    cand = []
+    seen_keys = {_trio_key(a, b, c) for (a, b, c, _, _) in top3_out}
+    for a, b, c in pool:
+        k = _trio_key(a, b, c)
+        if k in seen_keys:
+            continue
+        s = _trio_score_safe(a, b, c)
+        cand.append((a, b, c, s, "FB◎抜き"))
+    cand.sort(key=lambda t: (-t[3], t[0], t[1], t[2]))
+    for row in cand:
+        top3_out.append(row)
+        seen_keys.add(_trio_key(row[0], row[1], row[2]))
+        if len(top3_out) >= 3:
+            break
+
+# ---------------- 出力 ----------------
 
 def _fmt_trio_list(rows):
     return " / ".join(f"{int(a)}-{int(b)}-{int(c)}" for a, b, c, _, _ in rows) if rows else "—"
 
 st.markdown(
-    f"**戦術（3連複）** ◎入りTOP3: {_fmt_trio_list(top3_in)}　｜　◎抜きTOP3: {_fmt_trio_list(top3_out)}"
+    f"**戦術（三連複）** ◎入りTOP3: {_fmt_trio_list(top3_in)}　｜　◎抜きTOP3: {_fmt_trio_list(top3_out)}"
 )
-
 st.markdown("#### 戦術：三連複（◎入り3点／◎抜き3点）")
 st.write("◎入り3点",  [f"{int(a)}-{int(b)}-{int(c)}" for (a, b, c, _, _) in top3_in])
 st.write("◎抜き3点", [f"{int(a)}-{int(b)}-{int(c)}" for (a, b, c, _, _) in top3_out])
-# ↓ デバッグ短文（任意）：ライン枠が何件入ったかだけ確認
-# st.caption(f"[DBG] Trio line-power added = {len(line_power_added[:2])}")
 
+# デバッグ簡易ログ
+try:
+    dbg_in_src = len([1 for (a,b,c,s,tag) in (prob_trio_rows or []) if anchor in (a,b,c)])
+    dbg_in_fb  = len([1 for (a,b,c,s,tag) in (score_trio_rows or []) if anchor in (a,b,c)])
+    dbg_out_src = len([1 for (a,b,c,s,tag) in (prob_trio_rows or []) if anchor not in (a,b,c)])
+    dbg_out_fb  = len([1 for (a,b,c,s,tag) in (score_trio_rows or []) if anchor not in (a,b,c)])
+    st.caption(f"[DBG◎] base_in={dbg_in_src} / fb_in={dbg_in_fb} / result={len(top3_in)}（不足→FB◎で補完）")
+    st.caption(f"[DBG抜] base_out={dbg_out_src} / fb_out={dbg_out_fb} / result={len(top3_out)}（軸印={non_star_symbol} / 軸ID={axis_id}）")
+except Exception:
+    pass
 
 
 # ===== 三連単（◎〇固定・2列目◎〇▲・3列目=L3） =====
