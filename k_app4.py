@@ -2989,6 +2989,10 @@ def _note_nit(rows):
 # 見出し（共通ヘッダ）
 hdr = f"（グレード={grade_for_marks}／閾={hit_threshold*100:.0f}%）"
 
+# 互換エイリアス（下流で top3_in/out を参照しても落ちないよう同期）
+top3_in  = tri_inc
+top3_out = tri_exc
+
 # --- note: 戦術（◎入り3点／◎抜き3点） ---
 if (tri_inc or tri_exc):
     note_sections.append("\n戦術（3連複）")
