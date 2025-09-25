@@ -2989,18 +2989,19 @@ def _note_nit(rows):
 # 見出し（共通ヘッダ）
 hdr = f"（グレード={grade_for_marks}／閾={hit_threshold*100:.0f}%）"
 
-# 互換エイリアス（下流で top3_in/out を参照しても落ちないよう同期）
+# 互換エイリアス（この2行を note 出力の直前に）
 top3_in  = tri_inc
 top3_out = tri_exc
 
-# --- note: 戦術（◎入り3点／◎抜き3点） ---
-if (tri_inc or tri_exc):
-    note_sections.append("\n戦術（3連複）")
-    if tri_inc:
-        note_sections.append("確率枠◎入りTOP3: " + " / ".join(f"{int(a)}-{int(b)}-{int(c)}" for (a,b,c,_,_) in tri_inc))
-    if tri_exc:
-        note_sections.append("確率枠◎抜きTOP3: " + " / ".join(f"{int(a)}-{int(b)}-{int(c)}" for (a,b,c,_,_) in tri_exc))
-
+# --- note: 戦術（◎入り3点／◎抜き3点） ---  ← ここを丸ごと置き換え
+if (top3_in or top3_out):
+    inc_str = ", ".join(f"{int(a)}-{int(b)}-{int(c)}" for (a,b,c,_,_) in top3_in) if top3_in else "—"
+    exc_str = ", ".join(f"{int(a)}-{int(b)}-{int(c)}" for (a,b,c,_,_) in top3_out) if top3_out else "—"
+    note_sections.append(
+        "戦術（3連複）\n"
+        f"◎入り: {inc_str}\n"
+        f"◎抜き: {exc_str}"
+    )
 
 # 既存の note_sections に追記
 note_sections.append("\n――――――――――――――――――――")
