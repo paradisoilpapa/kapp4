@@ -2860,18 +2860,7 @@ note_sections.append("\n偏差値（風・ライン込み）")
 note_sections.append(_fmt_hen_lines(race_t, USED_IDS))
 note_sections.append(f"\nフォーメーション：{formation_label}")
 
-# 戦術（三連複）6点を note に追記
-note_sections.append("戦術：三連複『◎入り3点 / ◎抜き3点』")
 
-# ここから2行  ← 2874行の直前に挿入
-top3_in  = tri_inc
-top3_out = tri_exc
-# ここまで2行
-
-note_sections.append("◎入り: " + (", ".join(f"{a}-{b}-{c}" for a,b,c,_,_ in top3_in) if top3_in else "—"))
-
-note_sections.append("◎入り: " + (", ".join(f"{a}-{b}-{c}" for a,b,c,_,_ in top3_in) if top3_in else "—"))
-note_sections.append("◎抜き: " + (", ".join(f"{a}-{b}-{c}" for a,b,c,_,_ in top3_out) if top3_out else "—"))
 
 
 # --- 三連複 note ---
