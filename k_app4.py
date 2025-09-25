@@ -2991,85 +2991,82 @@ if (top3_in or top3_out):
         f"◎抜き: {exc_str}"
     )
 
-# ================== 【3着率ランキングフォーメーション】（堅牢版） ==================
-import itertools
+# ================== 【3着率ランキングフォーメーション】（堅牢・偏差値不使用） ==================
 
 def _active_rank_stats():
     if "RANK_STATS_CURRENT" in globals() and isinstance(RANK_STATS_CURRENT, dict): return RANK_STATS_CURRENT
     if "RANK_STATS_F2" in globals() and isinstance(RANK_STATS_F2, dict): return RANK_STATS_F2
     return globals().get("RANK_STATS", {}) if isinstance(globals().get("RANK_STATS", {}), dict) else {}
 
-def _rank_symbols_by_top3(stats: dict):
-    cand = []
-    for k, v in (stats or {}).items():
-        if k in ("◎","〇","▲","△","×","α","無"):
-            try: cand.append((k, float(v.get("pTop3", 0.0))))
-            except: cand.append((k, 0.0))
-    cand.sort(key=lambda x: x[1], reverse=True)
-    return [k for k,_ in cand]
+# 「○」→「〇」など記号を正規化
+def _norm_sym(s):
+    s = str(s).strip()
+    return "〇" if s == "○" else s
 
-def _pick_ids_for_symbol(symbol: str):
+# result_marks を {車番:int -> 印:str} に正規化（{印->車番}でもOKにする）
+def _id2sym():
     rm = globals().get("result_marks", {})
-    if not isinstance(rm, dict): return []
-    out = []
-    for k,v in rm.items():
+    if not isinstance(rm, dict): return {}
+    # 形判定：キーが数字orintなら {id->sym} とみなす
+    numeric_key = any(isinstance(k, int) or (isinstance(k, str) and k.isdigit()) for k in rm.keys())
+    d = {}
+    if numeric_key:
+        for k, v in rm.items():
+            try:
+                d[int(k)] = _norm_sym(v)
+            except:
+                pass
+    else:
+        # {印->車番} を反転
+        for sym, vid in rm.items():
+            try:
+                d[int(vid)] = _norm_sym(sym)
+            except:
+                pass
+    return d
+
+# 印を3着率(pTop3)で並べる（存在印だけ）
+def _symbols_by_pTop3_for_present(stats, present_syms):
+    cand = []
+    for sym in present_syms:
         try:
-            if str(v) == str(symbol):
-                out.append(int(k))
+            p = float(stats.get(sym, {}).get("pTop3", 0.0))
         except:
-            pass
-    # race_t優先、同点は番号小さい順
-    rt = globals().get("race_t", {}) if isinstance(globals().get("race_t", {}), dict) else {}
-    out.sort(key=lambda i: (float(rt.get(i, 50.0)), -i), reverse=True)
-    return out
+            p = 0.0
+        cand.append((sym, p))
+    cand.sort(key=lambda x: x[1], reverse=True)
+    return [sym for sym, _ in cand]
 
-def _fill_from_all_ids(exclude_set, need):
-    ids = sorted(map(int, globals().get("USED_IDS", [])))
-    rt  = globals().get("race_t", {}) if isinstance(globals().get("race_t", {}), dict) else {}
-    ids = [i for i in ids if i not in exclude_set]
-    ids.sort(key=lambda i: (float(rt.get(i, 50.0)), -i), reverse=True)
-    return ids[:need]
+# 指定印の車番を1つ選ぶ（偏差値使わず、単純に番号小さい順）
+def _pick_one_id(id2sym, symbol):
+    ids = sorted(i for i, s in id2sym.items() if _norm_sym(s) == _norm_sym(symbol))
+    return ids[0] if ids else None
 
-rank_stats = _active_rank_stats()
-symbols    = _rank_symbols_by_top3(rank_stats)
+# ---- 実処理 ----
+stats   = _active_rank_stats()
+id2sym  = _id2sym()
+present = set(_norm_sym(s) for s in id2sym.values() if s)
 
-axis_id = None
-partners = []
+# ランキング対象の印（存在する印のみ）
+rank_order = _symbols_by_pTop3_for_present(stats, present)
 
-if symbols:
-    # 軸：1位印から race_t 上位1名
-    axis_candidates = _pick_ids_for_symbol(symbols[0])
-    if axis_candidates:
-        axis_id = axis_candidates[0]
+axis_id, partners = None, []
 
-    # 相手：2〜5位印の全員から重複なしで集める
-    seen = set([axis_id]) if axis_id else set()
-    for sym in symbols[1:5]:
-        for pid in _pick_ids_for_symbol(sym):
-            if pid not in seen:
-                partners.append(pid); seen.add(pid)
-            if len(partners) >= 4:
-                break
-        if len(partners) >= 4:
-            break
+if rank_order:
+    # 1位印 → 軸
+    axis_sym = rank_order[0]
+    axis_id  = _pick_one_id(id2sym, axis_sym)
 
-    # まだ4人そろわなければ、他印→最後に全体から補完
-    if len(partners) < 4:
-        for sym in symbols[5:]:
-            for pid in _pick_ids_for_symbol(sym):
-                if pid not in seen:
-                    partners.append(pid); seen.add(pid)
-                if len(partners) >= 4: break
-            if len(partners) >= 4: break
+    # 2〜5位印 → 相手（各印から1人・番号小さい方）
+    for sym in rank_order[1:5]:
+        pid = _pick_one_id(id2sym, sym)
+        if pid is not None:
+            partners.append(pid)
 
-    if len(partners) < 4:
-        need = 4 - len(partners)
-        partners += _fill_from_all_ids(seen, need)
-
-# 出力
-if axis_id and partners:
-    partners_sorted = "".join(str(i) for i in sorted(partners))
-    formation_str = f"{axis_id}-{partners_sorted}-{partners_sorted}"
+# 出力（軸が取れたら、相手はあるだけ出す／不足はそのまま）
+if axis_id:
+    partners_str  = "".join(str(i) for i in sorted(set(partners)))
+    formation_str = f"{axis_id}-{partners_str}-{partners_str}" if partners_str else f"{axis_id}-—-—"
 else:
     formation_str = "—"
 
@@ -3078,6 +3075,8 @@ st.write(formation_str)
 
 if 'note_sections' in globals():
     note_sections.append("【3着率ランキングフォーメーション】 " + formation_str)
+# =================================================================================================
+
 # ======================================================================
 
 # 既存の note_sections に追記
