@@ -2991,6 +2991,58 @@ if (top3_in or top3_out):
         f"◎抜き: {exc_str}"
     )
 
+# ================== 【3着率ランキングフォーメーション】 ==================
+
+def _active_rank_stats():
+    if "RANK_STATS_CURRENT" in globals() and isinstance(RANK_STATS_CURRENT, dict):
+        return RANK_STATS_CURRENT
+    if "RANK_STATS_F2" in globals() and isinstance(RANK_STATS_F2, dict):
+        return RANK_STATS_F2
+    return globals().get("RANK_STATS", {}) if isinstance(globals().get("RANK_STATS", {}), dict) else {}
+
+def _rank_symbols_by_top3(stats: dict):
+    cand = []
+    for k, v in (stats or {}).items():
+        if k in ("◎","〇","▲","△","×","α","無"):
+            try:
+                cand.append((k, float(v.get("pTop3", 0.0))))
+            except:
+                cand.append((k, 0.0))
+    cand.sort(key=lambda x: x[1], reverse=True)
+    return [k for k,_ in cand]
+
+def _pick_ids_for_symbol(symbol: str):
+    rm = globals().get("result_marks", {})
+    if not isinstance(rm, dict): return []
+    return [int(k) for k,v in rm.items() if str(v) == str(symbol)]
+
+# ---- 実処理 ----
+rank_stats = _active_rank_stats()
+symbols_sorted = _rank_symbols_by_top3(rank_stats)
+
+axis_id, partner_ids = None, []
+if symbols_sorted:
+    axis_candidates = _pick_ids_for_symbol(symbols_sorted[0])
+    if axis_candidates:
+        axis_id = axis_candidates[0]  # 複数なら先頭
+    # 2位〜5位
+    for sym in symbols_sorted[1:5]:
+        partner_ids += _pick_ids_for_symbol(sym)
+
+if axis_id and partner_ids:
+    partners_str = "".join(str(i) for i in sorted(partner_ids))
+    formation_str = f"{axis_id}-{partners_str}-{partners_str}"
+else:
+    formation_str = "—"
+
+# ---- 出力 ----
+st.markdown("### 【3着率ランキングフォーメーション】")
+st.write(formation_str)
+
+if 'note_sections' in globals():
+    note_sections.append("【3着率ランキングフォーメーション】 " + formation_str)
+
+
 # 既存の note_sections に追記
 note_sections.append("\n――――――――――――――――――――")
 note_sections.append(f"◎おすすめ買目（印の実測率ベース）{hdr}")
