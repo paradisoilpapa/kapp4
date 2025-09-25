@@ -2256,11 +2256,10 @@ if len(tri_exc)<3:
         tri_exc.append((a,b,c,s,tag)); seen.add(k)
         if len(tri_exc)>=3: break
 
-# --- 表示 ---
 def _fmt_trio_list(rows): return " / ".join(f"{a}-{b}-{c}" for a,b,c,_,_ in rows) if rows else "—"
 st.markdown(f"**戦術（三連複）** ◎入り3点: {_fmt_trio_list(tri_inc)}　｜　◎抜き3点: {_fmt_trio_list(tri_exc)}")
-st.write("◎入り3点",  [f"{a}-{b}-{c}" for a,b,c,_,_ in tri_inc])
-st.write("◎抜き3点", [f"{a}-{b}-{c}" for a,b,c,_,_ in tri_exc])
+# st.write は削除
+
 
 
 # ===== 三連単（◎〇固定・2列目◎〇▲・3列目=L3） =====
