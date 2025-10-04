@@ -2930,11 +2930,6 @@ note_sections = []
 note_sections.append(f"{track}{race_no}R")
 note_sections.append(f"展開評価：{confidence}\n")
 
-# 点数
-note_sections.append("点数")
-note_sections.append(f"三連複　{n_trio}点　三連単　{n_triS}点")
-note_sections.append(f"二車複　{n_qn}点　二車単　{n_nit}点\n")
-
 note_sections.append(f"{race_time}　{race_class}")
 note_sections.append(f"ライン　{'　'.join([x for x in line_inputs if str(x).strip()])}")
 note_sections.append(f"スコア順（SBなし）　{_format_rank_from_array(USED_IDS, xs_base_raw)}")
