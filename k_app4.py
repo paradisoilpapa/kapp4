@@ -2948,7 +2948,7 @@ note_sections.append(f"{marks_str} 無{no_str}")
 # 偏差値 → フォーメーション
 note_sections.append("\n偏差値（風・ライン込み）")
 note_sections.append(_fmt_hen_lines(race_t, USED_IDS))
-note_sections.append(f"\nフォーメーション：{formation_label}")
+note_sections.append(f"\n【ライン重視フォーメーション】【ライン＋混戦フォーメーション】：{formation_label}")
 
 
 
