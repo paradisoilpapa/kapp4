@@ -259,10 +259,12 @@ def _stab_n0(n: int) -> int:
 # ユーティリティ
 # ==============================
 def clamp(x,a,b): return max(a, min(b, x))
+
 def zscore_list(arr):
     arr = np.array(arr, dtype=float)
     m, s = float(np.mean(arr)), float(np.std(arr))
     return np.zeros_like(arr) if s==0 else (arr-m)/s
+
 def zscore_val(x, xs):
     xs = np.array(xs, dtype=float); m, s = float(np.mean(xs)), float(np.std(xs))
     return 0.0 if s==0 else (float(x)-m)/s
@@ -285,11 +287,13 @@ def t_score_from_finite(values: np.ndarray, eps: float = 1e-9):
 def extract_car_list(s, nmax):
     s = str(s or "").strip()
     return [int(c) for c in s if c.isdigit() and 1 <= int(c) <= nmax]
+
 def build_line_maps(lines):
     labels = "ABCDEFG"
     line_def = {labels[i]: lst for i,lst in enumerate(lines) if lst}
     car_to_group = {c:g for g,mem in line_def.items() for c in mem}
     return line_def, car_to_group
+
 def role_in_line(car, line_def):
     for g, mem in line_def.items():
         if car in mem:
@@ -297,9 +301,11 @@ def role_in_line(car, line_def):
             idx = mem.index(car)
             return ['head','second','thirdplus'][idx] if idx<3 else 'thirdplus'
     return 'single'
+
 def pos_coeff(role, line_factor):
     base = {'head':1.0,'second':0.7,'thirdplus':0.5,'single':0.9}.get(role,0.9)
     return base * line_factor
+
 def tenscore_correction(tenscores):
     n = len(tenscores)
     if n<=2: return [0.0]*n
@@ -313,6 +319,19 @@ def tenscore_correction(tenscores):
 
 def wind_adjust(wind_dir, wind_speed, role, prof_escape):
     s = max(0.0, float(wind_speed))
+    WIND_ZERO   = float(globals().get("WIND_ZERO", 0.0))
+    WIND_SIGN   = float(globals().get("WIND_SIGN", 1.0))
+    WIND_GAIN   = float(globals().get("WIND_GAIN", 1.0))  # 33では別処理で0.5倍にしておく想定
+    WIND_CAP    = float(globals().get("WIND_CAP", 0.06))
+    WIND_MODE   = globals().get("WIND_MODE", "scalar")
+    WIND_COEFF  = globals().get("WIND_COEFF", {})
+    SPECIAL_DIRECTIONAL_VELODROMES = globals().get("SPECIAL_DIRECTIONAL_VELODROMES", set())
+    s_state_track = None
+    try:
+        s_state_track = st.session_state.get("track", "")
+    except Exception:
+        pass
+
     if s <= WIND_ZERO:
         base = 0.0
     elif s <= 5.0:
@@ -321,29 +340,41 @@ def wind_adjust(wind_dir, wind_speed, role, prof_escape):
         base = 0.021 + 0.008 * (s - 5.0)
     else:
         base = 0.045 + 0.010 * min(s - 8.0, 4.0)
+
     pos = {'head':1.00,'second':0.85,'single':0.75,'thirdplus':0.65}.get(role, 0.75)
     prof = 0.35 + 0.65*float(prof_escape)
     val = base * pos * prof
-    if (WIND_MODE == "directional") or (s >= 7.0 and st.session_state.get("track", "") in SPECIAL_DIRECTIONAL_VELODROMES):
+
+    if (WIND_MODE == "directional") or (s >= 7.0 and s_state_track in SPECIAL_DIRECTIONAL_VELODROMES):
         wd = WIND_COEFF.get(wind_dir, 0.0)
         dir_term = clamp(s * wd * (0.30 + 0.70*float(prof_escape)) * 0.6, -0.03, 0.03)
         val += dir_term
+
     val = (val * float(WIND_SIGN)) * float(WIND_GAIN)
     return round(clamp(val, -float(WIND_CAP), float(WIND_CAP)), 3)
 
 
-
-# === 直線ラスト200m（残脚）補正 =========================================
-L200_ESC_PENALTY = float(globals().get("L200_ESC_PENALTY", -0.06))  # 先行は垂れやすい
+# === 直線ラスト200m（残脚）補正｜33バンク対応版 ==============================
+# 33（<=340m）は「先行ペナ弱め／差し・追込ボーナス控えめ」へ最適化
+L200_ESC_PENALTY = float(globals().get("L200_ESC_PENALTY", -0.06))  # 先行は垂れやすい（基本）
 L200_SASHI_BONUS = float(globals().get("L200_SASHI_BONUS", +0.03))  # 差しは伸びやすい
 L200_MARK_BONUS  = float(globals().get("L200_MARK_BONUS",  +0.02))  # 追込は少し上げ
+
 L200_GRADE_GAIN  = globals().get("L200_GRADE_GAIN", {
     "F2": 1.18, "F1": 1.10, "G": 1.05, "GIRLS": 0.95, "TOTAL": 1.00
 })
-L200_SHORT_GAIN  = float(globals().get("L200_SHORT_GAIN", 1.15))    # 333mなど短走路で効き増
-L200_LONG_RELAX  = float(globals().get("L200_LONG_RELAX", 0.90))    # 直線長いバンクで緩和
-L200_CAP         = float(globals().get("L200_CAP", 0.08))           # 絶対値キャップ
-L200_WET_GAIN    = float(globals().get("L200_WET_GAIN", 1.15))      # 雨（任意で増幅）
+
+# 短走路増幅：旧1.15 → 33はむしろ緩和（0.85）
+L200_SHORT_GAIN_33   = float(globals().get("L200_SHORT_GAIN_33", 0.85))
+L200_SHORT_GAIN_OTH  = float(globals().get("L200_SHORT_GAIN_OTH", 1.00))
+L200_LONG_RELAX      = float(globals().get("L200_LONG_RELAX", 0.90))
+L200_CAP             = float(globals().get("L200_CAP", 0.08))
+L200_WET_GAIN        = float(globals().get("L200_WET_GAIN", 1.15))
+
+# 33専用 成分別スケーリング
+L200_33_ESC_MULT   = float(globals().get("L200_33_ESC_MULT", 0.80))  # 逃ペナ 20%縮小
+L200_33_SASHI_MULT = float(globals().get("L200_33_SASHI_MULT", 0.85))# 差し  15%縮小
+L200_33_MARK_MULT  = float(globals().get("L200_33_MARK_MULT", 0.90)) # 追込  10%縮小
 
 def _grade_key_from_class(race_class: str) -> str:
     if "ガール" in race_class: return "GIRLS"
@@ -364,20 +395,34 @@ def l200_adjust(role: str,
     ラスト200mの“残脚”を脚質×バンク×グレードで調整した無次元値（±）を返す。
     ※ ENV合計（total_raw）には足さず、独立柱として z 化→anchor_score へ。
     """
-    base = (
-        L200_ESC_PENALTY * float(prof_escape) +
-        L200_SASHI_BONUS * float(prof_sashi)  +
-        L200_MARK_BONUS  * float(prof_oikomi)
-    )
-    if float(bank_length) <= 340.0:      # 333m系など短走路
-        base *= L200_SHORT_GAIN
-    if float(straight_length) >= 60.0:   # 直線が長いバンク
+    esc_term   = L200_ESC_PENALTY * float(prof_escape)
+    sashi_term = L200_SASHI_BONUS * float(prof_sashi)
+    mark_term  = L200_MARK_BONUS  * float(prof_oikomi)
+
+    is_33 = float(bank_length) <= 340.0
+    if is_33:
+        esc_term   *= L200_33_ESC_MULT
+        sashi_term *= L200_33_SASHI_MULT
+        mark_term  *= L200_33_MARK_MULT
+
+    base = esc_term + sashi_term + mark_term
+
+    if is_33:
+        base *= L200_SHORT_GAIN_33
+    else:
+        base *= L200_SHORT_GAIN_OTH
+
+    if float(straight_length) >= 60.0:
         base *= L200_LONG_RELAX
+
     base *= float(L200_GRADE_GAIN.get(_grade_key_from_class(race_class), 1.0))
+
     if is_wet:
         base *= L200_WET_GAIN
+
     pos_factor = {'head':1.00,'second':0.85,'thirdplus':0.70,'single':0.80}.get(role, 0.80)
     base *= pos_factor
+
     return round(clamp(base, -float(L200_CAP), float(L200_CAP)), 3)
 
 
@@ -386,20 +431,51 @@ def bank_character_bonus(bank_angle, straight_length, prof_escape, prof_sashi):
     angle_factor = (float(bank_angle)-25.0)/5.0
     total = clamp(-0.1*straight_factor + 0.1*angle_factor, -0.05, 0.05)
     return round(total*prof_escape - 0.5*total*prof_sashi, 3)
+
 def bank_length_adjust(bank_length, prof_oikomi):
     delta = clamp((float(bank_length)-411.0)/100.0, -0.05, 0.05)
     return round(delta*prof_oikomi, 3)
 
 def compute_lineSB_bonus(line_def, S, B, line_factor=1.0, exclude=None, cap=0.06, enable=True):
+    """
+    33m系（<=340）では自動で効きを半減：
+      - LINE_SB_33_MULT（既定0.5）を line_factor に乗算
+      - LINE_SB_CAP_33_MULT（既定0.5）を cap に乗算
+    bank_length は以下で推定：
+      - st.session_state['bank_length'] or ['track_length'] があれば使用
+      - なければ globals()['BANK_LENGTH'] があれば使用
+      - いずれも無ければ通常通り
+    """
     if not enable or not line_def:
-        return {g:0.0 for g in line_def.keys()} if line_def else {}, {}
+        return ({g:0.0 for g in line_def.keys()} if line_def else {}), {}
+
+    # === 33かどうかの自動推定 ===
+    bank_len = None
+    try:
+        bank_len = st.session_state.get("bank_length", st.session_state.get("track_length", None))
+    except Exception:
+        bank_len = globals().get("BANK_LENGTH", None)
+
+    eff_line_factor = float(line_factor)
+    eff_cap = float(cap)
+
+    if bank_len is not None:
+        try:
+            if float(bank_len) <= 340.0:
+                mult = float(globals().get("LINE_SB_33_MULT", 0.50))
+                capm = float(globals().get("LINE_SB_CAP_33_MULT", 0.50))
+                eff_line_factor *= mult
+                eff_cap *= capm
+        except Exception:
+            pass
+
     w_pos_base = {'head':1.0,'second':0.4,'thirdplus':0.2,'single':0.7}
     Sg, Bg = {}, {}
     for g, mem in line_def.items():
         s=b=0.0
         for car in mem:
             if exclude is not None and car==exclude: continue
-            w = w_pos_base[role_in_line(car, line_def)] * line_factor
+            w = w_pos_base[role_in_line(car, line_def)] * eff_line_factor
             s += w*float(S.get(car,0)); b += w*float(B.get(car,0))
         Sg[g]=s; Bg[g]=b
     raw={}
@@ -408,7 +484,7 @@ def compute_lineSB_bonus(line_def, S, B, line_factor=1.0, exclude=None, cap=0.06
         ratioS = s/(s+b+1e-6)
         raw[g] = (0.6*b + 0.4*s) * (0.6 + 0.4*ratioS)
     zz = zscore_list(list(raw.values())) if raw else []
-    bonus={g: clamp(0.02*float(zz[i]), -cap, cap) for i,g in enumerate(raw.keys())}
+    bonus={g: clamp(0.02*float(zz[i]), -eff_cap, eff_cap) for i,g in enumerate(raw.keys())}
     return bonus, raw
 
 def input_float_text(label: str, key: str, placeholder: str = "") -> float | None:
@@ -425,6 +501,7 @@ def _role_of(car, mem):
     if len(mem)==1: return 'single'
     i = mem.index(car)
     return ['head','second','thirdplus'][i] if i<3 else 'thirdplus'
+
 def _line_strength_raw(line_def, S, B, line_factor=1.0):
     if not line_def: return {}
     w_pos = {'head':1.0,'second':0.4,'thirdplus':0.2,'single':0.7}
@@ -432,21 +509,24 @@ def _line_strength_raw(line_def, S, B, line_factor=1.0):
     for g, mem in line_def.items():
         s=b=0.0
         for c in mem:
-            w = w_pos[_role_of(c, mem)] * line_factor
+            w = w_pos[_role_of(c, mem)] * float(line_factor)
             s += w*float(S.get(c,0)); b += w*float(B.get(c,0))
         ratioS = s/(s+b+1e-6)
         raw[g] = (0.6*b + 0.4*s) * (0.6 + 0.4*ratioS)
     return raw
+
 def _top2_lines(line_def, S, B, line_factor=1.0):
     raw = _line_strength_raw(line_def, S, B, line_factor)
     order = sorted(raw.keys(), key=lambda g: raw[g], reverse=True)
     return (order[0], order[1]) if len(order)>=2 else (order[0], None) if order else (None, None)
+
 def _extract_role_car(line_def, gid, role_name):
     if gid is None or gid not in line_def: return None
     mem = line_def[gid]
     if role_name=='head':    return mem[0] if len(mem)>=1 else None
     if role_name=='second':  return mem[1] if len(mem)>=2 else None
     return None
+
 def _ko_order(v_base_map, line_def, S, B, line_factor=1.0, gap_delta=0.010):
     cars = list(v_base_map.keys())
     if not line_def or len(line_def)<1:
@@ -516,6 +596,7 @@ def format_rank_all(score_map: dict[int,float], P_floor_val: float | None = None
         else:
             rows.append(f"{i}" if score_map[i] >= P_floor_val else f"{i}(P未満)")
     return " ".join(rows)
+
 
 # ==============================
 # 風の自動取得（Open-Meteo / 時刻固定）
