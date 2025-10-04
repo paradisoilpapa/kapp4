@@ -2930,10 +2930,6 @@ note_sections = []
 note_sections.append(f"{track}{race_no}R")
 note_sections.append(f"展開評価：{confidence}\n")
 
-# 点数
-note_sections.append("点数")
-note_sections.append(f"三連複　{n_trio}点　三連単　{n_triS}点")
-note_sections.append(f"二車複　{n_qn}点　二車単　{n_nit}点\n")
 
 note_sections.append(f"{race_time}　{race_class}")
 note_sections.append(f"ライン　{'　'.join([x for x in line_inputs if str(x).strip()])}")
@@ -2948,7 +2944,8 @@ note_sections.append(f"{marks_str} 無{no_str}")
 # 偏差値 → フォーメーション
 note_sections.append("\n偏差値（風・ライン込み）")
 note_sections.append(_fmt_hen_lines(race_t, USED_IDS))
-note_sections.append(f"\nフォーメーション：{formation_label}")
+note_sections.append(f"\n【ライン重視フォーメーション】
+【ライン＋混戦フォーメーション】：{formation_label}")
 
 
 
