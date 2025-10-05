@@ -2917,7 +2917,7 @@ st.caption("上の4表は既存候補と“しきい値クリア”の交差済�
 
 
 # =========================
-#  note 出力（最後にまとめて）
+#  note 出力（最後にまとめて）〈貼り替え版〉
 # =========================
 
 # ==== 出力直前：狙いたいレースをこの場で再計算（安全版） ====
@@ -2929,7 +2929,7 @@ except NameError:
     def _parse_lines(_line_inputs, nmax: int):
         groups = []
         for s in _line_inputs:
-            ids = extract_car_list(s, nmax)  # 既存ユーティリティ
+            ids = extract_car_list(s, nmax)  # 既存ユーティリティ想定
             if ids:
                 groups.append(ids)
         return groups
@@ -2939,6 +2939,13 @@ try:
     _is_target_by_3line  # type: ignore
 except NameError:
     def _is_target_by_3line(groups: list[list[int]], dev_map: dict[int, float], anchor_no: int | None) -> bool:
+        """
+        前提A：3車ラインが存在、他ラインは同数かそれ以下
+        条件B：3車ライン合計<=151
+        条件C：3車ラインの下位2平均 < 単騎max
+        かつ ◎がその3車ラインに含まれていない
+        → A かつ (B または C)
+        """
         singles = [g[0] for g in groups if len(g) == 1]
         single_max = max((float(dev_map.get(i, -1e9)) for i in singles), default=None)
 
@@ -2958,6 +2965,26 @@ except NameError:
             if (condB or condC) and (anchor_no is None or anchor_no not in g):
                 return True
         return False
+
+# _fmt_rank が未定義ならここで用意（印行＋無印行）
+try:
+    _fmt_rank  # type: ignore
+except NameError:
+    def _fmt_rank(marks_dict: dict, used_ids: list[int]) -> tuple[str, str]:
+        no_mark_ids = [int(i) for i in used_ids
+                       if isinstance(marks_dict, dict) and int(i) not in set(marks_dict.values())] if isinstance(used_ids, (list, tuple)) else []
+        marks_str = ' '.join(
+            f'{m}{marks_dict[m]}' for m in ['◎','〇','▲','△','×','α']
+            if isinstance(marks_dict, dict) and m in marks_dict
+        )
+        no_str = ' '.join(map(str, no_mark_ids)) if no_mark_ids else '—'
+        return marks_str, f"無{no_str}"
+
+# 3着率ランキングフォメ：関数があれば使い、無ければフォールバック
+try:
+    trio_rank_form_str = get_trio_rank_formation(False)  # 関数版（既に定義済み想定）
+except NameError:
+    trio_rank_form_str = str(globals().get('trio_rank_form_str', '—'))  # 旧グローバルを使う or '—'
 
 # ◎の車番
 _anchor_no = None
@@ -2996,9 +3023,8 @@ note_sections.append("\n")  # 空行
 
 note_sections.append("【ライン重視フォーメーション】")
 note_sections.append("【ライン＋混戦フォーメーション】")
-note_sections.append(f"【3着率ランキングフォーメーション】 {get_trio_rank_formation(False)}")
+note_sections.append(f"【3着率ランキングフォーメーション】 {trio_rank_form_str}")
 
-# 3着率ランキングフォメは手元にあれば表示、無ければダッシュ
 
 # ================== 【3着率ランキングフォーメーション】（堅牢・偏差値不使用） ==================
 
