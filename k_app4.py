@@ -2923,14 +2923,79 @@ def _fmt_hen_lines(ts_map: dict, ids: list[int]) -> str:
     lines = []
     for n in ids:
         v = ts_map.get(n, "—")
-        lines.append(f"{n}: {float(v):.1f}" if isinstance(v,(int,float)) else f"{n}: —")
+        lines.append(f"{n}: {float(v):.1f}" if isinstance(v, (int, float)) else f"{n}: —")
     return "\n".join(lines)
 
+# --- 3車ライン判定（狙いたいレース用） -------------------------------
+def _parse_lines(_line_inputs, nmax: int):
+    groups = []
+    for s in _line_inputs:
+        ids = extract_car_list(s, nmax)  # 既存ユーティリティ
+        if ids:
+            groups.append(ids)
+    return groups
+
+def _is_target_by_3line(groups: list[list[int]], dev_map: dict[int, float], anchor_no: int | None) -> bool:
+    """
+    条件：
+      A) 3車ラインが存在＆その他のラインは同数(=3)かそれ以下
+      B) 3車ラインの合計 <= 151
+      C) 3車ラインの下位2人平均 < 単騎の偏差値最大
+      かつ ◎がその3車ラインに含まれていない
+      → A かつ (B または C) で True
+    """
+    # 単騎（len==1）の最大偏差値
+    singles = [g[0] for g in groups if len(g) == 1]
+    single_max = None
+    if singles:
+        single_max = max(float(dev_map.get(i, -1e9)) for i in singles)
+
+    for g in groups:
+        if len(g) != 3:
+            continue
+        # A: 他ラインが3超ならスキップ
+        others = [h for h in groups if h is not g]
+        if any(len(h) > 3 for h in others):
+            continue
+
+        vals = [float(dev_map.get(i, 0.0)) for i in g]
+        total = sum(vals)
+        low2_avg = (total - max(vals)) / 2.0
+
+        condB = (total <= 151.0)
+        condC = (single_max is not None) and (low2_avg < single_max)
+        if (condB or condC) and (anchor_no is None or anchor_no not in g):
+            return True
+    return False
+# -------------------------------------------------------------------
+
 note_sections = []
-note_sections.append(f"{track}{race_no}R")
-note_sections.append(f"展開評価：{confidence}\n")
 
+# 見出し（変数ゆれ解消）
+_venue = str(globals().get("track", globals().get("place", "")))
+_eval  = str(globals().get("tenkai", globals().get("confidence", "")))
+note_sections.append(f"{_venue}{race_no}R")
 
+# ◎ の車番（無ければ None）
+_anchor_no = None
+if isinstance(result_marks, dict) and '◎' in result_marks:
+    try:
+        _anchor_no = int(result_marks['◎'])
+    except Exception:
+        _anchor_no = None
+
+# 3車ライン条件チェック（出力直前で計算）
+_nmax = max(map(int, USED_IDS)) if USED_IDS else 9
+_groups = _parse_lines(line_inputs, _nmax)              # 例: [[2,7,4],[1,6],[5,3]] など
+_is_target = _is_target_by_3line(_groups, race_t, _anchor_no)
+
+# 2行目：展開評価＋（必要なら）【狙いたいレース】
+if _is_target:
+    note_sections.append(f"展開評価：{_eval}\n【狙いたいレース】\n")
+else:
+    note_sections.append(f"展開評価：{_eval}\n")
+
+# 以下、既存出力
 note_sections.append(f"{race_time}　{race_class}")
 note_sections.append(f"ライン　{'　'.join([x for x in line_inputs if str(x).strip()])}")
 note_sections.append(f"スコア順（SBなし）　{_format_rank_from_array(USED_IDS, xs_base_raw)}")
@@ -2941,12 +3006,12 @@ marks_str = ' '.join(f'{m}{result_marks[m]}' for m in ['◎','〇','▲','△','
 no_str = ' '.join(map(str, no_mark_ids)) if no_mark_ids else '—'
 note_sections.append(f"{marks_str} 無{no_str}")
 
-# 偏差値 → フォーメーション
+# 偏差値 → 見出しだけ出す（自動買目は無し）
 note_sections.append("\n偏差値（風・ライン込み）")
 note_sections.append(_fmt_hen_lines(race_t, USED_IDS))
-note_sections.append(
-    "【ライン重視フォーメーション】\n【ライン＋混戦フォーメーション】"
-)
+note_sections.append("【ライン重視フォーメーション】")
+note_sections.append("【ライン＋混戦フォーメーション】")
+note_sections.append(f"【3着率ランキングフォーメーション】 {globals().get('trio_rank_form_str', '—')}")
 
 
 
