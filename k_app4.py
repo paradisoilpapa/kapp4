@@ -2967,10 +2967,6 @@ note_sections.append(_fmt_hen_lines(race_t, USED_IDS))
 note_sections.append("【ライン重視フォーメーション】")
 note_sections.append("【ライン＋混戦フォーメーション】")
 # 3着率ランキングフォメは手元にあれば表示、無ければダッシュ
-note_sections.append(f"【3着率ランキングフォーメーション】 {get_trio_rank_formation(False)}")
-
-
-# ======================================================================
 
 # ================== 【3着率ランキングフォーメーション】（堅牢・偏差値不使用） ==================
 
@@ -3045,6 +3041,12 @@ def get_trio_rank_formation(show_ui: bool = False) -> str:
             pass
 
     return formation_str
+
+
+note_sections.append(f"【3着率ランキングフォーメーション】 {get_trio_rank_formation(False)}")
+
+
+# ======================================================================
 
 
 
