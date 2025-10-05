@@ -2917,42 +2917,72 @@ st.caption("上の4表は既存候補と“しきい値クリア”の交差済�
 
 
 # =========================
-#  note 出力（簡素表示モード）
+#  note 出力（最後にまとめて）
 # =========================
-SIMPLIFIED_OUTPUT = True  # ←必要に応じて False に戻すと従来出力へ
 
-def _fmt_hen_lines(ts_map: dict, ids: list[int]) -> str:
-    lines = []
-    for n in ids:
-        v = ts_map.get(n, "—")
-        lines.append(f"{n}: {float(v):.1f}" if isinstance(v, (int, float)) else f"{n}: —")
-    return "\n".join(lines)
+# ==== 出力直前：狙いたいレースをこの場で再計算（安全版） ====
 
-def _fmt_rank(marks_dict: dict, used_ids: list[int]) -> tuple[str, str]:
-    """印行と無印行を返す"""
-    no_mark_ids = [int(i) for i in used_ids if int(i) not in set(marks_dict.values())] if isinstance(marks_dict, dict) else []
-    marks_str = ' '.join(f'{m}{marks_dict[m]}' for m in ['◎','〇','▲','△','×','α'] if isinstance(marks_dict, dict) and m in marks_dict)
-    no_str = ' '.join(map(str, no_mark_ids)) if no_mark_ids else '—'
-    return marks_str, f"無{no_str}"
+# 3車ライン抽出（存在しなければ最小実装）
+try:
+    _parse_lines  # type: ignore
+except NameError:
+    def _parse_lines(_line_inputs, nmax: int):
+        groups = []
+        for s in _line_inputs:
+            ids = extract_car_list(s, nmax)  # 既存ユーティリティ
+            if ids:
+                groups.append(ids)
+        return groups
 
-# =========================
-#  見出し＆本体
-# =========================
+# 判定関数（存在しなければ最小実装）
+try:
+    _is_target_by_3line  # type: ignore
+except NameError:
+    def _is_target_by_3line(groups: list[list[int]], dev_map: dict[int, float], anchor_no: int | None) -> bool:
+        singles = [g[0] for g in groups if len(g) == 1]
+        single_max = max((float(dev_map.get(i, -1e9)) for i in singles), default=None)
+
+        for g in groups:
+            if len(g) != 3:
+                continue
+            others = [h for h in groups if h is not g]
+            if any(len(h) > 3 for h in others):
+                continue
+
+            vals = [float(dev_map.get(i, 0.0)) for i in g]
+            total = sum(vals)
+            low2_avg = (total - max(vals)) / 2.0
+
+            condB = (total <= 151.0)
+            condC = (single_max is not None) and (low2_avg < single_max)
+            if (condB or condC) and (anchor_no is None or anchor_no not in g):
+                return True
+        return False
+
+# ◎の車番
+_anchor_no = None
+if isinstance(result_marks, dict) and '◎' in result_marks:
+    try:
+        _anchor_no = int(result_marks['◎'])
+    except Exception:
+        _anchor_no = None
+
+# 判定の実行（ここまでで line_inputs / USED_IDS / race_t が計算済みであること）
+_nmax = max(map(int, USED_IDS)) if USED_IDS else 9
+_groups = _parse_lines(line_inputs, _nmax)
+_is_target_local = _is_target_by_3line(_groups, race_t, _anchor_no)
+
+# ==== 見出しの直後で使う ====
 note_sections = []
 
-# 見出し（変数ゆれを統一）
 _venue = str(globals().get("track", globals().get("place", "")))
 _eval  = str(globals().get("tenkai", globals().get("confidence", "")))
 note_sections.append(f"{_venue}{race_no}R")
+note_sections.append(
+    f"展開評価：{_eval}\n" + ("【狙いたいレース】\n\n" if _is_target_local else "\n")
+)
 
-# 狙いたいレース（すでに前段で _is_target を計算している前提）
-_is_target = bool(globals().get("_is_target", globals().get("is_target_race", False)))
-if _is_target:
-    note_sections.append(f"展開評価：{_eval}\n【狙いたいレース】\n")
-else:
-    note_sections.append(f"展開評価：{_eval}\n")
-
-# ここから「簡素表示」
+# ---- 以下は既存の簡素表示ブロック ----
 note_sections.append(f"{race_time}　{race_class}")
 note_sections.append(f"ライン　{'　'.join([x for x in line_inputs if str(x).strip()])}")
 note_sections.append(f"スコア順（SBなし）　{_format_rank_from_array(USED_IDS, xs_base_raw)}")
@@ -2962,13 +2992,12 @@ note_sections.append(f"{marks_str} {no_str}")
 
 note_sections.append("\n偏差値（風・ライン込み）")
 note_sections.append(_fmt_hen_lines(race_t, USED_IDS))
+note_sections.append("\n")  # 空行
 
-# ★ここを1行追加：空行を明示
-note_sections.append("")
-
-# ▼フォーメーションは“見出しだけ”自動出力（中身は手入力したいとのことなので空欄のまま）
 note_sections.append("【ライン重視フォーメーション】")
 note_sections.append("【ライン＋混戦フォーメーション】")
+note_sections.append(f"【3着率ランキングフォーメーション】 {get_trio_rank_formation(False)}")
+
 # 3着率ランキングフォメは手元にあれば表示、無ければダッシュ
 
 # ================== 【3着率ランキングフォーメーション】（堅牢・偏差値不使用） ==================
