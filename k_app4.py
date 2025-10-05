@@ -2917,12 +2917,41 @@ st.caption("上の4表は既存候補と“しきい値クリア”の交差済�
 
 
 # =========================
-#  note 出力（最後にまとめて）〈貼り替え版〉
+#  note 出力（最後にまとめて）〈貼り替え版：未定義ガード付き〉
 # =========================
 
-# ==== 出力直前：狙いたいレースをこの場で再計算（安全版） ====
+# ---- 未定義ガード（このブロックの先頭に置く） ----
+try:
+    _fmt_hen_lines  # type: ignore
+except NameError:
+    def _fmt_hen_lines(ts_map: dict, ids: list[int]) -> str:
+        lines = []
+        ts_map = ts_map or {}
+        for n in (ids or []):
+            v = ts_map.get(n, "—")
+            lines.append(f"{n}: {float(v):.1f}" if isinstance(v, (int, float)) else f"{n}: —")
+        return "\n".join(lines)
 
-# 3車ライン抽出（存在しなければ最小実装）
+try:
+    _fmt_rank  # type: ignore
+except NameError:
+    def _fmt_rank(marks_dict: dict, used_ids: list[int]) -> tuple[str, str]:
+        no_mark_ids = [int(i) for i in (used_ids or [])
+                       if isinstance(marks_dict, dict) and int(i) not in set(marks_dict.values())]
+        marks_str = ' '.join(
+            f'{m}{marks_dict[m]}' for m in ['◎','〇','▲','△','×','α']
+            if isinstance(marks_dict, dict) and m in marks_dict
+        )
+        no_str = ' '.join(map(str, no_mark_ids)) if no_mark_ids else '—'
+        return marks_str, f"無{no_str}"
+
+# 3着率フォメは関数があれば使い、無ければグローバル/ダッシュ
+try:
+    trio_rank_form_str = get_trio_rank_formation(False)
+except NameError:
+    trio_rank_form_str = str(globals().get('trio_rank_form_str', '—'))
+
+# ---- ここから狙いたいレースの再計算（既出のユーティリティを利用） ----
 try:
     _parse_lines  # type: ignore
 except NameError:
@@ -2934,84 +2963,58 @@ except NameError:
                 groups.append(ids)
         return groups
 
-# 判定関数（存在しなければ最小実装）
 try:
     _is_target_by_3line  # type: ignore
 except NameError:
     def _is_target_by_3line(groups: list[list[int]], dev_map: dict[int, float], anchor_no: int | None) -> bool:
-        """
-        前提A：3車ラインが存在、他ラインは同数かそれ以下
-        条件B：3車ライン合計<=151
-        条件C：3車ラインの下位2平均 < 単騎max
-        かつ ◎がその3車ラインに含まれていない
-        → A かつ (B または C)
-        """
         singles = [g[0] for g in groups if len(g) == 1]
         single_max = max((float(dev_map.get(i, -1e9)) for i in singles), default=None)
-
         for g in groups:
             if len(g) != 3:
                 continue
             others = [h for h in groups if h is not g]
             if any(len(h) > 3 for h in others):
                 continue
-
             vals = [float(dev_map.get(i, 0.0)) for i in g]
             total = sum(vals)
             low2_avg = (total - max(vals)) / 2.0
-
             condB = (total <= 151.0)
             condC = (single_max is not None) and (low2_avg < single_max)
             if (condB or condC) and (anchor_no is None or anchor_no not in g):
                 return True
         return False
 
-# _fmt_rank が未定義ならここで用意（印行＋無印行）
-try:
-    _fmt_rank  # type: ignore
-except NameError:
-    def _fmt_rank(marks_dict: dict, used_ids: list[int]) -> tuple[str, str]:
-        no_mark_ids = [int(i) for i in used_ids
-                       if isinstance(marks_dict, dict) and int(i) not in set(marks_dict.values())] if isinstance(used_ids, (list, tuple)) else []
-        marks_str = ' '.join(
-            f'{m}{marks_dict[m]}' for m in ['◎','〇','▲','△','×','α']
-            if isinstance(marks_dict, dict) and m in marks_dict
-        )
-        no_str = ' '.join(map(str, no_mark_ids)) if no_mark_ids else '—'
-        return marks_str, f"無{no_str}"
+# ---- ここから本体 ----
+# 依存変数のフォールバック（未定義で落ちないように）
+result_marks = globals().get('result_marks', {})
+USED_IDS     = list(globals().get('USED_IDS', []))
+race_t       = dict(globals().get('race_t', {}))
+line_inputs  = list(globals().get('line_inputs', []))
 
-# 3着率ランキングフォメ：関数があれば使い、無ければフォールバック
-try:
-    trio_rank_form_str = get_trio_rank_formation(False)  # 関数版（既に定義済み想定）
-except NameError:
-    trio_rank_form_str = str(globals().get('trio_rank_form_str', '—'))  # 旧グローバルを使う or '—'
-
-# ◎の車番
+# ◎
 _anchor_no = None
 if isinstance(result_marks, dict) and '◎' in result_marks:
-    try:
-        _anchor_no = int(result_marks['◎'])
-    except Exception:
-        _anchor_no = None
+    try: _anchor_no = int(result_marks['◎'])
+    except Exception: _anchor_no = None
 
-# 判定の実行（ここまでで line_inputs / USED_IDS / race_t が計算済みであること）
+# 判定
 _nmax = max(map(int, USED_IDS)) if USED_IDS else 9
 _groups = _parse_lines(line_inputs, _nmax)
 _is_target_local = _is_target_by_3line(_groups, race_t, _anchor_no)
 
-# ==== 見出しの直後で使う ====
+# 見出し
 note_sections = []
-
 _venue = str(globals().get("track", globals().get("place", "")))
 _eval  = str(globals().get("tenkai", globals().get("confidence", "")))
 note_sections.append(f"{_venue}{race_no}R")
-note_sections.append(
-    f"展開評価：{_eval}\n" + ("【狙いたいレース】\n\n" if _is_target_local else "\n")
-)
+note_sections.append(f"展開評価：{_eval}\n" + ("【狙いたいレース】\n\n" if _is_target_local else "\n"))
 
-# ---- 以下は既存の簡素表示ブロック ----
+# 簡素表示
+race_time = globals().get('race_time', '')
+race_class = globals().get('race_class', '')
 note_sections.append(f"{race_time}　{race_class}")
-note_sections.append(f"ライン　{'　'.join([x for x in line_inputs if str(x).strip()])}")
+_format_rank_from_array = globals().get('_format_rank_from_array', lambda ids, xs: "")
+xs_base_raw = globals().get('xs_base_raw', [])
 note_sections.append(f"スコア順（SBなし）　{_format_rank_from_array(USED_IDS, xs_base_raw)}")
 
 marks_str, no_str = _fmt_rank(result_marks, USED_IDS)
