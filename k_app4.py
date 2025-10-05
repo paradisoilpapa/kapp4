@@ -2963,6 +2963,9 @@ note_sections.append(f"{marks_str} {no_str}")
 note_sections.append("\n偏差値（風・ライン込み）")
 note_sections.append(_fmt_hen_lines(race_t, USED_IDS))
 
+# ★ここを1行追加：空行を明示
+note_sections.append("")
+
 # ▼フォーメーションは“見出しだけ”自動出力（中身は手入力したいとのことなので空欄のまま）
 note_sections.append("【ライン重視フォーメーション】")
 note_sections.append("【ライン＋混戦フォーメーション】")
