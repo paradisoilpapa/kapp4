@@ -3026,7 +3026,7 @@ note_sections.append("\n")  # 空行
 
 note_sections.append("【ライン重視フォーメーション】")
 note_sections.append("【ライン＋混戦フォーメーション】")
-note_sections.append(f"【3着率ランキングフォーメーション】 {trio_rank_form_str}")
+
 
 
 # ================== 【3着率ランキングフォーメーション】（堅牢・偏差値不使用） ==================
