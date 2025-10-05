@@ -2967,22 +2967,58 @@ try:
     _is_target_by_3line  # type: ignore
 except NameError:
     def _is_target_by_3line(groups: list[list[int]], dev_map: dict[int, float], anchor_no: int | None) -> bool:
-        singles = [g[0] for g in groups if len(g) == 1]
-        single_max = max((float(dev_map.get(i, -1e9)) for i in singles), default=None)
+        """
+        狙いたいレース（3車ライン崩れ候補）を検出する。
+
+        条件：
+          ・3車ラインが存在し、他ラインは3車以下
+          ・次のいずれかが成立
+              A. 3車ラインの合計偏差値 <= 151
+              B. 3車ラインの下位2平均 < ◎ライン上位2平均（◎が単騎なら◎値）
+          ・◎がその3車ラインに含まれない
+        """
+
+        # --- ◎ライン or 単騎の偏差値基準を取得 ---
+        anchor_val = float(dev_map.get(anchor_no, 0.0)) if anchor_no is not None else None
+        anchor_line = None
+        for g in groups:
+            if anchor_no in g:
+                anchor_line = g
+                break
+
+        if anchor_line and len(anchor_line) >= 2:
+            # ◎ライン：上位2平均
+            anchor_top2 = sorted(
+                [float(dev_map.get(i, 0.0)) for i in anchor_line],
+                reverse=True
+            )[:2]
+            anchor_line_avg = sum(anchor_top2) / len(anchor_top2)
+        else:
+            # 単騎 or 未所属の場合は◎本人の値
+            anchor_line_avg = anchor_val or 0.0
+
+        # --- 3車ラインを走査 ---
         for g in groups:
             if len(g) != 3:
                 continue
+            # 他に4車以上のラインがあればスキップ
             others = [h for h in groups if h is not g]
             if any(len(h) > 3 for h in others):
                 continue
+
             vals = [float(dev_map.get(i, 0.0)) for i in g]
             total = sum(vals)
-            low2_avg = (total - max(vals)) / 2.0
-            condB = (total <= 151.0)
-            condC = (single_max is not None) and (low2_avg < single_max)
-            if (condB or condC) and (anchor_no is None or anchor_no not in g):
+            low2_avg = (total - max(vals)) / 2.0  # 下位2平均
+
+            condA = (total <= 151.0)
+            condB = (low2_avg < anchor_line_avg)
+
+            # ◎がそのラインに含まれない＋どちらか成立
+            if (condA or condB) and (anchor_no not in g):
                 return True
+
         return False
+
 
 # ---- ここから本体 ----
 # 依存変数のフォールバック（未定義で落ちないように）
