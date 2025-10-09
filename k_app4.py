@@ -176,6 +176,7 @@ RANK_STATS_F2 = {
     "無": {"p1": 0.050, "pTop2": 0.139, "pTop3": 0.257},
 }
 
+
 # --- F1 ---
 RANK_STATS_F1 = {
     "◎": {"p1": 0.278, "pTop2": 0.444, "pTop3": 0.556},
@@ -209,22 +210,6 @@ RANK_STATS_GIRLS = {
     "無": {"p1": 0.000, "pTop2": 0.000, "pTop3": 0.000},
 }
 
-# --- ライン＋混戦フォーメーション専用（非表示安全版） ---
-def get_rank_stats_mixed():
-    stats = {
-        "◎": {"p1": 0.200, "p2": 0.418, "p3": 0.582},
-        "〇": {"p1": 0.345, "p2": 0.491, "p3": 0.564},
-        "▲": {"p1": 0.127, "p2": 0.236, "p3": 0.400},
-        "△": {"p1": 0.073, "p2": 0.164, "p3": 0.345},
-        "×": {"p1": 0.127, "p2": 0.345, "p3": 0.455},
-        "α": {"p1": 0.093, "p2": 0.241, "p3": 0.389},
-        "無": {"p1": 0.039, "p2": 0.118, "p3": 0.294},
-    }
-    return stats
-
-# ここがポイント：評価出力を抑制
-RANK_STATS_MIXED = get_rank_stats_mixed()
-print("RANK_STATS_MIXED loaded")  # ← printはStreamlitには出ない
 
 
 # --- グレード連動用マップ ---
@@ -235,7 +220,6 @@ RANK_STATS_BY_GRADE = {
     "G":      RANK_STATS_G,
     "GIRLS":  RANK_STATS_GIRLS,
 }
-
 
 # 互換: 旧コードが参照する RANK_STATS は TOTAL を指す
 RANK_STATS = RANK_STATS_TOTAL
@@ -1315,7 +1299,16 @@ def anchor_score(no: int) -> float:
 #     stab_dbg = (SD_STAB * STAB_Z.get(no, 0.0)) if 'STAB_Z' in globals() else 0.0
 #     tiny_dbg = SMALL_Z_RATING * zt_map.get(no, 0.0)
 
-
+#     total = form_dbg + env_dbg + stab_dbg + sb_dbg + pos_dbg + tiny_dbg
+#     st.write(no, {
+#         "form": round(form_dbg, 4),
+#         "env":  round(env_dbg, 4),
+#         "stab": round(stab_dbg, 4),
+#         "sb":   round(sb_dbg, 4),
+#         "pos":  round(pos_dbg, 4),
+#         "tiny": round(tiny_dbg, 4),
+#         "TOTAL(anchor_score期待値)": round(total, 4),
+#     })
 
 
 
@@ -1872,7 +1865,7 @@ form_L1 = _fmt_form(L1)
 form_L2 = _fmt_form(L2)
 form_L3 = _fmt_form(L3)
 formation_label = f"{form_L1}-{form_L2}-{form_L3}"
-
+st.markdown(f"**フォーメーション**：{formation_label}")
 
 # 既存：三連複/三連単の基礎スコア計算関数が無い場合の保険
 if '_trio_score' not in globals():
@@ -1927,6 +1920,7 @@ form_L1 = _fmt_form(L1)
 form_L2 = _fmt_form(L2)
 form_L3 = _fmt_form(L3)
 formation_label = f"{form_L1}-{form_L2}-{form_L3}"
+st.markdown(f"**フォーメーション**：{formation_label}")
 
 # ------------ ヘルパ：閾値算出（μ+σ/div と 上位q を比較して高い方を返す） ------------
 def cutoff_mu_sig_vs_top(xs, sig_div, top_frac):
@@ -2353,6 +2347,7 @@ if len(tri_exc)<3:
         if len(tri_exc)>=3: break
 
 def _fmt_trio_list(rows): return " / ".join(f"{a}-{b}-{c}" for a,b,c,_,_ in rows) if rows else "—"
+st.markdown(f"**戦術（三連複）** ◎入り3点: {_fmt_trio_list(tri_inc)}　｜　◎抜き3点: {_fmt_trio_list(tri_exc)}")
 # st.write は削除
 
 
@@ -2713,8 +2708,212 @@ def _ensure_top3(base_rows, fallback_rows, need=3):
     return picked[:need]
 
 
+# =========================
+#  画面出力（順番固定）
+# =========================
+st.markdown(f"**フォーメーション**：{formation_label}")
 
+# 三連複
+st.markdown("#### " + _hdr("三連複", cutoff_trio, _basis_trio(TRIO_L3_MIN), n_trio))
+if has_trio:
+    st.dataframe(_df_trio(trios_filtered_display, star_id), use_container_width=True)
+else:
+    st.markdown("対象外")
 
+# 三連単
+_basis_tri = _basis_combo(san_sig_div_used, san_mu_sig, san_top_den, san_topq, san_adopt)
+st.markdown("#### " + _hdr("三連単", cutoff_san, _basis_tri, n_triS))
+if has_tri:
+    st.dataframe(_df_trio(santan_filtered_display, star_id), use_container_width=True)
+else:
+    st.markdown("対象外")
+
+# 二車複
+_basis_qn = _basis_combo(qn_sig_div_used, qn2_mu_sig, qn_top_den, qn2_topq, qn2_adopt)
+st.markdown("#### " + _hdr("二車複", cutoff_qn2, _basis_qn, n_qn))
+if has_qn:
+    st.dataframe(_df_pairs(pairs_qn2_filtered), use_container_width=True)
+else:
+    st.markdown("対象外")
+
+# 二車単
+_basis_nit = _basis_combo(nit_sig_div_used, nit_mu_sig, nit_top_den, nit_topq, nit_adopt)
+st.markdown("#### " + _hdr("二車単", cutoff_nit, _basis_nit, n_nit))
+if has_nit:
+    st.dataframe(_df_nitan(rows_nitan_filtered), use_container_width=True)
+else:
+    st.markdown("対象外")
+
+# =========================
+#  印の実測率 → グレード別の確率モデル → 買い目抽出（的中率しきい値）
+#  既存の買い目と重複したもの = 「オススメ買目」
+# =========================
+
+# --- サイドバー：グレード選択＆しきい値（初期10%） ---
+st.sidebar.markdown("### 印実測率のグレード/しきい値")
+grade_for_marks = st.sidebar.selectbox(
+    "グレード（印の実測率テーブル）",
+    ["TOTAL","F2","F1","G","GIRLS"],
+    index=0,
+    key="grade_mark_stats"
+)
+hit_threshold = float(st.sidebar.slider("的中率しきい値", 0.01, 0.50, 0.10, 0.01, key="hit_threshold"))
+
+# --- テーブル選択（あなたが貼ったテーブル群を前提） ---
+RANK_TABLE = RANK_STATS_BY_GRADE.get(grade_for_marks, RANK_STATS_TOTAL)
+
+# --- 車番→印 を作る（未指定は「無」）
+marks_of_car = {int(i): "無" for i in USED_IDS}
+if isinstance(result_marks, dict):
+    for mk, no in result_marks.items():
+        if no is None: 
+            continue
+        if mk in {"◎","〇","▲","△","×","α","β"}:
+            marks_of_car[int(no)] = mk
+
+# --- 印→実測率を引くヘルパ（無ければ「無」を使う）
+def _get_stats(mark: str) -> dict:
+    d = RANK_TABLE.get(mark)
+    if not d:
+        d = RANK_TABLE.get("無", {"p1":0.0,"pTop2":0.0,"pTop3":0.0})
+    return {"p1": float(d["p1"]), "pTop2": float(d["pTop2"]), "pTop3": float(d["pTop3"])}
+
+# --- 確率モデル（独立近似／後で全候補で正規化） ---
+from itertools import permutations, combinations
+
+# 全候補の母集団（正規化用）
+ALL_PAIRS_UNORDERED   = [tuple(sorted(t)) for t in combinations(USED_IDS, 2)]
+ALL_PAIRS_ORDERED     = [t for t in permutations(USED_IDS, 2)]
+ALL_TRIPLES_UNORDERED = [tuple(sorted(t)) for t in combinations(USED_IDS, 3)]
+ALL_TRIPLES_ORDERED   = [t for t in permutations(USED_IDS, 3)]
+
+# 重複除去
+ALL_PAIRS_UNORDERED   = sorted(set(ALL_PAIRS_UNORDERED))
+ALL_TRIPLES_UNORDERED = sorted(set(ALL_TRIPLES_UNORDERED))
+
+# ウェイト定義
+def w_qn_pair(a,b):
+    sa, sb = _get_stats(marks_of_car[a]), _get_stats(marks_of_car[b])
+    return max(0.0, sa["pTop2"]*sb["pTop2"])
+
+def w_nit_pair(a,b):
+    sa, sb = _get_stats(marks_of_car[a]), _get_stats(marks_of_car[b])
+    return max(0.0, sa["p1"]*sb["pTop2"])
+
+def w_trio(a,b,c):
+    sa, sb, sc = _get_stats(marks_of_car[a]), _get_stats(marks_of_car[b]), _get_stats(marks_of_car[c])
+    return max(0.0, sa["pTop3"]*sb["pTop3"]*sc["pTop3"])
+
+def w_trifecta(a,b,c):
+    sa, sb, sc = _get_stats(marks_of_car[a]), _get_stats(marks_of_car[b]), _get_stats(marks_of_car[c])
+    return max(0.0, sa["p1"]*sb["pTop2"]*sc["pTop3"])
+
+# 正規化（全体合計=1）
+def _normalize(weights: dict) -> dict:
+    tot = float(sum(weights.values()))
+    if tot <= 0:
+        return {k: 0.0 for k in weights}
+    return {k: (v/tot) for k,v in weights.items()}
+
+# 全候補に対する確率分布（印の実測率ベース）
+QN_UNI   = _normalize({k: w_qn_pair(*k)   for k in ALL_PAIRS_UNORDERED})
+NIT_UNI  = _normalize({k: w_nit_pair(*k)  for k in ALL_PAIRS_ORDERED})
+TRIO_UNI = _normalize({k: w_trio(*k)      for k in ALL_TRIPLES_UNORDERED})
+TRI_UNI  = _normalize({k: w_trifecta(*k)  for k in ALL_TRIPLES_ORDERED})
+
+# --- 画面に現在の印の内訳（参考） ---
+with st.expander("印の内訳（今回のグレード実測率を使う）", expanded=False):
+    dfm = pd.DataFrame({
+        "車": USED_IDS,
+        "印": [marks_of_car[i] for i in USED_IDS],
+        "p1": [ _get_stats(marks_of_car[i])["p1"] for i in USED_IDS ],
+        "pTop2": [ _get_stats(marks_of_car[i])["pTop2"] for i in USED_IDS ],
+        "pTop3": [ _get_stats(marks_of_car[i])["pTop3"] for i in USED_IDS ],
+    })
+    st.dataframe(dfm, use_container_width=True)
+
+# --- 既存の候補群から「確率しきい値以上」だけ抽出 ---
+def _safe_list(x): 
+    return x if isinstance(x, list) else []
+
+# 三連複（既存の trios_filtered_display → k=(a,b,c) を昇順タプルで照合）
+trios_source = [(int(a),int(b),int(c),float(s),str(tag)) for (a,b,c,s,tag) in _safe_list(trios_filtered_display)]
+trio_prob_hits = []
+for a,b,c,s,tag in trios_source:
+    key = tuple(sorted((a,b,c)))
+    p = float(TRIO_UNI.get(key, 0.0))
+    if p >= hit_threshold:
+        trio_prob_hits.append((a,b,c,p,tag))
+
+# 三連単（既存の santan_filtered_display → k=(a,b,c) 順序そのまま照合）
+tri_source = [(int(a),int(b),int(c),float(s),str(tag)) for (a,b,c,s,tag) in _safe_list(santan_filtered_display)]
+tri_prob_hits = []
+for a,b,c,s,tag in tri_source:
+    key = (a,b,c)
+    p = float(TRI_UNI.get(key, 0.0))
+    if p >= hit_threshold:
+        tri_prob_hits.append((a,b,c,p,tag))
+
+# 二車複（既存の pairs_qn2_filtered → k=(a,b) 昇順）
+qn_source = [(int(a),int(b),float(s),str(tag)) for (a,b,s,tag) in _safe_list(pairs_qn2_filtered)]
+qn_prob_hits = []
+for a,b,s,tag in qn_source:
+    key = tuple(sorted((a,b)))
+    p = float(QN_UNI.get(key, 0.0))
+    if p >= hit_threshold:
+        qn_prob_hits.append((a,b,p,tag))
+
+# 二車単（既存の rows_nitan_filtered → k は "a-b" 文字列）
+nit_source = []
+for k,v,tag in _safe_list(rows_nitan_filtered):
+    try:
+        a,b = map(int, str(k).split("-"))
+        nit_source.append((a,b,float(v),str(tag)))
+    except Exception:
+        pass
+nit_prob_hits = []
+for a,b,s,tag in nit_source:
+    p = float(NIT_UNI.get((a,b), 0.0))
+    if p >= hit_threshold:
+        nit_prob_hits.append((a,b,p,tag))
+
+# --- 「オススメ買目」= 既存ロジックの候補 ∩ 確率しきい値クリア（=ここで既に交わってる） ---
+def _df_prob_trio(rows):
+    return pd.DataFrame([{"買い目": f"{a}-{b}-{c}", "確率(推定)": f"{p*100:.1f}%", "由来": tag} 
+                         for (a,b,c,p,tag) in sorted(rows, key=lambda t:(-t[3], t[0], t[1], t[2]))])
+
+def _df_prob_tri(rows):
+    return pd.DataFrame([{"買い目": f"{a}-{b}-{c}", "確率(推定)": f"{p*100:.1f}%", "由来": tag} 
+                         for (a,b,c,p,tag) in sorted(rows, key=lambda t:(-t[3], t[0], t[1], t[2]))])
+
+def _df_prob_qn(rows):
+    return pd.DataFrame([{"買い目": f"{a}-{b}", "確率(推定)": f"{p*100:.1f}%", "由来": tag}
+                         for (a,b,p,tag) in sorted(rows, key=lambda t:(-t[2], t[0], t[1]))])
+
+def _df_prob_nit(rows):
+    return pd.DataFrame([{"買い目": f"{a}-{b}", "確率(推定)": f"{p*100:.1f}%", "由来": tag}
+                         for (a,b,p,tag) in sorted(rows, key=lambda t:(-t[2], t[0], t[1]))])
+
+st.markdown("## 🎯 印の実測率ベース｜確率しきい値クリア")
+c1, c2 = st.columns(2)
+with c1:
+    st.markdown("#### 三連複（重複=おすすめ）")
+    st.dataframe(_df_prob_trio(trio_prob_hits), use_container_width=True)
+with c2:
+    st.markdown("#### 三連単（重複=おすすめ）")
+    st.dataframe(_df_prob_tri(tri_prob_hits), use_container_width=True)
+
+c3, c4 = st.columns(2)
+with c3:
+    st.markdown("#### 二車複（重複=おすすめ）")
+    st.dataframe(_df_prob_qn(qn_prob_hits), use_container_width=True)
+with c4:
+    st.markdown("#### 二車単（重複=おすすめ）")
+    st.dataframe(_df_prob_nit(nit_prob_hits), use_container_width=True)
+
+# === おすすめ買目（表示を分けたい場合の見出しだけ）
+st.markdown("## ✅ オススメ買目（偏差値ロジック or ライン枠 と重複）")
+st.caption("上の4表は既存候補と“しきい値クリア”の交差済み＝そのまま『おすすめ』です。")
 
 
 # =========================
@@ -2860,110 +3059,8 @@ note_sections.append("\n偏差値（風・ライン込み）")
 note_sections.append(_fmt_hen_lines(race_t, USED_IDS))
 note_sections.append("\n")  # 空行
 
-# =========================
-#  ライン＋混戦フォーメーション（専用着率テーブル RANK_STATS_MIXED 使用）
-# =========================
-
+note_sections.append("【ライン重視フォーメーション】")
 note_sections.append("【ライン＋混戦フォーメーション】")
-
-try:
-    RANK_STATS_MIXED  # type: ignore
-except NameError:
-    RANK_STATS_MIXED = {}
-
-def _normalize_mark(s: str) -> str:
-    """○と〇を統一"""
-    return "〇" if s == "○" else str(s).strip()
-
-def _marks_to_id(result_marks: dict) -> dict[str, int]:
-    """印→車番 dict（番号→印でも対応可）"""
-    if not isinstance(result_marks, dict): 
-        return {}
-    out = {}
-    numeric_key = any(str(k).isdigit() for k in result_marks.keys())
-    if numeric_key:
-        # {1:"◎"} 型
-        for k,v in result_marks.items():
-            try: out[_normalize_mark(v)] = int(k)
-            except: pass
-    else:
-        # {"◎":1} 型
-        for k,v in result_marks.items():
-            try: out[_normalize_mark(k)] = int(v)
-            except: pass
-    return out
-
-def _topk_syms(stats: dict, key: str, k: int) -> list[str]:
-    """p1,p2,p3 から上位k印を抽出"""
-    arr = [(sym, float(v.get(key, 0))) for sym, v in stats.items() if isinstance(v, dict)]
-    arr.sort(key=lambda x: x[1], reverse=True)
-    return [_normalize_mark(sym) for sym, _ in arr[:k]]
-
-def build_mixed_trio_from_stats(result_marks: dict, stats: dict, k1=2, k2=3, k3=5):
-    """
-    着率テーブルを使用して三連複フォーメーションを構築。
-      1列目: 1着率上位2
-      2列目: 2着率上位3
-      3列目: 3着率上位5
-    """
-    marks_to_id = _marks_to_id(result_marks)
-    if not marks_to_id:
-        return "—", []
-
-    first_syms  = _topk_syms(stats, "p1", k1)
-    second_syms = _topk_syms(stats, "p2", k2)
-    third_syms  = _topk_syms(stats, "p3", k3)
-
-    f_ids = [marks_to_id[s] for s in first_syms  if s in marks_to_id]
-    s_ids = [marks_to_id[s] for s in second_syms if s in marks_to_id]
-    t_ids = [marks_to_id[s] for s in third_syms  if s in marks_to_id]
-
-    if not (f_ids and s_ids and t_ids):
-        return "—", []
-
-    # --- 三連複7点構成を生成 ---
-    trio_set = set()
-    for a in f_ids:
-        for b in s_ids:
-            for c in t_ids:
-                ids = tuple(sorted({a,b,c}))
-                if len(ids) == 3:
-                    trio_set.add(ids)
-                if len(trio_set) >= 7:
-                    break
-            if len(trio_set) >= 7:
-                break
-        if len(trio_set) >= 7:
-            break
-
-    # 表記用（例: 21-214-21467）
-    f_str = ''.join(map(str,f_ids))
-    s_str = ''.join(map(str,s_ids))
-    t_str = ''.join(map(str,t_ids))
-    group_str = f"{f_str}-{s_str}-{t_str}"
-
-    return group_str, sorted(list(trio_set))[:7]
-
-
-# --- 実行部：狙いたいレース限定で反映 ---
-try:
-    result_marks = globals().get("result_marks", {})
-    stats_active = globals().get("RANK_STATS_MIXED", {})
-
-    if _is_target_local:  # ← 狙いたいレースのときだけ出す
-        group_str, trio7 = build_mixed_trio_from_stats(result_marks, stats_active, 2, 3, 5)
-        note_sections.append(group_str)
-        if trio7:
-            note_sections.append(f"三連複7点：{', '.join('-'.join(map(str,t)) for t in trio7)}")
-        else:
-            note_sections.append("三連複7点：—")
-    else:
-        note_sections.append("（該当レースでは混戦フォメ非適用）")
-
-except Exception as e:
-    note_sections.append(f"エラー：{e}")
-    note_sections.append("三連複7点：—")
-
 
 
 
@@ -3055,8 +3152,3 @@ st.text_area("ここを選択してコピー", note_text, height=560)
 # =========================
 #  一括置換ブロック ここまで
 # =========================
-import streamlit as st
-
-# --- 出力抑制強制リセット ---
-for _ in range(3):
-    st.empty()
