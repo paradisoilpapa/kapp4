@@ -3059,8 +3059,86 @@ note_sections.append("\n偏差値（風・ライン込み）")
 note_sections.append(_fmt_hen_lines(race_t, USED_IDS))
 note_sections.append("\n")  # 空行
 
-note_sections.append("【ライン重視フォーメーション】")
+# ================== 【ライン＋混戦フォーメーション】（3連複：p1上位2 / p2上位3 / p3上位5） ==================
+
+# 1) いつでも上書き可能な“着率テーブル”の取得
+#   - まず FINISH_STATS_CURRENT（推奨）を探し、無ければ FINISH_STATS を探す
+#   - どちらも無ければ下の DEFAULT を使う（あなたが貼った数値）
+def _active_finish_stats():
+    # ここを書き換えるだけで即反映できる運用にする
+    if "FINISH_STATS_CURRENT" in globals() and isinstance(FINISH_STATS_CURRENT, dict):
+        return FINISH_STATS_CURRENT
+    if "FINISH_STATS" in globals() and isinstance(FINISH_STATS, dict):
+        return FINISH_STATS
+    # デフォルト（ユーザー指定の最新値）
+    return {
+        "◎": {"p1": 0.200, "p2": 0.418, "p3": 0.582},
+        "〇": {"p1": 0.345, "p2": 0.491, "p3": 0.564},
+        "▲": {"p1": 0.127, "p2": 0.236, "p3": 0.400},
+        "△": {"p1": 0.073, "p2": 0.164, "p3": 0.345},
+        "×": {"p1": 0.127, "p2": 0.345, "p3": 0.455},
+        "α": {"p1": 0.093, "p2": 0.241, "p3": 0.389},
+        "無": {"p1": 0.039, "p2": 0.118, "p3": 0.294},
+    }
+
+def _finish_prob_of_symbol(stats: dict, sym: str, which: str) -> float:
+    try:
+        return float(stats.get(_norm_sym(sym), {}).get(which, 0.0))
+    except Exception:
+        return 0.0
+
+def _rank_ids_by(stats: dict, id2sym: dict, which: str) -> list[int]:
+    """which ∈ {'p1','p2','p3'}で、該当着率の降順に車番を並べる（タイは番号小優先）"""
+    rows = []
+    for i, s in id2sym.items():
+        p = _finish_prob_of_symbol(stats, s, which)
+        rows.append((i, p))
+    # 降順（確率大）→ 昇順（車番小）
+    rows.sort(key=lambda x: (-x[1], x[0]))
+    return [i for i, _ in rows]
+
+def get_line_mixed_formation_trio(show_ui: bool = False) -> str:
+    """
+    3連複フォーメーション文字列を生成。
+    1列目= p1上位2、2列目= p2上位3、3列目= p3上位5
+    """
+    stats = _active_finish_stats()
+    id2s  = _id2sym()
+    if not id2s:
+        return "—"
+
+    col1_ids = _rank_ids_by(stats, id2s, "p1")[:2]
+    col2_ids = _rank_ids_by(stats, id2s, "p2")[:3]
+    col3_ids = _rank_ids_by(stats, id2s, "p3")[:5]
+
+    # 文字列化（各列は“採用順位のまま”連結。重複は列内不可なのでset化→元順序維持）
+    def _uniq(seq):  # 列内重複ガード（通常は起きにくいが保険）
+        seen, out = set(), []
+        for x in seq:
+            if x not in seen:
+                seen.add(x); out.append(x)
+        return out
+
+    col1 = "".join(str(i) for i in _uniq(col1_ids))
+    col2 = "".join(str(i) for i in _uniq(col2_ids))
+    col3 = "".join(str(i) for i in _uniq(col3_ids))
+
+    formation = f"{col1}-{col2}-{col3}" if (col1 and col2 and col3) else "—"
+
+    if show_ui:
+        try:
+            st.markdown("### 【ライン＋混戦フォーメーション】")
+            st.write(formation)
+        except Exception:
+            pass
+
+    return formation
+
+# 出力（note_sectionsに追記する場合）
 note_sections.append("【ライン＋混戦フォーメーション】")
+note_sections.append(get_line_mixed_formation_trio(False))
+
+# ======================================================================
 
 
 
