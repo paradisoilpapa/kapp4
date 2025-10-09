@@ -3061,28 +3061,35 @@ note_sections.append("\n")  # 空行
 
 # === MINI PATCH: 狙いたいレース着順フォーメーション（3連複：p1上位2 / p2上位3 / p3上位5） ===
 
-def _norm_sym(s):
-    s = str(s).strip()
-    return "〇" if s == "○" else s
+# 既存があればそれを使う（未定義なら定義）
+try:
+    _norm_sym  # type: ignore
+except NameError:
+    def _norm_sym(s):
+        s = str(s).strip()
+        return "〇" if s == "○" else s
 
-def _id2sym():
-    # result_marks or marks を車番→印に正規化
-    rm = globals().get("result_marks", None)
-    if not isinstance(rm, dict):
-        rm = globals().get("marks", {})
-    if not isinstance(rm, dict) or not rm:
-        return {}
-    numeric_key = any(isinstance(k, int) or (isinstance(k, str) and k.isdigit()) for k in rm.keys())
-    d = {}
-    if numeric_key:
-        for k, v in rm.items():
-            try: d[int(k)] = _norm_sym(v)
-            except: pass
-    else:
-        for sym, vid in rm.items():
-            try: d[int(vid)] = _norm_sym(sym)
-            except: pass
-    return d
+try:
+    _id2sym  # type: ignore
+except NameError:
+    def _id2sym():
+        # result_marks or marks を車番→印に正規化
+        rm = globals().get("result_marks", None)
+        if not isinstance(rm, dict):
+            rm = globals().get("marks", {})
+        if not isinstance(rm, dict) or not rm:
+            return {}
+        numeric_key = any(isinstance(k, int) or (isinstance(k, str) and k.isdigit()) for k in rm.keys())
+        d = {}
+        if numeric_key:
+            for k, v in rm.items():
+                try: d[int(k)] = _norm_sym(v)
+                except: pass
+        else:
+            for sym, vid in rm.items():
+                try: d[int(vid)] = _norm_sym(sym)
+                except: pass
+        return d
 
 def _active_finish_stats():
     stats = globals().get("FINISH_STATS_CURRENT") or globals().get("FINISH_STATS")
@@ -3114,36 +3121,37 @@ def _uniq(seq):
             seen.add(x); out.append(x)
     return out
 
-# 狙いたいレース判定（既存フラグ/メタを利用）
+# 判定：まず既存の _is_target_local（あなたの判定結果）を最優先
+# 次に外部フラグもフォールバックで見る
 def _is_target_race():
+    if bool(globals().get("_is_target_local", False)):
+        return True
     for k in ("IS_TARGET_RACE", "WANT_RACE", "want_race", "is_target_race"):
         v = globals().get(k, None)
-        if isinstance(v, bool):
-            return v
+        if isinstance(v, bool) and v:
+            return True
     rm = globals().get("race_meta", {})
     if isinstance(rm, dict):
         for key in ("want", "target", "狙いたいレース"):
             val = rm.get(key, None)
-            if isinstance(val, bool):
-                return val
+            if isinstance(val, bool) and val:
+                return True
     return False
 
 def get_target_finish_trio_235(show_ui=False):
     """狙いたいレース着順フォーメーション（2-3-5）"""
     stats, id2s = _active_finish_stats(), _id2sym()
-    if not id2s: return "—"
+    if not id2s:
+        return "—"
     col1 = "".join(str(i) for i in _uniq(_rank_ids_by(stats, id2s, "p1")[:2]))
     col2 = "".join(str(i) for i in _uniq(_rank_ids_by(stats, id2s, "p2")[:3]))
     col3 = "".join(str(i) for i in _uniq(_rank_ids_by(stats, id2s, "p3")[:5]))
     s = f"{col1}-{col2}-{col3}" if (col1 and col2 and col3) else "—"
     if show_ui:
         try:
-            st.markdown("### 【狙いたいレース着順フォーメーション（2-3-5）】"); st.write(s)
+            st.markdown("### 【狙いたいレース着順フォーメーション】"); st.write(s)
         except: pass
     return s
-
-if "note_sections" not in globals():
-    note_sections = []
 
 # 表示条件：狙いたいレース時のみ。非対象時はメッセージを明示。
 if _is_target_race():
@@ -3151,6 +3159,7 @@ if _is_target_race():
 else:
     note_sections.append("【狙いたいレース着順フォーメーション】 該当レースではありません")
 # === MINI PATCH END ===
+
 
 # ================== 【3着率ランキングフォーメーション】（堅牢・偏差値不使用） ==================
 
