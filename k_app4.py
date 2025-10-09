@@ -210,6 +210,17 @@ RANK_STATS_GIRLS = {
     "無": {"p1": 0.000, "pTop2": 0.000, "pTop3": 0.000},
 }
 
+# --- ライン＋混戦フォーメーション専用（着率テーブル） ---
+RANK_STATS_MIXED = {
+    "◎": {"p1": 0.200, "p2": 0.418, "p3": 0.582},
+    "〇": {"p1": 0.345, "p2": 0.491, "p3": 0.564},
+    "▲": {"p1": 0.127, "p2": 0.236, "p3": 0.400},
+    "△": {"p1": 0.073, "p2": 0.164, "p3": 0.345},
+    "×": {"p1": 0.127, "p2": 0.345, "p3": 0.455},
+    "α": {"p1": 0.093, "p2": 0.241, "p3": 0.389},
+    "無": {"p1": 0.039, "p2": 0.118, "p3": 0.294},
+}
+
 
 
 # --- グレード連動用マップ ---
@@ -219,7 +230,9 @@ RANK_STATS_BY_GRADE = {
     "F1":     RANK_STATS_F1,
     "G":      RANK_STATS_G,
     "GIRLS":  RANK_STATS_GIRLS,
+    "MIXED":  RANK_STATS_MIXED,  # ←これを追加！
 }
+
 
 # 互換: 旧コードが参照する RANK_STATS は TOTAL を指す
 RANK_STATS = RANK_STATS_TOTAL
@@ -3059,7 +3072,7 @@ note_sections.append("\n偏差値（風・ライン込み）")
 note_sections.append(_fmt_hen_lines(race_t, USED_IDS))
 note_sections.append("\n")  # 空行
 
-note_sections.append("【ライン＋混戦フォーメーション】")
+note_sections.append("【狙いたいフォーメーション】")
 
 # --- 【ライン＋混戦フォーメーション】着率テーブル活用（RANK_STATS_F2使用・三連複7点構成） ---
 try:
@@ -3143,7 +3156,8 @@ def build_mixed_trio_from_stats(result_marks: dict, stats: dict, k1=2, k2=3, k3=
 # --- 実行部：note_sectionsに反映 ---
 try:
     result_marks = globals().get("result_marks", {})
-    stats_active = globals().get("RANK_STATS_F2", {})
+    stats_active = globals().get("RANK_STATS_MIXED", {})
+
     group_str, trio7 = build_mixed_trio_from_stats(result_marks, stats_active, 2, 3, 5)
     note_sections.append(group_str)
     if trio7:
