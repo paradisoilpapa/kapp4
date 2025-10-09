@@ -1869,7 +1869,7 @@ form_L1 = _fmt_form(L1)
 form_L2 = _fmt_form(L2)
 form_L3 = _fmt_form(L3)
 formation_label = f"{form_L1}-{form_L2}-{form_L3}"
-st.markdown(f"**フォーメーション**：{formation_label}")
+
 
 # 既存：三連複/三連単の基礎スコア計算関数が無い場合の保険
 if '_trio_score' not in globals():
