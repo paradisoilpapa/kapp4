@@ -3059,7 +3059,7 @@ note_sections.append("\n偏差値（風・ライン込み）")
 note_sections.append(_fmt_hen_lines(race_t, USED_IDS))
 note_sections.append("\n")  # 空行
 
-# === MINI PATCH: ライン＋混戦フォーメーション（3連複：p1上位2 / p2上位3 / p3上位5） ===
+# === MINI PATCH: 狙いたいレース着順フォーメーション（3連複：p1上位2 / p2上位3 / p3上位5） ===
 
 def _norm_sym(s):
     s = str(s).strip()
@@ -3114,7 +3114,22 @@ def _uniq(seq):
             seen.add(x); out.append(x)
     return out
 
-def get_line_mixed_formation_trio(show_ui=False):
+# 狙いたいレース判定（既存フラグ/メタを利用）
+def _is_target_race():
+    for k in ("IS_TARGET_RACE", "WANT_RACE", "want_race", "is_target_race"):
+        v = globals().get(k, None)
+        if isinstance(v, bool):
+            return v
+    rm = globals().get("race_meta", {})
+    if isinstance(rm, dict):
+        for key in ("want", "target", "狙いたいレース"):
+            val = rm.get(key, None)
+            if isinstance(val, bool):
+                return val
+    return False
+
+def get_target_finish_trio_235(show_ui=False):
+    """狙いたいレース着順フォーメーション（2-3-5）"""
     stats, id2s = _active_finish_stats(), _id2sym()
     if not id2s: return "—"
     col1 = "".join(str(i) for i in _uniq(_rank_ids_by(stats, id2s, "p1")[:2]))
@@ -3123,15 +3138,19 @@ def get_line_mixed_formation_trio(show_ui=False):
     s = f"{col1}-{col2}-{col3}" if (col1 and col2 and col3) else "—"
     if show_ui:
         try:
-            st.markdown("### 【ライン＋混戦フォーメーション】"); st.write(s)
+            st.markdown("### 【狙いたいレース着順フォーメーション（2-3-5）】"); st.write(s)
         except: pass
     return s
 
 if "note_sections" not in globals():
     note_sections = []
-note_sections.append(f"【ライン＋混戦フォーメーション】 {get_line_mixed_formation_trio(False)}")
-# === MINI PATCH END ===
 
+# 表示条件：狙いたいレース時のみ。非対象時はメッセージを明示。
+if _is_target_race():
+    note_sections.append(f"【狙いたいレース着順フォーメーション（2-3-5）】 {get_target_finish_trio_235(False)}")
+else:
+    note_sections.append("【狙いたいレース着順フォーメーション（2-3-5）】 該当レースではありません")
+# === MINI PATCH END ===
 
 # ================== 【3着率ランキングフォーメーション】（堅牢・偏差値不使用） ==================
 
