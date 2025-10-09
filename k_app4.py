@@ -2859,13 +2859,16 @@ note_sections.append("\n偏差値（風・ライン込み）")
 note_sections.append(_fmt_hen_lines(race_t, USED_IDS))
 note_sections.append("\n")  # 空行
 
-note_sections.append("【狙いたいフォーメーション】")
+# =========================
+#  ライン＋混戦フォーメーション（専用着率テーブル RANK_STATS_MIXED 使用）
+# =========================
 
-# --- 【ライン＋混戦フォーメーション】着率テーブル活用（RANK_STATS_F2使用・三連複7点構成） ---
+note_sections.append("【ライン＋混戦フォーメーション】")
+
 try:
-    RANK_STATS_F2  # type: ignore
+    RANK_STATS_MIXED  # type: ignore
 except NameError:
-    RANK_STATS_F2 = {}
+    RANK_STATS_MIXED = {}
 
 def _normalize_mark(s: str) -> str:
     """○と〇を統一"""
@@ -2940,19 +2943,24 @@ def build_mixed_trio_from_stats(result_marks: dict, stats: dict, k1=2, k2=3, k3=
 
     return group_str, sorted(list(trio_set))[:7]
 
-# --- 実行部：note_sectionsに反映 ---
+
+# --- 実行部：狙いたいレース限定で反映 ---
 try:
     result_marks = globals().get("result_marks", {})
     stats_active = globals().get("RANK_STATS_MIXED", {})
 
-    group_str, trio7 = build_mixed_trio_from_stats(result_marks, stats_active, 2, 3, 5)
-    note_sections.append(group_str)
-    if trio7:
-        note_sections.append(f"三連複7点：{', '.join('-'.join(map(str,t)) for t in trio7)}")
+    if _is_target_local:  # ← 狙いたいレースのときだけ出す
+        group_str, trio7 = build_mixed_trio_from_stats(result_marks, stats_active, 2, 3, 5)
+        note_sections.append(group_str)
+        if trio7:
+            note_sections.append(f"三連複7点：{', '.join('-'.join(map(str,t)) for t in trio7)}")
+        else:
+            note_sections.append("三連複7点：—")
     else:
-        note_sections.append("三連複7点：—")
-except Exception:
-    note_sections.append("—")
+        note_sections.append("（該当レースでは混戦フォメ非適用）")
+
+except Exception as e:
+    note_sections.append(f"エラー：{e}")
     note_sections.append("三連複7点：—")
 
 
