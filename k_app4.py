@@ -1924,7 +1924,6 @@ form_L1 = _fmt_form(L1)
 form_L2 = _fmt_form(L2)
 form_L3 = _fmt_form(L3)
 formation_label = f"{form_L1}-{form_L2}-{form_L3}"
-st.markdown(f"**フォーメーション**：{formation_label}")
 
 # ------------ ヘルパ：閾値算出（μ+σ/div と 上位q を比較して高い方を返す） ------------
 def cutoff_mu_sig_vs_top(xs, sig_div, top_frac):
