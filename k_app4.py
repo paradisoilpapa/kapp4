@@ -3059,9 +3059,9 @@ note_sections.append("\n偏差値（風・ライン込み）")
 note_sections.append(_fmt_hen_lines(race_t, USED_IDS))
 note_sections.append("\n")  # 空行
 
-# === MINI PATCH: 狙いたいレース着順フォーメーション（3連複：p1上位2 / p2上位3 / p3上位5） ===
+# === 狙いたいレース着順フォーメーション（12-123-1234◎｜◎は3列目のみ、3列目は下位から） ===
 
-# 既存があればそれを使う（未定義なら定義）
+# ── 依存ヘルパ（既存があれば既存を使用） ────────────────────────────────
 try:
     _norm_sym  # type: ignore
 except NameError:
@@ -3091,11 +3091,12 @@ except NameError:
                 except: pass
         return d
 
+# 着率テーブル（いつでも上書き可：FINISH_STATS_CURRENT または FINISH_STATS を参照）
 def _active_finish_stats():
     stats = globals().get("FINISH_STATS_CURRENT") or globals().get("FINISH_STATS")
     if isinstance(stats, dict):
         return stats
-    return {  # 既定（いつでも上書き可）
+    return {  # 既定
         "◎": {"p1": 0.200, "p2": 0.418, "p3": 0.582},
         "〇": {"p1": 0.345, "p2": 0.491, "p3": 0.564},
         "▲": {"p1": 0.127, "p2": 0.236, "p3": 0.400},
@@ -3105,47 +3106,172 @@ def _active_finish_stats():
         "無": {"p1": 0.039, "p2": 0.118, "p3": 0.294},
     }
 
-def _p(stats, sym, which):
-    try:    return float(stats.get(_norm_sym(sym), {}).get(which, 0.0))
+# ライン入力から車番グループを抽出（例: ["214","6","357"] → [[2,1,4],[6],[3,5,7]])
+def _parse_line_inputs(line_inputs):
+    groups = []
+    if isinstance(line_inputs, (list, tuple)):
+        for s in line_inputs:
+            ids = []
+            for ch in str(s):
+                if ch.isdigit():
+                    try: ids.append(int(ch))
+                    except: pass
+            if ids:
+                groups.append(ids)
+    return groups
+
+# 記号の強さ順（偏差値は使わない）
+_SYM_ORDER = ["◎","〇","▲","△","×","α","無"]
+_SYM_RANK  = {s:i for i,s in enumerate(_SYM_ORDER)}  # 小さいほど強い
+
+def _p(stats, sym, key):
+    try:    return float(stats.get(_norm_sym(sym), {}).get(key, 0.0))
     except: return 0.0
 
-def _rank_ids_by(stats, id2sym, which):
-    rows = [(i, _p(stats, s, which)) for i, s in id2sym.items()]
-    rows.sort(key=lambda x: (-x[1], x[0]))  # 確率降順→車番昇順
-    return [i for i, _ in rows]
+def _anchor_id(id2sym):
+    for i,s in id2sym.items():
+        if _norm_sym(s) == "◎":
+            return i
+    return None
 
-def _uniq(seq):
-    seen, out = set(), []
-    for x in seq:
-        if x not in seen:
-            seen.add(x); out.append(x)
-    return out
+def _find_group_of(groups, nid):
+    for g in groups:
+        if nid in g:
+            return g
+    return None
 
-# 判定：まず既存の _is_target_local（あなたの判定結果）を最優先
-# 次に外部フラグもフォールバックで見る
+def _best_by_symbol(id_list, id2sym, exclude=None):
+    exclude = set(exclude or [])
+    cand = [i for i in id_list if i not in exclude]
+    cand.sort(key=lambda i: _SYM_RANK.get(_norm_sym(id2sym.get(i,"無")), 999))
+    return cand[0] if cand else None
+
+def _median_by_symbol(triple_ids, id2sym, exclude=None):
+    exclude = set(exclude or [])
+    xs = [i for i in triple_ids if i not in exclude]
+    # 強さ（小さいほど強い）でソート→中央値
+    xs.sort(key=lambda i: _SYM_RANK.get(_norm_sym(id2sym.get(i,"無")), 999))
+    if not xs: return None
+    mid = len(xs)//2
+    # 被り回避：中央値がダメなら、近い方（強→弱の順）で空きを探す
+    for idx in [mid, max(0,mid-1), min(len(xs)-1,mid+1)]:
+        if xs[idx] not in exclude:
+            return xs[idx]
+    return xs[0]
+
+def _pick_3_from_low(stats, candidates_syms):
+    """p3が低い順で2印→その2印のうちp2が高い方を返す（印を返す）"""
+    lows = sorted(candidates_syms, key=lambda s: (_p(stats, s, "p3"), _p(stats, s, "p2")))
+    lows2 = lows[:2]
+    if not lows2: return None, None
+    if len(lows2)==1: return lows2[0], None
+    a,b = lows2
+    # p2高い方を「3」、もう一方を“残り”に
+    three = max([a,b], key=lambda s: (_p(stats, s,"p2"), _p(stats,s,"p1")))
+    other = b if three==a else a
+    return three, other
+
 def _is_target_race():
     if bool(globals().get("_is_target_local", False)):
         return True
-    for k in ("IS_TARGET_RACE", "WANT_RACE", "want_race", "is_target_race"):
+    for k in ("IS_TARGET_RACE","WANT_RACE","want_race","is_target_race"):
         v = globals().get(k, None)
         if isinstance(v, bool) and v:
             return True
     rm = globals().get("race_meta", {})
     if isinstance(rm, dict):
-        for key in ("want", "target", "狙いたいレース"):
+        for key in ("want","target","狙いたいレース"):
             val = rm.get(key, None)
             if isinstance(val, bool) and val:
                 return True
     return False
 
-def get_target_finish_trio_235(show_ui=False):
-    """狙いたいレース着順フォーメーション（2-3-5）"""
-    stats, id2s = _active_finish_stats(), _id2sym()
-    if not id2s:
-        return "—"
-    col1 = "".join(str(i) for i in _uniq(_rank_ids_by(stats, id2s, "p1")[:2]))
-    col2 = "".join(str(i) for i in _uniq(_rank_ids_by(stats, id2s, "p2")[:3]))
-    col3 = "".join(str(i) for i in _uniq(_rank_ids_by(stats, id2s, "p3")[:5]))
+def get_target_finish_trio_anchor_low(show_ui=False):
+    """
+    12-123-1234◎（◎は3列目のみ／3列目は下位から）
+      1 = ◎の同ライン相棒の最上位印（印序列で決定）
+      2 = 対象3車ラインの真ん中印（印序列の中央値）
+      3 = 残りから p3下位2 のうち p2高い方（印テーブルより）
+      3列目 = {1,2,3} + 残りp3下位1 + ◎
+    出力は車番で「A B - A B C - A B C D X(=◎)」
+    """
+    id2sym = _id2sym()
+    if not id2sym: return "—"
+    stats  = _active_finish_stats()
+
+    # 入力ライン
+    groups = _parse_line_inputs(globals().get("line_inputs", []))
+
+    # アンカー（◎）
+    anc = _anchor_id(id2sym)
+    if anc is None: return "—"
+    anc_sym = "◎"
+
+    # 1 = ◎同ラインの最上位印
+    g_anc = _find_group_of(groups, anc) or []
+    one = _best_by_symbol([i for i in g_anc if i != anc], id2sym)
+    # ◎単騎などで取れなければ、別ラインの最上位印（印序列）で補完
+    if one is None:
+        rest = [i for g in groups for i in g if i != anc]
+        one  = _best_by_symbol(rest, id2sym)
+
+    # 2 = 対象3車ラインの“真ん中印”
+    three_lines = [g for g in groups if len(g)==3]
+    target3 = None
+    # 優先：アンカーライン以外→最初の3車ライン
+    for g in three_lines:
+        if anc not in g:
+            target3 = g; break
+    if target3 is None and three_lines:
+        target3 = three_lines[0]
+    two = None
+    if target3:
+        two = _median_by_symbol(target3, id2sym, exclude={anc, one})
+    # 3車ラインが無い or 被って取れない場合は、印序列で補完
+    if two is None:
+        pool = [i for i in id2sym.keys() if i not in {anc, one}]
+        two = _best_by_symbol(pool, id2sym, exclude={})
+
+    # 3 = 残りから p3下位2 → p2高い方
+    used = {anc, one, two}
+    remain_syms = []
+    for i,s in id2sym.items():
+        if i in used: continue
+        remain_syms.append(_norm_sym(s))
+    # 印の候補が1つ以下のときのフォールバック
+    if not remain_syms:
+        return f"{one}{two}-{one}{two}-{one}{two}{anc}"
+    three_sym, other_low_sym = _pick_3_from_low(stats, remain_syms)
+
+    # three_sym に一致する“車番”を一意に選ぶ（印が複数台いても番号小優先）
+    def _pick_id_by_sym(sym, avoid_ids):
+        cand = sorted(i for i,s in id2sym.items() if _norm_sym(s)==_norm_sym(sym) and i not in avoid_ids)
+        return cand[0] if cand else None
+
+    three = _pick_id_by_sym(three_sym, used) if three_sym else None
+    if three is None:
+        # 最低限：未使用の中で p3低い車を拾う
+        cand_ids = [i for i in id2sym.keys() if i not in used]
+        cand_ids.sort(key=lambda i: _p(stats, id2sym[i],"p3"))
+        three = cand_ids[0] if cand_ids else None
+    used.add(three)
+
+    # 3列目の“残りp3下位1”
+    four = None
+    if other_low_sym:
+        four = _pick_id_by_sym(other_low_sym, used)
+    if four is None:
+        # 未使用から p3 が最も低い1台
+        cand_ids = [i for i in id2sym.keys() if i not in used]
+        cand_ids.sort(key=lambda i: _p(stats, id2sym[i],"p3"))
+        four = cand_ids[0] if cand_ids else None
+
+    # 文字列化（入れ子：col1 ⊂ col2 ⊂ col3）
+    def _cat(ids): return "".join(str(i) for i in ids if i is not None)
+    col1 = _cat([one, two])
+    col2 = _cat([one, two, three])
+    col3 = _cat([one, two, three, four, anc])
+
     s = f"{col1}-{col2}-{col3}" if (col1 and col2 and col3) else "—"
     if show_ui:
         try:
@@ -3153,12 +3279,12 @@ def get_target_finish_trio_235(show_ui=False):
         except: pass
     return s
 
-# 表示条件：狙いたいレース時のみ。非対象時はメッセージを明示。
+# ── 出力（狙いたいレースの時だけ） ────────────────────────────────────
 if _is_target_race():
-    note_sections.append(f"【狙いたいレース着順フォーメーション】 {get_target_finish_trio_235(False)}")
+    note_sections.append(f"【狙いたいレース着順フォーメーション】 {get_target_finish_trio_anchor_low(False)}")
 else:
     note_sections.append("【狙いたいレース着順フォーメーション】 該当レースではありません")
-# === MINI PATCH END ===
+# === END ===
 
 
 # ================== 【3着率ランキングフォーメーション】（堅牢・偏差値不使用） ==================
