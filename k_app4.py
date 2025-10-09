@@ -176,7 +176,6 @@ RANK_STATS_F2 = {
     "無": {"p1": 0.050, "pTop2": 0.139, "pTop3": 0.257},
 }
 
-
 # --- F1 ---
 RANK_STATS_F1 = {
     "◎": {"p1": 0.278, "pTop2": 0.444, "pTop3": 0.556},
@@ -210,8 +209,9 @@ RANK_STATS_GIRLS = {
     "無": {"p1": 0.000, "pTop2": 0.000, "pTop3": 0.000},
 }
 
+# --- ライン＋混戦フォーメーション専用（非表示安全版） ---
 def get_rank_stats_mixed():
-    return {
+    stats = {
         "◎": {"p1": 0.200, "p2": 0.418, "p3": 0.582},
         "〇": {"p1": 0.345, "p2": 0.491, "p3": 0.564},
         "▲": {"p1": 0.127, "p2": 0.236, "p3": 0.400},
@@ -220,10 +220,10 @@ def get_rank_stats_mixed():
         "α": {"p1": 0.093, "p2": 0.241, "p3": 0.389},
         "無": {"p1": 0.039, "p2": 0.118, "p3": 0.294},
     }
+    return stats
 
-RANK_STATS_MIXED = get_rank_stats_mixed()
-
-
+# ここがポイント：評価出力を抑制
+RANK_STATS_MIXED = get_rank_stats_mixed(); _ = None
 
 # --- グレード連動用マップ ---
 RANK_STATS_BY_GRADE = {
@@ -232,7 +232,6 @@ RANK_STATS_BY_GRADE = {
     "F1":     RANK_STATS_F1,
     "G":      RANK_STATS_G,
     "GIRLS":  RANK_STATS_GIRLS,
-
 }
 
 
