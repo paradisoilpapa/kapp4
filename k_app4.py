@@ -3059,126 +3059,78 @@ note_sections.append("\n偏差値（風・ライン込み）")
 note_sections.append(_fmt_hen_lines(race_t, USED_IDS))
 note_sections.append("\n")  # 空行
 
-# === PATCH: helpers & safe globals for get_line_mixed_formation_trio ===
+# === MINI PATCH: ライン＋混戦フォーメーション（3連複：p1上位2 / p2上位3 / p3上位5） ===
 
-# 既存があれば尊重（上書きしない）
-if "_norm_sym" not in globals():
-    def _norm_sym(s):
-        s = str(s).strip()
-        return "〇" if s == "○" else s
+def _norm_sym(s):
+    s = str(s).strip()
+    return "〇" if s == "○" else s
 
-def _get_result_marks_dict():
-    """result_marks（または marks）を dict で安全取得。無効なら空dict"""
+def _id2sym():
+    # result_marks or marks を車番→印に正規化
     rm = globals().get("result_marks", None)
     if not isinstance(rm, dict):
-        rm = globals().get("marks", {})  # 代替キー
-    return rm if isinstance(rm, dict) else {}
+        rm = globals().get("marks", {})
+    if not isinstance(rm, dict) or not rm:
+        return {}
+    numeric_key = any(isinstance(k, int) or (isinstance(k, str) and k.isdigit()) for k in rm.keys())
+    d = {}
+    if numeric_key:
+        for k, v in rm.items():
+            try: d[int(k)] = _norm_sym(v)
+            except: pass
+    else:
+        for sym, vid in rm.items():
+            try: d[int(vid)] = _norm_sym(sym)
+            except: pass
+    return d
 
-if "_id2sym" not in globals():
-    def _id2sym():
-        """
-        result_marks が
-          1) {車番:int/str → 印:str} 形式  または
-          2) {印:str → 車番:int/str} 形式
-        のどちらでも車番→印に正規化する。
-        """
-        rm = _get_result_marks_dict()
-        if not rm: 
-            return {}
-        # キーが数字系なら「車番→印」
-        numeric_key = any(isinstance(k, int) or (isinstance(k, str) and k.isdigit()) for k in rm.keys())
-        d = {}
-        if numeric_key:
-            for k, v in rm.items():
-                try:
-                    d[int(k)] = _norm_sym(v)
-                except:
-                    pass
-        else:
-            # 「印→車番」を「車番→印」に反転
-            for sym, vid in rm.items():
-                try:
-                    d[int(vid)] = _norm_sym(sym)
-                except:
-                    pass
-        return d
+def _active_finish_stats():
+    stats = globals().get("FINISH_STATS_CURRENT") or globals().get("FINISH_STATS")
+    if isinstance(stats, dict):
+        return stats
+    return {  # 既定（いつでも上書き可）
+        "◎": {"p1": 0.200, "p2": 0.418, "p3": 0.582},
+        "〇": {"p1": 0.345, "p2": 0.491, "p3": 0.564},
+        "▲": {"p1": 0.127, "p2": 0.236, "p3": 0.400},
+        "△": {"p1": 0.073, "p2": 0.164, "p3": 0.345},
+        "×": {"p1": 0.127, "p2": 0.345, "p3": 0.455},
+        "α": {"p1": 0.093, "p2": 0.241, "p3": 0.389},
+        "無": {"p1": 0.039, "p2": 0.118, "p3": 0.294},
+    }
 
-# 着率テーブルのアクティブ取得（既存があればそちらを使う）
-if "_active_finish_stats" not in globals():
-    def _active_finish_stats():
-        if "FINISH_STATS_CURRENT" in globals() and isinstance(FINISH_STATS_CURRENT, dict):
-            return FINISH_STATS_CURRENT
-        if "FINISH_STATS" in globals() and isinstance(FINISH_STATS, dict):
-            return FINISH_STATS
-        # デフォルト（ユーザー指定値）
-        return {
-            "◎": {"p1": 0.200, "p2": 0.418, "p3": 0.582},
-            "〇": {"p1": 0.345, "p2": 0.491, "p3": 0.564},
-            "▲": {"p1": 0.127, "p2": 0.236, "p3": 0.400},
-            "△": {"p1": 0.073, "p2": 0.164, "p3": 0.345},
-            "×": {"p1": 0.127, "p2": 0.345, "p3": 0.455},
-            "α": {"p1": 0.093, "p2": 0.241, "p3": 0.389},
-            "無": {"p1": 0.039, "p2": 0.118, "p3": 0.294},
-        }
+def _p(stats, sym, which):
+    try:    return float(stats.get(_norm_sym(sym), {}).get(which, 0.0))
+    except: return 0.0
 
-def _finish_prob_of_symbol(stats: dict, sym: str, which: str) -> float:
-    try:
-        return float(stats.get(_norm_sym(sym), {}).get(which, 0.0))
-    except Exception:
-        return 0.0
-
-def _rank_ids_by(stats: dict, id2sym: dict, which: str) -> list:
-    """which ∈ {'p1','p2','p3'}で該当着率の降順（タイは車番小）に車番を返す"""
-    rows = []
-    for i, s in id2sym.items():
-        p = _finish_prob_of_symbol(stats, s, which)
-        rows.append((i, p))
-    rows.sort(key=lambda x: (-x[1], x[0]))
+def _rank_ids_by(stats, id2sym, which):
+    rows = [(i, _p(stats, s, which)) for i, s in id2sym.items()]
+    rows.sort(key=lambda x: (-x[1], x[0]))  # 確率降順→車番昇順
     return [i for i, _ in rows]
 
-if "get_line_mixed_formation_trio" not in globals():
-    def get_line_mixed_formation_trio(show_ui: bool = False) -> str:
-        """
-        3連複フォーメーション:
-          1列目= p1 上位2
-          2列目= p2 上位3
-          3列目= p3 上位5
-        """
-        stats = _active_finish_stats()
-        id2s  = _id2sym()
-        if not id2s:
-            return "—"
+def _uniq(seq):
+    seen, out = set(), []
+    for x in seq:
+        if x not in seen:
+            seen.add(x); out.append(x)
+    return out
 
-        def _uniq(seq):
-            seen, out = set(), []
-            for x in seq:
-                if x not in seen:
-                    seen.add(x); out.append(x)
-            return out
+def get_line_mixed_formation_trio(show_ui=False):
+    stats, id2s = _active_finish_stats(), _id2sym()
+    if not id2s: return "—"
+    col1 = "".join(str(i) for i in _uniq(_rank_ids_by(stats, id2s, "p1")[:2]))
+    col2 = "".join(str(i) for i in _uniq(_rank_ids_by(stats, id2s, "p2")[:3]))
+    col3 = "".join(str(i) for i in _uniq(_rank_ids_by(stats, id2s, "p3")[:5]))
+    s = f"{col1}-{col2}-{col3}" if (col1 and col2 and col3) else "—"
+    if show_ui:
+        try:
+            st.markdown("### 【ライン＋混戦フォーメーション】"); st.write(s)
+        except: pass
+    return s
 
-        col1_ids = _uniq(_rank_ids_by(stats, id2s, "p1")[:2])
-        col2_ids = _uniq(_rank_ids_by(stats, id2s, "p2")[:3])
-        col3_ids = _uniq(_rank_ids_by(stats, id2s, "p3")[:5])
-
-        col1 = "".join(str(i) for i in col1_ids)
-        col2 = "".join(str(i) for i in col2_ids)
-        col3 = "".join(str(i) for i in col3_ids)
-
-        formation = f"{col1}-{col2}-{col3}" if (col1 and col2 and col3) else "—"
-
-        if show_ui:
-            try:
-                st.markdown("### 【ライン＋混戦フォーメーション】")
-                st.write(formation)
-            except Exception:
-                pass
-
-        return formation
-
-# note_sections が未定義なら初期化（安全策）
 if "note_sections" not in globals():
     note_sections = []
-# === PATCH END ===
+note_sections.append(f"【ライン＋混戦フォーメーション】 {get_line_mixed_formation_trio(False)}")
+# === MINI PATCH END ===
 
 
 # ================== 【3着率ランキングフォーメーション】（堅牢・偏差値不使用） ==================
