@@ -2721,41 +2721,7 @@ def _ensure_top3(base_rows, fallback_rows, need=3):
     return picked[:need]
 
 
-# =========================
-#  画面出力（順番固定）
-# =========================
-st.markdown(f"**フォーメーション**：{formation_label}")
 
-# 三連複
-st.markdown("#### " + _hdr("三連複", cutoff_trio, _basis_trio(TRIO_L3_MIN), n_trio))
-if has_trio:
-    st.dataframe(_df_trio(trios_filtered_display, star_id), use_container_width=True)
-else:
-    st.markdown("対象外")
-
-# 三連単
-_basis_tri = _basis_combo(san_sig_div_used, san_mu_sig, san_top_den, san_topq, san_adopt)
-st.markdown("#### " + _hdr("三連単", cutoff_san, _basis_tri, n_triS))
-if has_tri:
-    st.dataframe(_df_trio(santan_filtered_display, star_id), use_container_width=True)
-else:
-    st.markdown("対象外")
-
-# 二車複
-_basis_qn = _basis_combo(qn_sig_div_used, qn2_mu_sig, qn_top_den, qn2_topq, qn2_adopt)
-st.markdown("#### " + _hdr("二車複", cutoff_qn2, _basis_qn, n_qn))
-if has_qn:
-    st.dataframe(_df_pairs(pairs_qn2_filtered), use_container_width=True)
-else:
-    st.markdown("対象外")
-
-# 二車単
-_basis_nit = _basis_combo(nit_sig_div_used, nit_mu_sig, nit_top_den, nit_topq, nit_adopt)
-st.markdown("#### " + _hdr("二車単", cutoff_nit, _basis_nit, n_nit))
-if has_nit:
-    st.dataframe(_df_nitan(rows_nitan_filtered), use_container_width=True)
-else:
-    st.markdown("対象外")
 
 
 
