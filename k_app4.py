@@ -232,7 +232,7 @@ RANK_STATS_BY_GRADE = {
     "F1":     RANK_STATS_F1,
     "G":      RANK_STATS_G,
     "GIRLS":  RANK_STATS_GIRLS,
-    "MIXED":  RANK_STATS_MIXED,  # ←これを追加！
+
 }
 
 
