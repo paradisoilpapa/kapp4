@@ -2351,7 +2351,6 @@ if len(tri_exc)<3:
         if len(tri_exc)>=3: break
 
 def _fmt_trio_list(rows): return " / ".join(f"{a}-{b}-{c}" for a,b,c,_,_ in rows) if rows else "—"
-st.markdown(f"**戦術（三連複）** ◎入り3点: {_fmt_trio_list(tri_inc)}　｜　◎抜き3点: {_fmt_trio_list(tri_exc)}")
 # st.write は削除
 
 
