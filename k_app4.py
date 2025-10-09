@@ -2890,43 +2890,7 @@ for a,b,s,tag in nit_source:
     if p >= hit_threshold:
         nit_prob_hits.append((a,b,p,tag))
 
-# --- 「オススメ買目」= 既存ロジックの候補 ∩ 確率しきい値クリア（=ここで既に交わってる） ---
-def _df_prob_trio(rows):
-    return pd.DataFrame([{"買い目": f"{a}-{b}-{c}", "確率(推定)": f"{p*100:.1f}%", "由来": tag} 
-                         for (a,b,c,p,tag) in sorted(rows, key=lambda t:(-t[3], t[0], t[1], t[2]))])
 
-def _df_prob_tri(rows):
-    return pd.DataFrame([{"買い目": f"{a}-{b}-{c}", "確率(推定)": f"{p*100:.1f}%", "由来": tag} 
-                         for (a,b,c,p,tag) in sorted(rows, key=lambda t:(-t[3], t[0], t[1], t[2]))])
-
-def _df_prob_qn(rows):
-    return pd.DataFrame([{"買い目": f"{a}-{b}", "確率(推定)": f"{p*100:.1f}%", "由来": tag}
-                         for (a,b,p,tag) in sorted(rows, key=lambda t:(-t[2], t[0], t[1]))])
-
-def _df_prob_nit(rows):
-    return pd.DataFrame([{"買い目": f"{a}-{b}", "確率(推定)": f"{p*100:.1f}%", "由来": tag}
-                         for (a,b,p,tag) in sorted(rows, key=lambda t:(-t[2], t[0], t[1]))])
-
-st.markdown("## 🎯 印の実測率ベース｜確率しきい値クリア")
-c1, c2 = st.columns(2)
-with c1:
-    st.markdown("#### 三連複（重複=おすすめ）")
-    st.dataframe(_df_prob_trio(trio_prob_hits), use_container_width=True)
-with c2:
-    st.markdown("#### 三連単（重複=おすすめ）")
-    st.dataframe(_df_prob_tri(tri_prob_hits), use_container_width=True)
-
-c3, c4 = st.columns(2)
-with c3:
-    st.markdown("#### 二車複（重複=おすすめ）")
-    st.dataframe(_df_prob_qn(qn_prob_hits), use_container_width=True)
-with c4:
-    st.markdown("#### 二車単（重複=おすすめ）")
-    st.dataframe(_df_prob_nit(nit_prob_hits), use_container_width=True)
-
-# === おすすめ買目（表示を分けたい場合の見出しだけ）
-st.markdown("## ✅ オススメ買目（偏差値ロジック or ライン枠 と重複）")
-st.caption("上の4表は既存候補と“しきい値クリア”の交差済み＝そのまま『おすすめ』です。")
 
 
 # =========================
