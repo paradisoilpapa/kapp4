@@ -3061,159 +3061,99 @@ note_sections.append("\n")  # 空行
 
 note_sections.append("【ライン＋混戦フォーメーション】")
 
-# --- 着率ベース（1着=上位2／2着=上位3／3着=上位5）フォメ反映：7点化＆グループ表記 ---
+# --- 【ライン＋混戦フォーメーション】着率テーブル活用（RANK_STATS_F2使用・三連複7点構成） ---
 try:
-    RANK_STATS_CURRENT  # type: ignore
+    RANK_STATS_F2  # type: ignore
 except NameError:
-    RANK_STATS_CURRENT = globals().get("RANK_STATS_F2", globals().get("RANK_STATS", {}))
+    RANK_STATS_F2 = {}
 
-def __norm_sym(s: str) -> str:
-    s = str(s).strip()
-    return "〇" if s == "○" else s
+def _normalize_mark(s: str) -> str:
+    """○と〇を統一"""
+    return "〇" if s == "○" else str(s).strip()
 
-def __active_rank_stats() -> dict:
-    if isinstance(globals().get("RANK_STATS_CURRENT"), dict) and RANK_STATS_CURRENT:
-        return RANK_STATS_CURRENT
-    if isinstance(globals().get("RANK_STATS_F2"), dict) and RANK_STATS_F2:
-        return RANK_STATS_F2
-    return globals().get("RANK_STATS", {}) if isinstance(globals().get("RANK_STATS"), dict) else {}
-
-def __topk_marks(stats: dict, key: str, k: int) -> list[str]:
-    rows = [(m, float(v.get(key, 0.0))) for m, v in stats.items() if isinstance(v, dict)]
-    rows.sort(key=lambda x: x[1], reverse=True)
-    return [__norm_sym(m) for m, _ in rows[:k]]
-
-def __marks_to_id_map(rm: dict) -> dict:
-    """印→番号／番号→印、どちらでも来ても番号→印のdictへ揃える"""
-    if not isinstance(rm, dict):
+def _marks_to_id(result_marks: dict) -> dict[str, int]:
+    """印→車番 dict（番号→印でも対応可）"""
+    if not isinstance(result_marks, dict): 
         return {}
-    numeric_key = any(isinstance(k, int) or (isinstance(k, str) and str(k).isdigit()) for k in rm.keys())
     out = {}
+    numeric_key = any(str(k).isdigit() for k in result_marks.keys())
     if numeric_key:
-        for k, v in rm.items():
-            try: out[int(k)] = __norm_sym(v)
+        # {1:"◎"} 型
+        for k,v in result_marks.items():
+            try: out[_normalize_mark(v)] = int(k)
             except: pass
     else:
-        for sym, vid in rm.items():
-            try: out[int(vid)] = __norm_sym(sym)
+        # {"◎":1} 型
+        for k,v in result_marks.items():
+            try: out[_normalize_mark(k)] = int(v)
             except: pass
     return out
 
-def __pick_ids_by_symbols(id2sym: dict, symbols: list[str]) -> list[int]:
-    """印の順に“その印の最小番号”を採る（重複番号は除外）"""
-    res, used = [], set()
-    for sym in symbols:
-        # 同じ印が複数台いても一番小さい番号を選ぶ
-        cands = sorted([i for i, s in id2sym.items() if __norm_sym(s) == __norm_sym(sym)])
-        for cid in cands:
-            if cid not in used:
-                res.append(cid); used.add(cid)
+def _topk_syms(stats: dict, key: str, k: int) -> list[str]:
+    """p1,p2,p3 から上位k印を抽出"""
+    arr = [(sym, float(v.get(key, 0))) for sym, v in stats.items() if isinstance(v, dict)]
+    arr.sort(key=lambda x: x[1], reverse=True)
+    return [_normalize_mark(sym) for sym, _ in arr[:k]]
+
+def build_mixed_trio_from_stats(result_marks: dict, stats: dict, k1=2, k2=3, k3=5):
+    """
+    着率テーブルを使用して三連複フォーメーションを構築。
+      1列目: 1着率上位2
+      2列目: 2着率上位3
+      3列目: 3着率上位5
+    """
+    marks_to_id = _marks_to_id(result_marks)
+    if not marks_to_id:
+        return "—", []
+
+    first_syms  = _topk_syms(stats, "p1", k1)
+    second_syms = _topk_syms(stats, "p2", k2)
+    third_syms  = _topk_syms(stats, "p3", k3)
+
+    f_ids = [marks_to_id[s] for s in first_syms  if s in marks_to_id]
+    s_ids = [marks_to_id[s] for s in second_syms if s in marks_to_id]
+    t_ids = [marks_to_id[s] for s in third_syms  if s in marks_to_id]
+
+    if not (f_ids and s_ids and t_ids):
+        return "—", []
+
+    # --- 三連複7点構成を生成 ---
+    trio_set = set()
+    for a in f_ids:
+        for b in s_ids:
+            for c in t_ids:
+                ids = tuple(sorted({a,b,c}))
+                if len(ids) == 3:
+                    trio_set.add(ids)
+                if len(trio_set) >= 7:
+                    break
+            if len(trio_set) >= 7:
                 break
-    return res
+        if len(trio_set) >= 7:
+            break
 
-def __prob(stats: dict, s1: str, s2: str, s3: str) -> float:
-    try:
-        return float(stats.get(s1, {}).get("p1", 0.0)) * float(stats.get(s2, {}).get("p2", 0.0)) * float(stats.get(s3, {}).get("p3", 0.0))
-    except Exception:
-        return 0.0
+    # 表記用（例: 21-214-21467）
+    f_str = ''.join(map(str,f_ids))
+    s_str = ''.join(map(str,s_ids))
+    t_str = ''.join(map(str,t_ids))
+    group_str = f"{f_str}-{s_str}-{t_str}"
 
-def __build_7tickets(result_marks: dict, stats: dict, k1=2, k2=3, k3=5, n_pick=7):
-    # プール（印）
-    first_syms  = __topk_marks(stats, "p1", k1)
-    second_syms = __topk_marks(stats, "p2", k2)
-    third_syms  = __topk_marks(stats, "p3", k3)
+    return group_str, sorted(list(trio_set))[:7]
 
-    # 当該レースに存在する印のみへ
-    present_syms = set(__norm_sym(s) for s in (globals().get('result_marks', {}) or {}).keys()) \
-                   if any(isinstance(k, str) and k in "◎〇▲△×αβ無" for k in (result_marks or {}).keys()) else \
-                   set(__norm_sym(v) for v in (result_marks or {}).values())
-    first_syms  = [s for s in first_syms  if s in present_syms]
-    second_syms = [s for s in second_syms if s in present_syms]
-    third_syms  = [s for s in third_syms  if s in present_syms]
-
-    # 三連単候補（印で列挙→p1×p2×p3でスコア）
-    cands = []
-    for s1 in first_syms:
-        for s2 in second_syms:
-            if s2 == s1: continue
-            for s3 in third_syms:
-                if s3 == s1 or s3 == s2: continue
-                sc = __prob(stats, s1, s2, s3)
-                if sc > 0: cands.append(((s1, s2, s3), sc))
-    cands.sort(key=lambda x: x[1], reverse=True)
-
-    # 上位n_pick
-    trifecta_syms = [tpl for tpl, _ in cands[:n_pick]]
-
-    # 三連複は組集合でユニーク化
-    seen, trio_syms = set(), []
-    for (a, b, c), _ in cands:
-        key = tuple(sorted((a, b, c)))
-        if key in seen: continue
-        seen.add(key)
-        trio_syms.append(key)
-        if len(trio_syms) >= n_pick: break
-
-    # 印→番号マッピング
-    id2sym = __marks_to_id_map(result_marks)
-
-    def syms_to_ids(tpl):
-        # 各印の“その印のうち最小番号”で表現（重複回避）
-        pool = []
-        used_ids = set()
-        for sym in tpl:
-            cands = sorted([i for i, s in id2sym.items() if __norm_sym(s) == __norm_sym(sym)])
-            pick = next((i for i in cands if i not in used_ids), None)
-            if pick is None: return None
-            used_ids.add(pick); pool.append(pick)
-        return tuple(pool)
-
-    trifecta_ids = [syms_to_ids(t) for t in trifecta_syms]
-    trifecta_ids = [t for t in trifecta_ids if t is not None]
-
-    # 三連複は昇順タプル
-    from itertools import combinations
-    trio_ids = []
-    for a, b, c in trio_syms:
-        ids = sorted(list(set(__pick_ids_by_symbols(id2sym, [a, b, c]))))
-        if len(ids) == 3:
-            trio_ids.append(tuple(sorted(ids)))
-
-    # グループ表記（圧縮表示） 例: ab-abc-abcde
-    # ＊上位集合そのもの（1着=上位2、2着=上位3、3着=上位5）を表示
-    first_ids  = __pick_ids_by_symbols(id2sym, first_syms)
-    second_ids = __pick_ids_by_symbols(id2sym, second_syms)
-    third_ids  = __pick_ids_by_symbols(id2sym, third_syms)
-    group_str = f"{''.join(map(str, first_ids or ['—']))}-" \
-                f"{''.join(map(str, second_ids or ['—']))}-" \
-                f"{''.join(map(str, third_ids or ['—']))}"
-
-    return trifecta_ids[:n_pick], sorted(list(dict.fromkeys(trio_ids)))[:n_pick], group_str
-
+# --- 実行部：note_sectionsに反映 ---
 try:
-    _rm_local = globals().get('result_marks', {})
-    _stats_local = __active_rank_stats()
-    _tri7, _trio7, _group_str = __build_7tickets(_rm_local, _stats_local, k1=2, k2=3, k3=5, n_pick=7)
-
-    # ① グループ表記（従来の「ab-abc-abcde」スタイル）
-    note_sections.append(_group_str)
-
-    # ② 三連複7点（列挙）
-    if _trio7:
-        note_sections.append(f"三連複7点：{', '.join('-'.join(map(str,t)) for t in _trio7)}")
+    result_marks = globals().get("result_marks", {})
+    stats_active = globals().get("RANK_STATS_F2", {})
+    group_str, trio7 = build_mixed_trio_from_stats(result_marks, stats_active, 2, 3, 5)
+    note_sections.append(group_str)
+    if trio7:
+        note_sections.append(f"三連複7点：{', '.join('-'.join(map(str,t)) for t in trio7)}")
     else:
         note_sections.append("三連複7点：—")
-
-    # ③ 三連単7点（列挙）
-    if _tri7:
-        note_sections.append(f"三連単7点：{', '.join('-'.join(map(str,t)) for t in _tri7)}")
-    else:
-        note_sections.append("三連単7点：—")
-
-except Exception as _e:  # フォールバックして空欄にしない
+except Exception:
     note_sections.append("—")
     note_sections.append("三連複7点：—")
-    note_sections.append("三連単7点：—")
+
 
 
 
