@@ -3147,9 +3147,9 @@ if "note_sections" not in globals():
 
 # 表示条件：狙いたいレース時のみ。非対象時はメッセージを明示。
 if _is_target_race():
-    note_sections.append(f"【狙いたいレース着順フォーメーション（2-3-5）】 {get_target_finish_trio_235(False)}")
+    note_sections.append(f"【狙いたいレース着順フォーメーション】 {get_target_finish_trio_235(False)}")
 else:
-    note_sections.append("【狙いたいレース着順フォーメーション（2-3-5）】 該当レースではありません")
+    note_sections.append("【狙いたいレース着順フォーメーション】 該当レースではありません")
 # === MINI PATCH END ===
 
 # ================== 【3着率ランキングフォーメーション】（堅牢・偏差値不使用） ==================
