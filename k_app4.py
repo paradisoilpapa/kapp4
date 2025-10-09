@@ -223,7 +223,9 @@ def get_rank_stats_mixed():
     return stats
 
 # ここがポイント：評価出力を抑制
-RANK_STATS_MIXED = get_rank_stats_mixed(); _ = None
+RANK_STATS_MIXED = get_rank_stats_mixed()
+print("RANK_STATS_MIXED loaded")  # ← printはStreamlitには出ない
+
 
 # --- グレード連動用マップ ---
 RANK_STATS_BY_GRADE = {
@@ -3053,3 +3055,8 @@ st.text_area("ここを選択してコピー", note_text, height=560)
 # =========================
 #  一括置換ブロック ここまで
 # =========================
+import streamlit as st
+
+# --- 出力抑制強制リセット ---
+for _ in range(3):
+    st.empty()
