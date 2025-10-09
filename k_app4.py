@@ -1312,16 +1312,7 @@ def anchor_score(no: int) -> float:
 #     stab_dbg = (SD_STAB * STAB_Z.get(no, 0.0)) if 'STAB_Z' in globals() else 0.0
 #     tiny_dbg = SMALL_Z_RATING * zt_map.get(no, 0.0)
 
-#     total = form_dbg + env_dbg + stab_dbg + sb_dbg + pos_dbg + tiny_dbg
-#     st.write(no, {
-#         "form": round(form_dbg, 4),
-#         "env":  round(env_dbg, 4),
-#         "stab": round(stab_dbg, 4),
-#         "sb":   round(sb_dbg, 4),
-#         "pos":  round(pos_dbg, 4),
-#         "tiny": round(tiny_dbg, 4),
-#         "TOTAL(anchor_score期待値)": round(total, 4),
-#     })
+
 
 
 
