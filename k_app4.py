@@ -3096,7 +3096,7 @@ def _active_finish_stats():
     stats = globals().get("FINISH_STATS_CURRENT") or globals().get("FINISH_STATS")
     if isinstance(stats, dict):
         return stats
-return {  # 最新実測値（2025/10反映）
+    return {  # 最新実測値（2025/10反映）
         "◎": {"p1": 0.234, "p2": 0.429, "p3": 0.597},
         "〇": {"p1": 0.260, "p2": 0.416, "p3": 0.532},
         "▲": {"p1": 0.156, "p2": 0.338, "p3": 0.455},
@@ -3105,6 +3105,7 @@ return {  # 最新実測値（2025/10反映）
         "α": {"p1": 0.105, "p2": 0.224, "p3": 0.355},
         "無": {"p1": 0.056, "p2": 0.125, "p3": 0.319},
     }
+
 
 # ライン入力から車番グループを抽出（例: ["214","6","357"] → [[2,1,4],[6],[3,5,7]])
 def _parse_line_inputs(line_inputs):
