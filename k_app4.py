@@ -3095,8 +3095,12 @@ def pick_hensa_complement(riders: List[Rider], used_nums: Set[int]):
             return r
     return None
 
-# === 三連複フォーメーション生成（2列目＝従属＋偏差値補完） ===
 def make_trio_formation(riders: List[Rider], favorable_styles: Set[str]) -> str:
+    if not riders:
+        return "データなし（RIDERSが未設定）"
+    if not favorable_styles:
+        favorable_styles = {"逃げ", "マーク"}  # デフォルト安全設定
+
     first = pick_first_leg(riders, favorable_styles)
     support = pick_support_rep(riders, first)
 
@@ -3106,7 +3110,6 @@ def make_trio_formation(riders: List[Rider], favorable_styles: Set[str]) -> str:
 
     comp = pick_hensa_complement(riders, used)
 
-    # 欠損補完（従属が無い場合は偏差値上位で2車埋め）
     second_nums: List[int] = []
     if support and comp:
         second_nums = sorted([support.num, comp.num])
@@ -3115,6 +3118,7 @@ def make_trio_formation(riders: List[Rider], favorable_styles: Set[str]) -> str:
         second_nums = sorted(pool[:2])
 
     return f"三連複フォーメーション：{first.num}－{','.join(map(str, second_nums))}－全"
+
 
 # === 狙いたいレース判定 ===
 def _is_target_race():
