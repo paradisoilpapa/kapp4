@@ -3059,7 +3059,7 @@ note_sections.append("\n偏差値（風・ライン込み）")
 note_sections.append(_fmt_hen_lines(race_t, USED_IDS))
 note_sections.append("\n")  # 空行
 
-# === 狙いたいレース用：本命－2－全フォーメーション（完全整合版） ===
+# === 狙いたいレース用：本命−2−全フォーメーション（汎用・完全整合） ===
 from dataclasses import dataclass
 from typing import List, Set
 
@@ -3071,46 +3071,60 @@ class Rider:
     role: str       # 先頭 / 番手 / 三番手 / マーク
     style: str      # 逃げ / まくり / 差し / マーク
 
-# 1列目：会場有利脚質内で偏差値最大（本命）
+# 会場から有利脚質を自動決定（bank: "33" / "400" / "500"）
+def _detect_favorable_styles(race_meta: dict | None) -> Set[str]:
+    BANK_STYLES = {
+        "33": {"逃げ", "マーク"},
+        "400": {"まくり", "差し"},
+        "500": {"差し", "まくり"},
+    }
+    rm = race_meta or {}
+    bank = str(rm.get("bank") or rm.get("bank_type") or "").strip()
+    base = BANK_STYLES.get(bank, {"まくり", "差し"})
+    bias = (rm.get("bias") or "").lower()
+    if bias == "front":
+        base = {"逃げ", "マーク"}
+    elif bias == "chase":
+        base = {"まくり", "差し"}
+    return base
+
+# 1列目：会場有利脚質内の偏差値最大（該当なしなら全体最大）
 def pick_first_leg(riders: List[Rider], favorable_styles: Set[str]) -> Rider:
-    # 有利脚質が未定義または該当者なしなら全体から選ぶ
     cand = [r for r in riders if favorable_styles and r.style in favorable_styles]
     if not cand:
-        # fallback: 全体から偏差値最大を取る
         return max(riders, key=lambda r: r.hensa)
     return max(cand, key=lambda r: r.hensa)
 
-
-# 2列目①：同ラインの従属脚質（番手>マーク>三番手）
+# 2列目①：同ラインの従属（番手 > マーク > 三番手）
 def pick_support_rep(riders: List[Rider], first: Rider):
     same = [r for r in riders if r.line_id == first.line_id and r.num != first.num]
     pr = {"番手": 3, "マーク": 2, "三番手": 1, "先頭": 0}
     same.sort(key=lambda r: (pr.get(r.role, 0), r.hensa), reverse=True)
     return same[0] if same else None
 
-# 2列目②：偏差値補完（first/supportを除外して上位を補う）
+# 2列目②：偏差値補完（first/support を除外して偏差値上位）
 def pick_hensa_complement(riders: List[Rider], used_nums: Set[int]):
     for r in sorted(riders, key=lambda r: r.hensa, reverse=True):
         if r.num not in used_nums:
             return r
     return None
 
+# 本命−2−全（2列目は常に2車）
 def make_trio_formation(riders: List[Rider], favorable_styles: Set[str]) -> str:
     if not riders:
         return "データなし（RIDERSが未設定）"
+    # FAVORABLE_STYLES 未設定なら race_meta から自動決定
     if not favorable_styles:
-        favorable_styles = {"逃げ", "マーク"}  # デフォルト安全設定
+        favorable_styles = _detect_favorable_styles(globals().get("race_meta", {}))
 
     first = pick_first_leg(riders, favorable_styles)
     support = pick_support_rep(riders, first)
 
     used = {first.num}
-    if support:
-        used.add(support.num)
-
+    if support: used.add(support.num)
     comp = pick_hensa_complement(riders, used)
 
-    second_nums: List[int] = []
+    # 2列目を必ず2車にする（欠損時は偏差値で埋める）
     if support and comp:
         second_nums = sorted([support.num, comp.num])
     else:
@@ -3119,8 +3133,7 @@ def make_trio_formation(riders: List[Rider], favorable_styles: Set[str]) -> str:
 
     return f"三連複フォーメーション：{first.num}－{','.join(map(str, second_nums))}－全"
 
-
-# === 狙いたいレース判定 ===
+# 狙いたいレース判定
 def _is_target_race():
     if bool(globals().get("_is_target_local", False)): return True
     for k in ("IS_TARGET_RACE","WANT_RACE","want_race","is_target_race"):
@@ -3133,9 +3146,10 @@ def _is_target_race():
             if isinstance(val, bool) and val: return True
     return False
 
-# === 出力フック ===
+# 出力フック
 if _is_target_race():
     riders = globals().get("RIDERS", [])
+    # ここで FAVORABLE_STYLES が空でも make_trio_formation 内で race_meta から自動決定される
     favorable = globals().get("FAVORABLE_STYLES", set())
     try:
         note_sections.append(f"【狙いたいレースフォーメーション】 {make_trio_formation(riders, favorable)}")
@@ -3143,9 +3157,7 @@ if _is_target_race():
         note_sections.append(f"【狙いたいレースフォーメーション】 エラー: {e}")
 else:
     note_sections.append("【狙いたいレースフォーメーション】 該当レースではありません")
-
 # === END ===
-
 
 
 # ================== 【3着率ランキングフォーメーション】（堅牢・偏差値不使用） ==================
