@@ -3258,8 +3258,16 @@ def _is_target_race():
 if _is_target_race():
     riders = _auto_build_riders()
     # 出力フック内の bank 取得行をこれに
-raw_bank = race_meta.get("bank", "400")
-bank = str(int(raw_bank)) if isinstance(raw_bank, (int, float)) else str(raw_bank)
+    raw_bank = race_meta.get("bank", "400")
+    bank = str(int(raw_bank)) if isinstance(raw_bank, (int, float)) else str(raw_bank)
+
+    try:
+        note_sections.append(f"【狙いたいレースフォーメーション】 {make_trio_formation(riders, bank)}")
+    except Exception as e:
+        note_sections.append(f"【狙いたいレースフォーメーション】 エラー: {e}")
+else:
+    note_sections.append("【狙いたいレースフォーメーション】 該当レースではありません")
+
 
     try:
         note_sections.append(f"【狙いたいレースフォーメーション】 {make_trio_formation(riders, bank)}")
