@@ -3073,8 +3073,13 @@ class Rider:
 
 # 1列目：会場有利脚質内で偏差値最大（本命）
 def pick_first_leg(riders: List[Rider], favorable_styles: Set[str]) -> Rider:
-    cand = [r for r in riders if r.style in favorable_styles]
-    return max(cand, key=lambda r: r.hensa) if cand else max(riders, key=lambda r: r.hensa)
+    # 有利脚質が未定義または該当者なしなら全体から選ぶ
+    cand = [r for r in riders if favorable_styles and r.style in favorable_styles]
+    if not cand:
+        # fallback: 全体から偏差値最大を取る
+        return max(riders, key=lambda r: r.hensa)
+    return max(cand, key=lambda r: r.hensa)
+
 
 # 2列目①：同ラインの従属脚質（番手>マーク>三番手）
 def pick_support_rep(riders: List[Rider], first: Rider):
