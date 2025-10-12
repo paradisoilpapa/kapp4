@@ -3059,12 +3059,13 @@ note_sections.append("\n偏差値（風・ライン込み）")
 note_sections.append(_fmt_hen_lines(race_t, USED_IDS))
 note_sections.append("\n")  # 空行
 
-# === 本命−2−全：汎用版（会場自動切替・2列目は常に2車） ===
+# === 狙いたいレース用：本命−2−全フォーメーション（完全汎用・自動取得・全面張り替え版） ===
 from dataclasses import dataclass
-from typing import List, Set, Dict
+from typing import List, Set
 
-# 出力先（既存があればそれを使う）
-note_sections = globals().get("note_sections", [])
+# ▼ 外部で用意されている想定のグローバルを自動取得（未設定でも落とさない）
+race_meta = globals().get("race_meta", {"bank": "400"})   # 会場メタを自動取得（未設定時は400扱い）
+note_sections = globals().get("note_sections", [])        # 出力先が無ければ空のリストで受ける
 
 @dataclass
 class Rider:
@@ -3074,87 +3075,46 @@ class Rider:
     role: str       # 先頭 / 番手 / 三番手 / マーク
     style: str      # 逃げ / まくり / 差し / マーク
 
-# --- 会場設定（上書き可能） ---------------------------------------
-# バンク種別ごとの有利脚質プリセット
-BANK_STYLES: Dict[str, Set[str]] = {
-    "33":  {"逃げ", "マーク"},
-    "400": {"まくり", "差し"},
-    "500": {"差し", "まくり"},
-}
-# バンク種別ごとの「同ライン従属」優先順位（2列目①の選び方）
-ROLE_PRIORITY_BY_BANK: Dict[str, Dict[str,int]] = {
-    "33":  {"マーク":3, "番手":2, "三番手":1, "先頭":0},  # 33はマーク>番手
-    "400": {"番手":3, "マーク":2, "三番手":1, "先頭":0},
-    "500": {"番手":3, "三番手":2, "マーク":1, "先頭":0},
-}
-# トラック固有の上書き（任意）：{会場名: {"styles": {...}, "role_prio": {...}}}
-TRACK_OVERRIDES: Dict[str, Dict] = globals().get("TRACK_OVERRIDES", {})
+# --- バンク長→有利脚質 自動判定（みなし直線情報が無くても動く簡潔版） ---
+def _favorable_styles_by_bank(bank: str) -> Set[str]:
+    b = str(bank)
+    if "33" in b:   return {"逃げ", "マーク"}
+    if "500" in b:  return {"まくり", "差し"}
+    # 既定（400ほか）
+    return {"差し", "まくり"}
 
-def _detect_favorable_styles(race_meta: dict | None) -> Set[str]:
-    rm = race_meta or {}
-    # 1) トラック固有スタイルの上書き
-    tr = str(rm.get("track") or "").strip()
-    if tr and TRACK_OVERRIDES.get(tr, {}).get("styles"):
-        return set(TRACK_OVERRIDES[tr]["styles"])
-    # 2) race_meta 直指定
-    if isinstance(rm.get("styles"), (set, list, tuple)) and rm["styles"]:
-        return set(rm["styles"])
-    # 3) バンク種別で自動判定
-    bank = str(rm.get("bank") or rm.get("bank_type") or "").strip()
-    base = BANK_STYLES.get(bank)
-    if base: return set(base)
-    # 4) バイアス（任意）
-    bias = str(rm.get("bias") or "").lower()
-    if bias == "front": return {"逃げ", "マーク"}
-    if bias == "chase": return {"まくり", "差し"}
-    # 5) 不明時の既定
-    return {"まくり", "差し"}
-
-def _role_priority(race_meta: dict | None) -> Dict[str,int]:
-    rm = race_meta or {}
-    # 1) トラック固有の上書き
-    tr = str(rm.get("track") or "").strip()
-    if tr and TRACK_OVERRIDES.get(tr, {}).get("role_prio"):
-        return dict(TRACK_OVERRIDES[tr]["role_prio"])
-    # 2) バンク種別で自動判定
-    bank = str(rm.get("bank") or rm.get("bank_type") or "").strip()
-    if bank in ROLE_PRIORITY_BY_BANK:
-        return dict(ROLE_PRIORITY_BY_BANK[bank])
-    # 3) 既定
-    return {"番手":3, "マーク":2, "三番手":1, "先頭":0}
-
-# 1列目：会場有利脚質内の偏差値最大（該当なしなら全体最大）
-def pick_first_leg(riders: List[Rider], favorable_styles: Set[str]) -> Rider:
-    cand = [r for r in riders if favorable_styles and r.style in favorable_styles]
+# --- 1列目：会場有利脚質内で偏差値最大（該当なし→全体最大） ---
+def pick_first_leg(riders: List[Rider], favorable: Set[str]) -> Rider:
+    cand = [r for r in riders if favorable and r.style in favorable]
     return max(cand or riders, key=lambda r: r.hensa)
 
-# 2列目①：同ラインの従属（会場ごとの優先順位で選ぶ）
-def pick_support_rep(riders: List[Rider], first: Rider, role_prio: Dict[str,int]):
+# --- 2列目①：同ラインの従属（番手 > マーク > 三番手） ---
+def pick_support_rep(riders: List[Rider], first: Rider):
     same = [r for r in riders if r.line_id == first.line_id and r.num != first.num]
-    same.sort(key=lambda r: (role_prio.get(r.role, 0), r.hensa), reverse=True)
+    pr = {"番手": 3, "マーク": 2, "三番手": 1, "先頭": 0}
+    same.sort(key=lambda r: (pr.get(r.role, 0), r.hensa), reverse=True)
     return same[0] if same else None
 
-# 2列目②：偏差値補完（first/support除外の上位）
+# --- 2列目②：偏差値補完（first/support 除外の上位） ---
 def pick_hensa_complement(riders: List[Rider], used_nums: Set[int]):
     for r in sorted(riders, key=lambda r: r.hensa, reverse=True):
         if r.num not in used_nums:
             return r
     return None
 
-# 本命−2−全（2列目は常に2車）
-def make_trio_formation(riders: List[Rider], race_meta: dict | None) -> str:
+# --- 本命−2−全（2列目は常に2車。欠損は偏差値で自動埋め） ---
+def make_trio_formation(riders: List[Rider], bank: str) -> str:
     if not riders:
         return "データなし（RIDERSが未設定）"
-    favorable = _detect_favorable_styles(race_meta)
-    role_prio = _role_priority(race_meta)
+    favorable = _favorable_styles_by_bank(bank)
 
     first = pick_first_leg(riders, favorable)
-    support = pick_support_rep(riders, first, role_prio)
+    support = pick_support_rep(riders, first)
 
     used = {first.num} | ({support.num} if support else set())
-    comp  = pick_hensa_complement(riders, used)
+    comp = pick_hensa_complement(riders, used)
 
-    # 2列目は必ず2車（欠損時は偏差値で埋める）
+    # 2列目＝従属1 + 偏差値補完1（どちらか欠けても偏差値上位で2車に揃える）
     if support and comp:
         second = sorted([support.num, comp.num])
     else:
@@ -3163,35 +3123,29 @@ def make_trio_formation(riders: List[Rider], race_meta: dict | None) -> str:
 
     return f"三連複フォーメーション：{first.num}－{','.join(map(str, second))}－全"
 
-# --------- 例：任意会場での呼び出し（race_metaで自動切替）---------
-# race_meta はあなたの側で毎レースごとに埋めてください（奈良以外でもOK）
-# 例）奈良33：race_meta = {"track":"奈良","bank":"33"}
-# 例）静岡500：race_meta = {"track":"静岡","bank":"500"}
-# 例）松阪400：race_meta = {"track":"松阪","bank":"400"}
-# 上書きしたい場合：race_meta["styles"]={"逃げ","マーク"} などを直接指定可
-
-# 出力フック
+# --- 狙いたいレース判定（既存のどれかのフラグがTrueなら出す） ---
 def _is_target_race():
     if bool(globals().get("_is_target_local", False)): return True
     for k in ("IS_TARGET_RACE","WANT_RACE","want_race","is_target_race"):
-        v = globals().get(k, None)
-        if isinstance(v, bool) and v: return True
-    rm = globals().get("race_meta", {})
-    if isinstance(rm, dict):
+        if isinstance(globals().get(k, None), bool) and globals()[k]:
+            return True
+    if isinstance(race_meta, dict):
         for key in ("want","target","狙いたいレース"):
-            val = rm.get(key, None)
-            if isinstance(val, bool) and val: return True
+            if isinstance(race_meta.get(key, None), bool) and race_meta[key]:
+                return True
     return False
 
+# --- 出力フック（ここから下は変更不要） ---
 if _is_target_race():
     riders = globals().get("RIDERS", [])
-    race_meta = globals().get("race_meta", {})
+    bank = str(race_meta.get("bank", "400"))
     try:
-        note_sections.append(f"【狙いたいレースフォーメーション】 {make_trio_formation(riders, race_meta)}")
+        note_sections.append(f"【狙いたいレースフォーメーション】 {make_trio_formation(riders, bank)}")
     except Exception as e:
         note_sections.append(f"【狙いたいレースフォーメーション】 エラー: {e}")
 else:
     note_sections.append("【狙いたいレースフォーメーション】 該当レースではありません")
+
 # === END ===
 
 
