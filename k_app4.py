@@ -3222,25 +3222,38 @@ def _auto_build_riders() -> List[Rider]:
     return []
 
 # --- 本命−2−全（2列目は常に2車。欠損は偏差値で埋め） ---
+# === 三連複フォーメーション生成（バンク自動対応版） ===
 def make_trio_formation(riders: List[Rider], bank: str) -> str:
     if not riders:
         return "データなし（RIDERSが未設定）"
-    favorable = _favorable_styles_by_bank(bank)
 
-    first = pick_first_leg(riders, favorable)
+    # バンクに応じて有利脚質を自動決定
+    s = str(bank).strip().lower()
+    if "33" in s:
+        favorable_styles = {"逃げ", "マーク"}
+    elif "500" in s:
+        favorable_styles = {"まくり", "差し"}
+    else:
+        favorable_styles = {"差し", "まくり"}  # 400を既定
+
+    first = pick_first_leg(riders, favorable_styles)
     support = pick_support_rep(riders, first)
 
-    used = {first.num} | ({support.num} if support else set())
+    used = {first.num}
+    if support:
+        used.add(support.num)
+
     comp = pick_hensa_complement(riders, used)
 
-    # 2列目＝従属1 + 偏差値補完1（どちらか欠けても偏差値上位で2車に揃える）
+    second_nums: List[int] = []
     if support and comp:
-        second = sorted([support.num, comp.num])
+        second_nums = sorted([support.num, comp.num])
     else:
         pool = [r.num for r in sorted(riders, key=lambda r: r.hensa, reverse=True) if r.num != first.num]
-        second = sorted(pool[:2])
+        second_nums = sorted(pool[:2])
 
-    return f"三連複フォーメーション：{first.num}－{','.join(map(str, second))}－全"
+    return f"三連複フォーメーション：{first.num}－{','.join(map(str, second_nums))}－全"
+
 
 # --- 狙いたいレース判定（既存のどれかのフラグがTrueなら出す） ---
 def _is_target_race():
