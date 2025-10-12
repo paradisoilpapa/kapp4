@@ -3076,11 +3076,23 @@ class Rider:
     style: str      # 逃げ / まくり / 差し / マーク
 
 # --- バンク長→有利脚質 自動判定 ---
-def _favorable_styles_by_bank(bank: str) -> Set[str]:
-    b = str(bank)
-    if "33" in b:   return {"逃げ", "マーク"}
-    if "500" in b:  return {"まくり", "差し"}
-    return {"差し", "まくり"}  # 既定（400ほか）
+# これに置き換え（33/400/500 を強制正規化）
+def _favorable_styles_by_bank(bank) -> set[str]:
+    s = str(bank).strip().lower()
+    # 数値や混在文字でも 33 / 400 / 500 を拾う
+    if s.isdigit():
+        key = int(s)
+    else:
+        if "33" in s:   key = 33
+        elif "500" in s: key = 500
+        elif "400" in s: key = 400
+        else:
+            # 文字列に数字が無い場合の保険（奈良など会場名しか無いとき）
+            key = 400
+    if key == 33:   return {"逃げ", "マーク"}
+    if key == 500:  return {"まくり", "差し"}
+    return {"差し", "まくり"}  # 既定＝400
+
 
 # --- 1列目：会場有利脚質内で偏差値最大（該当なし→全体最大） ---
 def pick_first_leg(riders: List[Rider], favorable: Set[str]) -> Rider:
@@ -3245,7 +3257,10 @@ def _is_target_race():
 # --- 出力フック（ここから下は変更不要） ---
 if _is_target_race():
     riders = _auto_build_riders()
-    bank = str(race_meta.get("bank", "400"))
+    # 出力フック内の bank 取得行をこれに
+raw_bank = race_meta.get("bank", "400")
+bank = str(int(raw_bank)) if isinstance(raw_bank, (int, float)) else str(raw_bank)
+
     try:
         note_sections.append(f"【狙いたいレースフォーメーション】 {make_trio_formation(riders, bank)}")
     except Exception as e:
