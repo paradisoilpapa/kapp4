@@ -3116,7 +3116,7 @@ def make_trio_formation(riders: List[Rider], bank: str) -> str:
         pool = [r.num for r in sorted(riders, key=lambda r: r.hensa, reverse=True) if r.num != first.num]
         second = sorted(pool[:2])
 
-    return f"三連複フォーメーション：{first.num}－{','.join(map(str, second))}－全"
+    return f"：{first.num}－{','.join(map(str, second))}－全"
 
 # --------- ここから奈良9Rのデータ（あなたの数値で確定）---------
 bank = "33"
