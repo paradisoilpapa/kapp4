@@ -3150,16 +3150,15 @@ def _pick_mark_id(id2sym: Dict[int, str], want: str, exclude: Set[int]) -> Optio
         if _norm_sym(s) == want:
             return i
     return None
-
-# --- 1列目：会場有利脚質内で偏差値最大。該当0なら“脚質優先順位＋偏差値”で選択 ---
+# --- 1列目：会場有利脚質内で偏差値最大（該当0ならエラーで気づく） ---
 def _pick_axis(riders: List[Rider], bank_str: str) -> Rider:
-    fav = _favorable_styles(bank_str)
+    fav = _favorable_styles(bank_str)          # 33: {逃げ,マーク}, 400: {まくり,差し}, 500: {差し,マーク}
     cand = [r for r in riders if r.style in fav]
-    if cand:
-        return max(cand, key=lambda r: r.hensa)
-    # フォールバック：脚質優先順位→偏差値
-    pri = _style_priority(bank_str)
-    return max(riders, key=lambda r: (pri.get(r.style, 0), r.hensa))
+    if not cand:
+        # ここに来たら脚質入力 or バンク判定の不整合。黙って偏差値で選ばない。
+        raise ValueError(f"有利脚質{sorted(fav)}に該当0。bank={bank_str} / RIDERS.styleを確認してください。")
+    return max(cand, key=lambda r: r.hensa)
+
 
 # --- 2列目①：同ライン従属（役割優先→偏差値） ---
 def _pick_support(riders: List[Rider], first: Rider, bank_str: str) -> Optional[Rider]:
