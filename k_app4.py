@@ -3184,6 +3184,31 @@ def _pick_partner(riders: List[Rider], exclude: Set[int]) -> Optional[int]:
     rest.sort(key=lambda r: r.hensa, reverse=True)
     return rest[0].num
 
+# --- デバッグ: 会場, 脚質, 候補, 軸 ---
+def _norm_style(s):
+    s = str(s).strip()
+    # よくある表記ゆれを吸収
+    table = {
+        "差":"差し","差し":"差し",
+        "捲":"まくり","まくり":"まくり","マクリ":"まくり",
+        "逃":"逃げ","逃げ":"逃げ",
+        "マーク":"マーク","ﾏｰｸ":"マーク",
+    }
+    return table.get(s, s)
+
+def _debug_dump(riders, bank_str, fav_styles, axis=None):
+    by_style = {}
+    for r in riders:
+        st = _norm_style(r.style)
+        by_style.setdefault(st, []).append(r.num)
+    note_sections.append(
+        f"【DBG】bank={bank_str} 有利={sorted(fav_styles)} "
+        f"styles={{{', '.join(f'{k}:{sorted(v)}' for k,v in by_style.items())}}} "
+        f"候補={sorted([r.num for r in riders if _norm_style(r.style) in fav_styles])} "
+        f"軸={getattr(axis,'num',None)}"
+    )
+
+
 # --- 本命−2−全 生成 ---
 def make_trio_formation_final(riders: List[Rider], race_meta: Dict) -> str:
     if not riders:
