@@ -1121,6 +1121,14 @@ df = pd.DataFrame(rows, columns=[
 
 # === ここは df = pd.DataFrame(...) の直後に貼るだけ ===
 
+# --- fallback: note_sections が無い環境でも落ちないように ---
+ns = globals().get("note_sections", None)
+if not isinstance(ns, list):
+    ns = []
+    globals()["note_sections"] = ns
+note_sections = ns
+
+
 # ❶ バンク分類を“みなし直線/周長”から決定（33 / 400 / 500）
 def _bank_str_from_lengths(bank_length: float) -> str:
     try:
