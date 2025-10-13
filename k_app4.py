@@ -3059,7 +3059,7 @@ note_sections.append("\n偏差値（風・ライン込み）")
 note_sections.append(_fmt_hen_lines(race_t, USED_IDS))
 note_sections.append("\n")  # 空行
 
-# === 本命−2−全：最終確定版（2列目＝従属＋◎ / 重複→▲ / 会場自動） ===
+# === 本命−2−全：最終確定版（会場自動／展開評価で自動判定） ===
 from dataclasses import dataclass
 from typing import List, Set, Dict, Optional
 
@@ -3138,11 +3138,10 @@ def pick_support(riders: List[Rider], first: Rider, pr: Dict[str,int]) -> Option
     return same[0]
 
 def pick_mark_partner(riders: List[Rider], id2sym: Dict[int,str], exclude: Set[int]) -> Optional[int]:
-    for key in ["◎", "▲"]:  # 優先順
+    for key in ["◎", "▲"]:
         t = _pick_mark_id(id2sym, key, exclude)
         if t is not None:
             return t
-    # 無ければ偏差値補完
     rest = [r for r in riders if r.num not in exclude]
     if not rest: return None
     rest.sort(key=lambda r: r.hensa, reverse=True)
@@ -3199,17 +3198,18 @@ def _quick_build_riders(race_t:dict, line_inputs:list, bank:str):
             riders.append(Rider(num, float(t), num, "先頭", lead))
     return riders
 
-# ===================== 出力処理 =====================
+# ===================== 出力処理（展開評価＝優位で自動ON） =====================
 def _is_target_race():
+    rm = globals().get("race_meta", {}) or {}
+    if rm.get("展開評価") == "優位":   # 自動判定ポイント！
+        return True
     if bool(globals().get("_is_target_local", False)): return True
     for k in ("IS_TARGET_RACE","WANT_RACE","want_race","is_target_race"):
         v = globals().get(k, None)
         if isinstance(v, bool) and v: return True
-    rm = globals().get("race_meta", {})
-    if isinstance(rm, dict):
-        for key in ("want","target","狙いたいレース"):
-            val = rm.get(key, None)
-            if isinstance(val, bool) and val: return True
+    for key in ("want","target","狙いたいレース"):
+        val = rm.get(key, None)
+        if isinstance(val, bool) and val: return True
     return False
 
 if _is_target_race():
@@ -3226,6 +3226,7 @@ if _is_target_race():
 else:
     note_sections.append("【狙いたいレースフォーメーション】 該当レースではありません")
 # === END ===
+
 
 
 
