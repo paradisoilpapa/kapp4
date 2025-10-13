@@ -3195,6 +3195,51 @@ def make_trio_formation_final(riders: List[Rider], race_meta: Dict) -> str:
 
     return f"三連複フォーメーション：{first.num}－{','.join(map(str, second_nums))}－全"
 
+# --- 一時パッチ：RIDERSを自動生成して不足を解消（出力フックの直前に貼る） ---
+_is_target_local = True
+race_meta = globals().get("race_meta", {})
+race_meta["bank"] = race_meta.get("bank", "33")  # このレースのバンクに合わせて（例：奈良=33）
+
+# 今回のレースの偏差値（あなたが貼った数値）
+race_t = {1:69.4, 2:62.2, 3:54.5, 4:48.0, 5:46.6, 6:46.0, 7:38.3}
+
+# ライン入力（あなたが貼った並び）
+line_inputs = ["437", "15", "26"]
+
+from dataclasses import dataclass
+@dataclass
+class Rider:
+    num:int; hensa:float; line_id:int; role:str; style:str
+
+def _quick_build_riders(race_t:dict, line_inputs:list, bank:str):
+    b = str(bank)
+    # バンク別の簡易デフォ脚質
+    lead  = "逃げ" if "33" in b else ("まくり" if "500" in b else "差し")
+    sub1  = "マーク" if "33" in b else "差し"
+    riders = []
+    seen = set()
+    for token in line_inputs:
+        grp = [int(ch) for ch in str(token) if ch.isdigit()]
+        if not grp: continue
+        lid = grp[0]
+        for idx, num in enumerate(grp):
+            t = float(race_t.get(num, 0.0))
+            if idx == 0:
+                riders.append(Rider(num, t, lid, "先頭", lead))
+            elif idx == 1:
+                riders.append(Rider(num, t, lid, "番手", sub1 if sub1!="差し" else "差し"))
+            else:
+                riders.append(Rider(num, t, lid, "三番手", "マーク"))
+            seen.add(num)
+    # 単騎がいれば追加
+    for num, t in race_t.items():
+        if num not in seen:
+            riders.append(Rider(num, float(t), num, "先頭", lead))
+    return riders
+
+RIDERS = _quick_build_riders(race_t, line_inputs, race_meta["bank"])
+
+
 # --- 出力フック ---
 def _is_target_race():
     if bool(globals().get("_is_target_local", False)): return True
