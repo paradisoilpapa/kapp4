@@ -3175,28 +3175,59 @@ def make_trio_formation_final(riders: List[Rider], race_meta: Dict) -> str:
     return f"三連複フォーメーション：{first.num}－{','.join(map(str, second_nums))}－全"
 
 # ===================== RIDERS自動生成（汎用） =====================
+# === 追加: 集計ベースの主脚質推定 ===
+# 任意：あれば使う（無ければ空のままでOK）
+STYLE_COUNTS = globals().get("STYLE_COUNTS", {})  # 例: {3: {"逃げ":4,"まくり":3,"差し":6,"マーク":3}, ...}
+
+_PREF = ["マーク","差し","まくり","逃げ"]  # 同数タイ時の優先順位（入着安定を優先）
+
+def _infer_style_from_counts(num: int) -> str | None:
+    row = STYLE_COUNTS.get(num)
+    if not row: 
+        return None
+    m = max(row.values())
+    cands = [k for k,v in row.items() if v == m]
+    for k in _PREF:
+        if k in cands: 
+            return k
+    return cands[0] if cands else None
+
+# 役割→脚質（固定）
+_ROLE2STYLE = {"先頭":"逃げ", "番手":"差し", "三番手":"マーク", "マーク":"マーク"}
+
+# === 置き換え: バンク依存をやめ、役割/集計で style を付与 ===
 def _quick_build_riders(race_t:dict, line_inputs:list, bank:str):
-    b = str(bank)
-    lead  = "逃げ" if "33" in b else ("まくり" if "500" in b else "差し")
-    sub1  = "マーク" if "33" in b else "差し"
     riders, seen = [], set()
     for token in line_inputs:
         grp = [int(ch) for ch in str(token) if ch.isdigit()]
-        if not grp: continue
+        if not grp: 
+            continue
         lid = grp[0]
         for idx, num in enumerate(grp):
             t = float(race_t.get(num, 0.0))
             if idx == 0:
-                riders.append(Rider(num, t, lid, "先頭", lead))
+                role = "先頭"
             elif idx == 1:
-                riders.append(Rider(num, t, lid, "番手", sub1))
+                role = "番手"
             else:
-                riders.append(Rider(num, t, lid, "三番手", "マーク"))
+                role = "三番手"
+            # まず役割→脚質
+            style = _ROLE2STYLE.get(role, "差し")
+            riders.append(Rider(num=num, hensa=t, line_id=lid, role=role, style=style))
             seen.add(num)
+    # 単騎（ライン外）を追加：役割未定なら差し（あとで集計があれば上書き）
     for num, t in race_t.items():
         if num not in seen:
-            riders.append(Rider(num, float(t), num, "先頭", lead))
+            riders.append(Rider(num=int(num), hensa=float(t), line_id=int(num), role="先頭", style="差し"))
+
+    # 集計があれば最終上書き（役割より“実績”を優先）
+    if STYLE_COUNTS:
+        for r in riders:
+            st = _infer_style_from_counts(r.num)
+            if st:
+                r.style = st
     return riders
+
 
 # ===================== 出力処理（展開評価＝優位で自動ON） =====================
 def _is_target_race():
