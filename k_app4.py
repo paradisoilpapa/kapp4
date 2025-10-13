@@ -1119,6 +1119,154 @@ df = pd.DataFrame(rows, columns=[
     "周長補正","周回補正","個人補正","安定度","ラスト200","合計_SBなし_raw",
 ])
 
+# === ここは df = pd.DataFrame(...) の直後に貼るだけ ===
+
+# ❶ バンク分類を“みなし直線/周長”から決定（33 / 400 / 500）
+def _bank_str_from_lengths(bank_length: float) -> str:
+    try:
+        bl = float(bank_length)
+    except:
+        bl = 400.0
+    if bl <= 340.0:   # 333系
+        return "33"
+    elif bl >= 480.0: # 500系
+        return "500"
+    return "400"
+
+# ❷ 会場の“有利脚質”セット
+def _favorable_styles(bank_str: str) -> set[str]:
+    if bank_str == "33":   # 33＝先行系・ライン寄り
+        return {"逃げ", "マーク"}
+    if bank_str == "500":  # 500＝差し・マーク寄り
+        return {"差し", "マーク"}
+    return {"まくり", "差し"}  # 既定=400
+
+# ❸ 役割の日本語化（lineの並びから）
+def _role_jp(no: int, line_def: dict) -> str:
+    r = role_in_line(no, line_def)  # 'head'/'second'/'thirdplus'/'single'
+    return {"head":"先頭","second":"番手","thirdplus":"三番手","single":"先頭"}.get(r, "先頭")
+
+# ❹ 入力の“逃/捲/差/マ”から、その選手の実脚質を決定（同点時はライン位置でブレない決め方）
+def _dominant_style(no: int) -> str:
+    vec = [("逃げ", k_esc.get(no,0)), ("まくり", k_mak.get(no,0)),
+           ("差し", k_sashi.get(no,0)), ("マーク", k_mark.get(no,0))]
+    m = max(v for _,v in vec)
+    cand = [s for s,v in vec if v == m and m > 0]
+    if cand:
+        # タイブレーク：先頭>番手>三番手>単騎 を優先（先行気味→差し→マークの順）
+        pr = {"先頭":3,"番手":2,"三番手":1,"単騎":0}
+        role = role_in_line(no, line_def)
+        role_pr = {"head":"先頭","second":"番手","thirdplus":"三番手","single":"単騎"}.get(role,"単騎")
+        if "逃げ" in cand: return "逃げ"
+        # 残りはライン位置で“差し”優先、その次に“マーク”
+        if "差し" in cand and pr.get(role_pr,0) >= 2: return "差し"
+        if "マーク" in cand: return "マーク"
+        return cand[0]
+    # 出走履歴ゼロなら位置で決める
+    role = role_in_line(no, line_def)
+    return {"head":"逃げ","second":"差し","thirdplus":"マーク","single":"まくり"}.get(role,"まくり")
+
+# ❺ Rider 構造体（このファイル上部で既に宣言済みなら再定義不要）
+from dataclasses import dataclass
+@dataclass
+class Rider:
+    num: int; hensa: float; line_id: int; role: str; style: str
+
+# ❻ 偏差値（Tスコア）を “合計_SBなし_raw” から作る（なければ Form で代用）
+def _hensa_map_from_df(df: pd.DataFrame) -> dict[int,float]:
+    col = "合計_SBなし_raw" if "合計_SBなし_raw" in df.columns else None
+    base = [float(df.loc[df["車番"]==no, col].values[0]) if col else float(form_T_map[no]) for no in active_cars]
+    T, _, _, _ = t_score_from_finite(np.array(base, dtype=float))
+    return {no: float(T[i]) for i,no in enumerate(active_cars)}
+
+# ❼ RIDERS を“実データ”で構築（脚質は ❹、偏差値は ❻）
+bank_str = _bank_str_from_lengths(bank_length)
+hensa_map = _hensa_map_from_df(df)
+RIDERS = []
+for no in active_cars:
+    # ラインIDは“そのラインの先頭車番”を代表IDに
+    gid = None
+    for g, mem in line_def.items():
+        if no in mem:
+            gid = mem[0]; break
+    if gid is None: gid = no
+    RIDERS.append(
+        Rider(
+            num=int(no),
+            hensa=float(hensa_map[no]),
+            line_id=int(gid),
+            role=_role_jp(no, line_def),
+            style=_dominant_style(no),
+        )
+    )
+
+# ❽ 三連複フォーメーション（本命−2−全）：1列目=有利脚質内の偏差値最大
+def _pick_axis(riders: list[Rider], bank_str: str) -> Rider:
+    fav = _favorable_styles(bank_str)
+    cand = [r for r in riders if r.style in fav]
+    if not cand:
+        raise ValueError(f"有利脚質{sorted(fav)}に該当0（bank={bank_str} / style誤りの可能性）")
+    return max(cand, key=lambda r: r.hensa)
+
+def _role_priority(bank_str: str) -> dict[str,int]:
+    return ({"マーク":3,"番手":2,"三番手":1,"先頭":0} if bank_str=="33"
+            else {"番手":3,"マーク":2,"三番手":1,"先頭":0})
+
+def _pick_support(riders: list[Rider], first: Rider, bank_str: str) -> Rider|None:
+    pr = _role_priority(bank_str)
+    same = [r for r in riders if r.line_id==first.line_id and r.num!=first.num]
+    if not same: return None
+    same.sort(key=lambda r: (pr.get(r.role,0), r.hensa), reverse=True)
+    return same[0]
+
+# 印（◎→▲→偏差値補完）
+def _read_marks_idmap() -> dict[int,str]:
+    rm = globals().get("result_marks") or globals().get("marks") or {}
+    out={}
+    if isinstance(rm, dict):
+        if any(isinstance(k,int) or (isinstance(k,str) and k.isdigit()) for k in rm.keys()):
+            for k,v in rm.items():
+                try: out[int(k)] = ("○" if str(v) in ("○","〇") else str(v))
+                except: pass
+        else:
+            for sym,vid in rm.items():
+                try: out[int(vid)] = ("○" if str(sym) in ("○","〇") else str(sym))
+                except: pass
+    return out
+
+def _pick_partner(riders: list[Rider], used: set[int]) -> int|None:
+    id2sym = _read_marks_idmap()
+    for want in ("◎","▲"):
+        t = next((i for i,s in id2sym.items() if i not in used and s==want), None)
+        if t is not None: return t
+    # 補完：偏差値上位
+    rest = sorted([r for r in riders if r.num not in used], key=lambda r: r.hensa, reverse=True)
+    return rest[0].num if rest else None
+
+def make_trio_formation_final(riders: list[Rider], bank_str: str) -> str:
+    first = _pick_axis(riders, bank_str)
+    support = _pick_support(riders, first, bank_str)
+    used = {first.num} | ({support.num} if support else set())
+    partner = _pick_partner(riders, used)
+    second = []
+    if support: second.append(support.num)
+    if partner is not None: second.append(partner)
+    if len(second) < 2:
+        # 2車に満たなければ偏差値補完
+        rest = sorted([r.num for r in riders if r.num not in ({first.num}|set(second))],
+                      key=lambda n: next(rr.hensa for rr in riders if rr.num==n),
+                      reverse=True)
+        if rest: second.append(rest[0])
+    second = sorted(set(second))[:2]
+    return f"三連複フォーメーション：{first.num}－{','.join(map(str, second))}－全"
+
+# ❾ 出力（note_sections があればそこへ）
+try:
+    out = make_trio_formation_final(RIDERS, bank_str)
+    (note_sections.append if isinstance(note_sections, list) else print)(f"【狙いたいレースフォーメーション】 {out}")
+except Exception as e:
+    (note_sections.append if isinstance(note_sections, list) else print)(f"【狙いたいレースフォーメーション】 エラー: {e}")
+
 
 mu = float(df["合計_SBなし_raw"].mean()) if not df.empty else 0.0
 df["合計_SBなし"] = mu + 1.0 * (df["合計_SBなし_raw"] - mu)
