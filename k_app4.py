@@ -3214,6 +3214,48 @@ def make_trio_formation_final(riders: List[Rider], race_meta: Dict) -> str:
     second_nums = sorted(set(second_nums))[:2]
     return f"三連複フォーメーション：{first.num}－{','.join(map(str, second_nums))}－全"
 
+# --- RIDERS が無いとき自動生成（race_t と line_inputs から補完） ---
+if "RIDERS" not in globals() or not globals()["RIDERS"]:
+    # バンク取得（無ければ400）
+    race_meta = globals().get("race_meta", {})
+    bank = _norm_bank(race_meta.get("bank", "400"))
+
+    # あなたのアプリで使っている数値とライン入力を流用
+    race_t = (globals().get("race_t") or globals().get("score_t") or {})
+    line_inputs = globals().get("line_inputs", [])
+
+    # バンク別デフォ脚質（先頭・番手・三番手に割当）
+    lead = "逃げ" if bank == "33" else ("差し" if bank == "500" else "まくり")
+    sub1 = "マーク" if bank == "33" else "差し"
+
+    riders = []
+    seen = set()
+    for token in line_inputs:
+        grp = [int(ch) for ch in str(token) if ch.isdigit()]
+        if not grp:
+            continue
+        lid = grp[0]
+        for idx, num in enumerate(grp):
+            t = float(race_t.get(num, 0.0))
+            if idx == 0:
+                riders.append(Rider(num, t, lid, "先頭", lead))
+            elif idx == 1:
+                riders.append(Rider(num, t, lid, "番手", sub1))
+            else:
+                riders.append(Rider(num, t, lid, "三番手", "マーク"))
+            seen.add(num)
+
+    # ライン外（単騎）も埋める
+    for num, t in race_t.items():
+        if num not in seen:
+            riders.append(Rider(num, float(t), num, "先頭", lead))
+
+    RIDERS = riders
+
+# （必要なら）この1行もどこか一度だけ:
+# _is_target_local = True  # このレースを「狙いたい」にする
+
+
 # --- 出力フック（note_sections があればそこへ、無ければ print） ---
 def _is_target_race():
     if bool(globals().get("_is_target_local", False)):
