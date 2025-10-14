@@ -3215,38 +3215,25 @@ note_sections.append("\n偏差値（風・ライン込み）")
 note_sections.append(_fmt_hen_lines(race_t, USED_IDS))
 note_sections.append("\n")  # 空行
 
-# === 本命−2−全（三連複）完全版 v2025-10-14_StrictFilter ===
-from dataclasses import dataclass, field
-from typing import List, Set, Dict, Optional, Tuple
+# === 本命−2−全（三連複）完全版 v2025-10-14_StrictFilter_noRiderRedef ===
+# ポイント：
+# - Riderクラスは再定義しません（既存をそのまま使う）
+# - すべての属性アクセスは getattr 安全化（counts/c_* が無くてもOK）
+# - ◎は「バンク優位“フィルタ”→その集合で偏差値トップ」。合算はしない
+# - 2列目：①◎ライン相方（役割優先→偏差値） ②一次選考の漏れ上位 → 補完
+# - 3列目：全（欠番除外のみ）
+from typing import List, Dict, Optional, Tuple, Set, Any
 
-# 既存 note_sections があれば使う
 note_sections = globals().get("note_sections", [])
 
-# ----------------------------------------------------------------------
-# 入力想定
-#   RIDERS: List[Rider]
-#     - hensa: 偏差値
-#     - line_id: ラインID
-#     - role: "先頭"/"番手"/"三番手"/"マーク"（無くてもOK）
-#     - counts: 任意の回数辞書（"逃げ","まくり","差し","マーク" 等）
-#       ※ counts未入力でも動作：この場合は◎選定を偏差値のみで実施
-#   race_meta["bank"]: 33 / 400 / 500
-# ----------------------------------------------------------------------
-
-@dataclass
-class Rider:
-    num: int
-    hensa: float
-    line_id: int
-    role: str = ""
-    counts: Optional[Dict[str, float]] = None
-    # 後方互換：個別フィールドがあれば読む
-    c_nige: float = 0.0
-    c_makuri: float = 0.0
-    c_sashi: float = 0.0
-    c_mark: float = 0.0
-
 # ---------------- ユーティリティ ----------------
+def _append_note(msg: str) -> None:
+    ns = globals().get("note_sections", None)
+    if isinstance(ns, list):
+        ns.append(msg)
+    else:
+        print(msg)
+
 def _norm_bank(b) -> str:
     s = str(b).strip().lower()
     if s.isdigit():
@@ -3257,106 +3244,135 @@ def _norm_bank(b) -> str:
     else:            v = 400
     return str(v)
 
-# 回数読み（辞書と後方互換フィールドの両方を見る）
+def _hensa(r: Any) -> float:
+    try:
+        return float(getattr(r, "hensa"))
+    except Exception:
+        return 0.0
+
+def _num(r: Any) -> int:
+    try:
+        return int(getattr(r, "num"))
+    except Exception:
+        # 最低限のユニークIDが無い場合の保険
+        return id(r)
+
+def _line_id(r: Any) -> int:
+    try:
+        return int(getattr(r, "line_id"))
+    except Exception:
+        return _num(r)
+
+def _role(r: Any) -> str:
+    return str(getattr(r, "role", "") or "")
+
+# ---- 回数読み（counts辞書 or 個別 c_*。無ければ0） ----
 _ALIAS = {
     "逃げ": {"逃","逃げ","N","nige"},
     "まくり": {"捲","まくり","マクリ","makuri"},
     "差し": {"差","差し","sashi"},
     "マーク": {"マ","マーク","ﾏｰｸ","mark"},
 }
-def _get_cnt(r: Rider, label: str) -> float:
-    bag = r.counts or {}
-    for k, v in bag.items():
-        if str(k) == label or str(k) in _ALIAS.get(label, set()):
-            try:
-                return float(v)
-            except:
-                pass
-    attr = {
+def _get_count(r: Any, label: str) -> float:
+    # counts辞書（無ければNone）→別名許容
+    bag = getattr(r, "counts", None) or {}
+    try:
+        # dict想定で走る。dictでなければスキップ
+        if isinstance(bag, dict):
+            for k, v in bag.items():
+                if str(k) == label or str(k) in _ALIAS.get(label, set()):
+                    try:
+                        return float(v)
+                    except Exception:
+                        pass
+    except Exception:
+        pass
+
+    # 個別属性（後方互換）
+    fld = {
         "逃げ": ("c_nige",),
         "まくり": ("c_makuri",),
         "差し": ("c_sashi",),
         "マーク": ("c_mark",),
     }.get(label, tuple())
-    for a in attr:
+    for a in fld:
         if hasattr(r, a):
             try:
                 return float(getattr(r, a))
-            except:
+            except Exception:
                 pass
     return 0.0
 
-def _bank_pair_sum(r: Rider, bank: str) -> float:
+def _bank_pair_sum(r: Any, bank: str) -> float:
     if bank == "500":   # 差＋マーク
-        return _get_cnt(r, "差し") + _get_cnt(r, "マーク")
+        return _get_count(r, "差し") + _get_count(r, "マーク")
     elif bank == "33":  # 逃＋マーク
-        return _get_cnt(r, "逃げ") + _get_cnt(r, "マーク")
+        return _get_count(r, "逃げ") + _get_count(r, "マーク")
     else:               # 400：まくり＋差し
-        return _get_cnt(r, "まくり") + _get_cnt(r, "差し")
+        return _get_count(r, "まくり") + _get_count(r, "差し")
 
-# ---------------- ◎選定：バンク優位“フィルタ”→ その集合で偏差値 ----------------
-def _pick_axis_and_runnerup(riders: List[Rider], bank: str) -> Tuple[Rider, Optional[Rider], List[int]]:
-    if not riders:
-        raise ValueError("RIDERSが空です。")
-
-    # 1) 優位指標（回数合算）を算出
-    pairs = [(r, _bank_pair_sum(r, bank)) for r in riders]
-
-    # 2) 全員0（未入力）なら偏差値のみ
-    if all(sc == 0 for _, sc in pairs):
-        rs = sorted(riders, key=lambda r: r.hensa, reverse=True)
-        first = rs[0]
-        runner = rs[1] if len(rs) >= 2 else None
-        # “一次選考候補”は全員扱い（ただし優先度はhensa順）
-        cand_ids = [x.num for x in rs]
-        return first, runner, cand_ids
-
-    # 3) 優位合算の**最大値**を求め、その値を持つ選手だけを**候補集合**にする（フィルタ！）
-    max_sc = max(sc for _, sc in pairs)
-    primary = [r for (r, sc) in pairs if sc == max_sc]
-
-    # 4) 候補集合の中で偏差値降順 → ◎ と 準◎（候補が1名なら準◎は全体偏差値から補完）
-    primary_sorted = sorted(primary, key=lambda r: r.hensa, reverse=True)
-    first = primary_sorted[0]
-    if len(primary_sorted) >= 2:
-        runner = primary_sorted[1]
-    else:
-        rest = [r for r in riders if r.num != first.num]
-        rest.sort(key=lambda r: r.hensa, reverse=True)
-        runner = rest[0] if rest else None
-
-    cand_ids = [x.num for x in primary_sorted]
-    return first, runner, cand_ids  # cand_ids は「1列目選考で残った順序」
-
-# ---------------- 2列目：①◎ライン偏差値上位 → ②一次選考で漏れた上位（準◎）→ 補完 ----------------
+# ---- 追走優先（2列目①の並び） ----
 def _role_priority_for_follow(bank: str) -> Dict[str, int]:
-    # 従属相手の優先：33=マーク>番手>三番手、400/500=番手>マーク>三番手
+    # 33=マーク>番手>三番手、400/500=番手>マーク>三番手（先頭は従属対象外）
     if bank == "33":
         return {"マーク": 3, "番手": 2, "三番手": 1, "先頭": 0, "": 0}
     return {"番手": 3, "マーク": 2, "三番手": 1, "先頭": 0, "": 0}
 
-def _pick_support(riders: List[Rider], first: Rider, bank: str) -> Optional[Rider]:
+# ---------------- ◎選定：バンク優位“フィルタ”→その集合の偏差値 ----------------
+def _pick_axis_and_runnerup(riders: List[Any], bank: str) -> Tuple[Any, Optional[Any], List[int]]:
+    if not riders:
+        raise ValueError("RIDERSが空です。")
+
+    pairs = [(r, _bank_pair_sum(r, bank)) for r in riders]
+
+    # 全員0（=回数未入力）なら、偏差値のみ
+    if all(sc == 0 for _, sc in pairs):
+        rs = sorted(riders, key=_hensa, reverse=True)
+        first = rs[0]
+        runner = rs[1] if len(rs) >= 2 else None
+        cand_ids = [_num(x) for x in rs]  # 一次候補＝全員（hensa順）
+        return first, runner, cand_ids
+
+    # 優位合算の最大値を持つ者だけ候補（フィルタ！）→ その中で偏差値順
+    max_sc = max(sc for _, sc in pairs)
+    primary = [r for (r, sc) in pairs if sc == max_sc]
+    primary_sorted = sorted(primary, key=_hensa, reverse=True)
+
+    first = primary_sorted[0]
+    if len(primary_sorted) >= 2:
+        runner = primary_sorted[1]
+    else:
+        # 候補が1名なら、準◎は全体偏差値から補完（◎を除外）
+        rest = [r for r in riders if _num(r) != _num(first)]
+        rest.sort(key=_hensa, reverse=True)
+        runner = rest[0] if rest else None
+
+    cand_ids = [_num(x) for x in primary_sorted]
+    return first, runner, cand_ids
+
+# ---------------- 2列目：①◎ライン相方 → ②一次選考“漏れ上位” → 補完 ----------------
+def _pick_support(riders: List[Any], first: Any, bank: str) -> Optional[Any]:
     pr = _role_priority_for_follow(bank)
-    same = [r for r in riders if r.line_id == first.line_id and r.num != first.num]
+    same = [r for r in riders if _line_id(r) == _line_id(first) and _num(r) != _num(first)]
     if not same:
         return None
-    same.sort(key=lambda r: (pr.get(r.role, 0), r.hensa), reverse=True)
+    same.sort(key=lambda r: (pr.get(_role(r), 0), _hensa(r)), reverse=True)
     return same[0]
 
-def _pick_partner_from_runnerup(riders: List[Rider], primary_ids: List[int], exclude: Set[int]) -> Optional[int]:
-    # 一次選考の並び（偏差値順）から、除外済みを飛ばして1名
-    for nid in primary_ids[1:]:  # 0番目は◎なので1から
+def _pick_partner_from_primary(riders: List[Any], primary_ids: List[int], exclude: Set[int]) -> Optional[int]:
+    # 一次選考（フィルタ後の偏差値順）から、◎以外の順で採用
+    for nid in primary_ids:
         if nid not in exclude:
             return nid
-    # 全て使えなければ偏差値補完
-    rest = [r for r in riders if r.num not in exclude]
+    # 使える一次候補が無ければ、全体偏差値で補完
+    rest = [r for r in riders if _num(r) not in exclude]
     if not rest:
         return None
-    rest.sort(key=lambda r: r.hensa, reverse=True)
-    return rest[0].num
+    rest.sort(key=_hensa, reverse=True)
+    return _num(rest[0])
 
 # ---------------- 本命−2−全 生成 ----------------
-def make_trio_formation_final(riders: List[Rider], race_meta: Dict) -> str:
+def make_trio_formation_final(riders: List[Any], race_meta: Dict) -> str:
     if not riders:
         return "データなし（RIDERSが未設定）"
 
@@ -3365,58 +3381,31 @@ def make_trio_formation_final(riders: List[Rider], race_meta: Dict) -> str:
     # ◎（一次フィルタ→集合内の偏差値トップ）
     first, runner, primary_ids = _pick_axis_and_runnerup(riders, bank)
 
-    # 2列目：①◎ライン相方（役割優先→偏差値） ②一次選考の“漏れ上位”（runner相当）→ 補完
+    # 2列目：①◎ライン相方（役割優先→偏差値） ②一次選考の“漏れ上位” → 補完
     support = _pick_support(riders, first, bank)
-    used = {first.num} | ({support.num} if support else set())
-    partner_id = _pick_partner_from_runnerup(riders, primary_ids, used)
+
+    used: Set[int] = {_num(first)}
+    if support:
+        used.add(_num(support))
+    # primary_idsの先頭は◎自身なので除外される。以降の最初の1名を拾う
+    partner_id = _pick_partner_from_primary(riders, [pid for pid in primary_ids if pid != _num(first)], used)
 
     second_nums: List[int] = []
     if support:
-        second_nums.append(support.num)
+        second_nums.append(_num(support))
     if partner_id is not None:
         second_nums.append(partner_id)
     if len(second_nums) < 2:
-        # 2名に満たなければ偏差値補完（◎と重複禁止）
-        rest = [r.num for r in sorted(riders, key=lambda r: r.hensa, reverse=True)
-                if r.num not in ({first.num} | set(second_nums))]
+        # 2名に満たなければ偏差値補完
+        rest = [ _num(r) for r in sorted(riders, key=_hensa, reverse=True)
+                 if _num(r) not in ({_num(first)} | set(second_nums)) ]
         if rest:
             second_nums.append(rest[0])
 
     second_nums = sorted(set(second_nums))[:2]
-    return f"三連複フォーメーション：{first.num}－{','.join(map(str, second_nums))}－全"
+    return f"三連複フォーメーション：{_num(first)}－{','.join(map(str, second_nums))}－全"
 
-# ---------------- RIDERS 自動補完（無い場合のみ） ----------------
-if "RIDERS" not in globals() or not globals()["RIDERS"]:
-    race_meta = globals().get("race_meta", {})
-    bank = _norm_bank(race_meta.get("bank", "400"))
-    race_t = (globals().get("race_t") or globals().get("score_t") or {})
-    line_inputs = globals().get("line_inputs", [])
-
-    riders: List[Rider] = []
-    seen: Set[int] = set()
-    for token in line_inputs:
-        grp = [int(ch) for ch in str(token) if ch.isdigit()]
-        if not grp:
-            continue
-        lid = grp[0]
-        for idx, num in enumerate(grp):
-            t = float(race_t.get(num, 0.0))
-            role = "先頭" if idx == 0 else ("番手" if idx == 1 else "三番手")
-            riders.append(Rider(num=num, hensa=t, line_id=lid, role=role))
-            seen.add(num)
-    for num, t in race_t.items():
-        if num not in seen:
-            riders.append(Rider(num=int(num), hensa=float(t), line_id=int(num), role="先頭"))
-    RIDERS = riders
-
-# ---------------- 出力フック（安全版） ----------------
-def _append_note(msg: str) -> None:
-    ns = globals().get("note_sections", None)
-    if isinstance(ns, list):
-        ns.append(msg)
-    else:
-        print(msg)
-
+# ---------------- 該当レース判定 ----------------
 def _is_target_race() -> bool:
     if bool(globals().get("_is_target_local", False)):
         return True
@@ -3432,6 +3421,7 @@ def _is_target_race() -> bool:
                 return True
     return False
 
+# ---------------- エントリポイント ----------------
 def emit_trio_formation() -> Optional[str]:
     riders = globals().get("RIDERS", [])
     race_meta = globals().get("race_meta", {"bank": "400"})
@@ -3449,13 +3439,13 @@ def emit_trio_formation() -> Optional[str]:
         _append_note(f"【狙いたいレースフォーメーション】 エラー: {e}")
         return None
 
-# ---------------- エントリポイント ----------------
 if _is_target_race():
     emit_trio_formation()
 else:
     _append_note("【狙いたいレースフォーメーション】 該当レースではありません")
 
 # === END ===
+
 
 
 # ================== 【3着率ランキングフォーメーション】（堅牢・偏差値不使用） ==================
