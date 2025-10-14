@@ -3321,7 +3321,132 @@ def _pick_partner_from_runnerup(riders: List[Rider], runner: Optional[Rider], ex
     rest.sort(key=lambda r: r.hensa, reverse=True)
     return rest[0].num
 
-# --- フォーメーション生成（本命−2−全） ---
+# === 本命−2−全（三連複）最終版：バンク別「回数合算」＋偏差値／末尾まで安全実行 ===
+from dataclasses import dataclass, field
+from typing import List, Set, Dict, Optional, Tuple
+
+# 既存の note_sections があれば使う（無ければ無視される）
+note_sections = globals().get("note_sections", [])
+
+# ----------------------------------------------------------------------
+# 入力想定
+#   RIDERS: List[Rider]
+#     - hensa: 偏差値（風・ライン込み等あなたの既存算出でOK）
+#     - line_id: ラインID（同一ラインで同じ値）
+#     - role: "先頭" / "番手" / "三番手" / "マーク"（無くてもOK）
+#     - counts: 任意の回数辞書（"逃げ","まくり","差し","マーク" 等）
+#       ※ counts未入力でも動作：その場合は◎選定を偏差値のみで実施
+#   race_meta["bank"]: 33 / 400 / 500（文字でも数値でも可。無ければ400扱い）
+#   line_inputs（無くても可）: 例 ["125","3","47","6"] など（RIDERSが無い場合の自動補完に使用）
+#   race_t / score_t（無くても可）: {車番: 偏差値}（同上）
+# ----------------------------------------------------------------------
+
+@dataclass
+class Rider:
+    num: int
+    hensa: float
+    line_id: int
+    role: str = ""  # 任意
+    counts: Dict[str, float] = field(default_factory=dict)  # 任意（未入力OK）
+    # 後方互換用の個別属性（任意）
+    c_nige: float = 0.0
+    c_makuri: float = 0.0
+    c_sashi: float = 0.0
+    c_mark: float = 0.0
+
+# ---------------- 基本ユーティリティ ----------------
+def _norm_bank(b) -> str:
+    s = str(b).strip().lower()
+    if s.isdigit():
+        v = int(float(s))
+    elif "33" in s:  v = 33
+    elif "500" in s: v = 500
+    elif "400" in s: v = 400
+    else:            v = 400
+    return str(v)
+
+def _role_priority(bank_str: str) -> Dict[str, int]:
+    # 33＝マーク>番手>三番手、 400/500＝番手>マーク>三番手（先頭は従属対象外）
+    if bank_str == "33":
+        return {"マーク": 3, "番手": 2, "三番手": 1, "先頭": 0, "": 0}
+    return {"番手": 3, "マーク": 2, "三番手": 1, "先頭": 0, "": 0}
+
+# ---- 回数の読み取り（キー表記ゆれを広く吸収） ----
+_KEY_ALIASES = {
+    "逃げ": {"逃", "逃げ", "N", "nige"},
+    "まくり": {"捲", "まくり", "マクリ", "makuri"},
+    "差し": {"差", "差し", "sashi"},
+    "マーク": {"マ", "マーク", "ﾏｰｸ", "mark"},
+}
+def _get_count(r: Rider, label: str) -> float:
+    # counts辞書から拾う
+    bag = r.counts or {}
+    for k, v in bag.items():
+        if str(k) == label or str(k) in _KEY_ALIASES.get(label, set()):
+            try:
+                return float(v)
+            except:
+                pass
+    # 個別属性からも拾う（後方互換）
+    attr = {
+        "逃げ": ("c_nige",),
+        "まくり": ("c_makuri",),
+        "差し": ("c_sashi",),
+        "マーク": ("c_mark",),
+    }.get(label, tuple())
+    for a in attr:
+        if hasattr(r, a):
+            try:
+                return float(getattr(r, a))
+            except:
+                pass
+    return 0.0
+
+def _axis_score(r: Rider, bank_str: str) -> float:
+    if bank_str == "500":
+        # 500：差＋マーク
+        return _get_count(r, "差し") + _get_count(r, "マーク")
+    elif bank_str == "33":
+        # 33：逃＋マーク
+        return _get_count(r, "逃げ") + _get_count(r, "マーク")
+    else:
+        # 400：まくり＋差し
+        return _get_count(r, "まくり") + _get_count(r, "差し")
+
+# ---------------- ◎選定（修正1：回数合算→偏差値） ----------------
+def _pick_axis_and_runnerup(riders: List[Rider], bank_str: str) -> Tuple[Rider, Optional[Rider]]:
+    scored = [( _axis_score(r, bank_str), r.hensa, r ) for r in riders]
+    # 合算スコアが全員0＝回数未入力 → 偏差値のみで選抜
+    if all(sc == 0 for sc,_,_ in scored):
+        scored.sort(key=lambda x: x[1], reverse=True)  # hensa desc
+    else:
+        scored.sort(key=lambda x: (x[0], x[1]), reverse=True)  # 合算 desc → hensa desc
+    top2 = [t[2] for t in scored[:2]]
+    if len(top2) == 1:
+        return top2[0], None
+    # 先頭を◎、次点を“準◎”（2列目②の優先候補）
+    return top2[0], top2[1]
+
+# ---------------- 2列目①：同ライン従属（役割優先→偏差値） ----------------
+def _pick_support(riders: List[Rider], first: Rider, bank_str: str) -> Optional[Rider]:
+    pr = _role_priority(bank_str)
+    same = [r for r in riders if r.line_id == first.line_id and r.num != first.num]
+    if not same:
+        return None
+    same.sort(key=lambda r: (pr.get(r.role, 0), r.hensa), reverse=True)
+    return same[0]
+
+# ---------------- 2列目②：準◎（1列目漏れ）／補完は偏差値 ----------------
+def _pick_partner_from_runnerup(riders: List[Rider], runner: Optional[Rider], exclude: Set[int]) -> Optional[int]:
+    if runner and runner.num not in exclude:
+        return runner.num
+    rest = [r for r in riders if r.num not in exclude]
+    if not rest:
+        return None
+    rest.sort(key=lambda r: r.hensa, reverse=True)
+    return rest[0].num
+
+# ---------------- 本命−2−全 生成 ----------------
 def make_trio_formation_final(riders: List[Rider], race_meta: Dict) -> str:
     if not riders:
         return "データなし（RIDERSが未設定）"
@@ -3331,8 +3456,7 @@ def make_trio_formation_final(riders: List[Rider], race_meta: Dict) -> str:
     # 1列目（◎＝修正1）
     first, runner = _pick_axis_and_runnerup(riders, bank)
 
-    # 2列目（2車固定）：
-    # ①同ライン従属（役割優先→偏差値）＋ ②“準◎”（1列目選考で漏れ）を採用
+    # 2列目（2車固定）：①同ライン従属 ＋ ②準◎（足りなければ偏差値補完）
     support = _pick_support(riders, first, bank)
     used = {first.num} | ({support.num} if support else set())
     partner_id = _pick_partner_from_runnerup(riders, runner, used)
@@ -3352,7 +3476,7 @@ def make_trio_formation_final(riders: List[Rider], race_meta: Dict) -> str:
     second_nums = sorted(set(second_nums))[:2]
     return f"三連複フォーメーション：{first.num}－{','.join(map(str, second_nums))}－全"
 
-# --- RIDERS が無いとき自動生成（race_t と line_inputs から補完） ---
+# ---------------- RIDERS 自動補完（無い場合のみ） ----------------
 if "RIDERS" not in globals() or not globals()["RIDERS"]:
     race_meta = globals().get("race_meta", {})
     bank = _norm_bank(race_meta.get("bank", "400"))
@@ -3360,11 +3484,10 @@ if "RIDERS" not in globals() or not globals()["RIDERS"]:
     race_t = (globals().get("race_t") or globals().get("score_t") or {})
     line_inputs = globals().get("line_inputs", [])
 
-    lead = "逃げ" if bank == "33" else ("差し" if bank == "500" else "まくり")
-    sub1 = "マーク" if bank == "33" else "差し"
+    riders: List[Rider] = []
+    seen: Set[int] = set()
 
-    riders = []
-    seen = set()
+    # ライン入力から role を付けて作成（style/回数は使わない）
     for token in line_inputs:
         grp = [int(ch) for ch in str(token) if ch.isdigit()]
         if not grp:
@@ -3373,31 +3496,29 @@ if "RIDERS" not in globals() or not globals()["RIDERS"]:
         for idx, num in enumerate(grp):
             t = float(race_t.get(num, 0.0))
             if idx == 0:
-                riders.append(Rider(num, t, lid, "先頭", lead))
+                riders.append(Rider(num=num, hensa=t, line_id=lid, role="先頭"))
             elif idx == 1:
-                riders.append(Rider(num, t, lid, "番手", sub1))
+                riders.append(Rider(num=num, hensa=t, line_id=lid, role="番手"))
             else:
-                riders.append(Rider(num, t, lid, "三番手", "マーク"))
+                riders.append(Rider(num=num, hensa=t, line_id=lid, role="三番手"))
             seen.add(num)
+
+    # ライン外（単騎）も埋める
     for num, t in race_t.items():
         if num not in seen:
-            riders.append(Rider(num, float(t), num, "先頭", lead))
+            riders.append(Rider(num=int(num), hensa=float(t), line_id=int(num), role="先頭"))
+
     RIDERS = riders
 
-# --- 出力フック ---
-def _debug_dump(riders, bank_str, fav_styles, axis=None):
-    by_style = {}
-    for r in riders:
-        st = _norm_style(r.style)
-        by_style.setdefault(st, []).append(r.num)
-    note_sections.append(
-        f"【DBG】bank={bank_str} 有利={sorted(fav_styles)} "
-        f"styles={{{', '.join(f'{k}:{sorted(v)}' for k,v in by_style.items())}}} "
-        f"候補={sorted([r.num for r in riders if _norm_style(r.style) in fav_styles])} "
-        f"軸={getattr(axis,'num',None)}"
-    )
+# ---------------- 出力フック（安全版：note_sections or print、最後に保存） ----------------
+def _append_note(msg: str) -> None:
+    ns = globals().get("note_sections", None)
+    if isinstance(ns, list):
+        ns.append(msg)
+    else:
+        print(msg)
 
-def _is_target_race():
+def _is_target_race() -> bool:
     if bool(globals().get("_is_target_local", False)):
         return True
     for k in ("IS_TARGET_RACE", "WANT_RACE", "want_race", "is_target_race"):
@@ -3412,25 +3533,30 @@ def _is_target_race():
                 return True
     return False
 
-if _is_target_race():
+def emit_trio_formation() -> Optional[str]:
     riders = globals().get("RIDERS", [])
     race_meta = globals().get("race_meta", {"bank": "400"})
+
+    if not riders:
+        _append_note("【狙いたいレースフォーメーション】 データなし（RIDERSが未設定）")
+        return None
+
     try:
         out = make_trio_formation_final(riders, race_meta)
-        if isinstance(note_sections, list):
-            note_sections.append(f"【狙いたいレースフォーメーション】 {out}")
-        else:
-            print(f"【狙いたいレースフォーメーション】 {out}")
+        globals()["LAST_TRIO_FORMATION"] = out
+        _append_note(f"【狙いたいレースフォーメーション】 {out}")
+        return out
     except Exception as e:
-        msg = f"【狙いたいレースフォーメーション】 エラー: {e}"
-        if isinstance(note_sections, list):
-            note_sections.append(msg)
-        else:
-            print(msg)
+        _append_note(f"【狙いたいレースフォーメーション】 エラー: {e}")
+        return None
+
+# ---------------- エントリポイント（ここで完結） ----------------
+if _is_target_race():
+    emit_trio_formation()
 else:
-    if isinstance(note_sections, list):
-        note_sections.append("【狙いたいレースフォーメーション】 該当レースではありません")
+    _append_note("【狙いたいレースフォーメーション】 該当レースではありません")
 # === END ===
+
 
 
 
