@@ -3549,10 +3549,12 @@ def get_trio_rank_formation(show_ui: bool = False, grade: str = "") -> str:
 
 
 # === note出力 ===
-# 例: grade_now = "F2"
-note_sections.append(f"【3着率ランキングフォーメーション】 {get_trio_rank_formation(False, grade_now)}")
+# grade_now が未定義なら F2 にフォールバック
+grade_now = globals().get("grade_now", "F2")
 
-
+note_sections.append(
+    f"【3着率ランキングフォーメーション】 {get_trio_rank_formation(False, grade_now)}"
+)
 
 # ======================================================================
 
