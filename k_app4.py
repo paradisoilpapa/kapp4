@@ -3448,34 +3448,57 @@ else:
 
 
 
-# ================== 【3着率ランキングフォーメーション】（堅牢・偏差値不使用） ==================
+# ================== 【3着率ランキングフォーメーション】（堅牢・偏差値不使用／グレード別対応） ==================
 
-def _active_rank_stats():
-    if "RANK_STATS_CURRENT" in globals() and isinstance(RANK_STATS_CURRENT, dict): return RANK_STATS_CURRENT
-    if "RANK_STATS_F2" in globals() and isinstance(RANK_STATS_F2, dict): return RANK_STATS_F2
-    rs = globals().get("RANK_STATS", {})
-    return rs if isinstance(rs, dict) else {}
+def _active_rank_stats(grade: str = ""):
+    """グレード別に正しい実測率テーブル（◎〜無）を選択"""
+    g = str(grade).upper().strip()
+
+    # 優先順位: 現行 > グレード別 > 総合
+    if "RANK_STATS_CURRENT" in globals() and isinstance(RANK_STATS_CURRENT, dict):
+        return RANK_STATS_CURRENT
+    if g == "F1" and "RANK_STATS_F1" in globals():
+        return RANK_STATS_F1
+    if g == "F2" and "RANK_STATS_F2" in globals():
+        return RANK_STATS_F2
+    if g in ("G", "G1", "G2", "G3") and "RANK_STATS_G" in globals():
+        return RANK_STATS_G
+    if g in ("GIRLS", "LADIES") and "RANK_STATS_GIRLS" in globals():
+        return RANK_STATS_GIRLS
+    if "RANK_STATS_TOTAL" in globals():
+        return RANK_STATS_TOTAL
+    # フォールバック
+    return globals().get("RANK_STATS", {})
+
 
 def _norm_sym(s):
     s = str(s).strip()
     return "〇" if s == "○" else s
 
+
 def _id2sym():
     rm = globals().get("result_marks", {})
-    if not isinstance(rm, dict): return {}
+    if not isinstance(rm, dict):
+        return {}
     numeric_key = any(isinstance(k, int) or (isinstance(k, str) and k.isdigit()) for k in rm.keys())
     d = {}
     if numeric_key:
         for k, v in rm.items():
-            try: d[int(k)] = _norm_sym(v)
-            except: pass
+            try:
+                d[int(k)] = _norm_sym(v)
+            except:
+                pass
     else:
         for sym, vid in rm.items():
-            try: d[int(vid)] = _norm_sym(sym)
-            except: pass
+            try:
+                d[int(vid)] = _norm_sym(sym)
+            except:
+                pass
     return d
 
+
 def _symbols_by_pTop3_for_present(stats, present_syms):
+    """印ごとのpTop3を比較して降順に並べる"""
     cand = []
     for sym in present_syms:
         try:
@@ -3486,13 +3509,15 @@ def _symbols_by_pTop3_for_present(stats, present_syms):
     cand.sort(key=lambda x: x[1], reverse=True)
     return [sym for sym, _ in cand]
 
+
 def _pick_one_id(id2sym, symbol):
     ids = sorted(i for i, s in id2sym.items() if _norm_sym(s) == _norm_sym(symbol))
     return ids[0] if ids else None
 
-def get_trio_rank_formation(show_ui: bool = False) -> str:
-    """偏差値を使わず、印のpTop3ランキングで 1-X-X 形式の文字列を返す。UI出力はオフが既定。"""
-    stats   = _active_rank_stats()
+
+def get_trio_rank_formation(show_ui: bool = False, grade: str = "") -> str:
+    """偏差値を使わず、印のpTop3ランキングで 1-X-X 形式の文字列を返す。UI出力は任意。"""
+    stats   = _active_rank_stats(grade)
     id2s    = _id2sym()
     present = set(_norm_sym(s) for s in id2s.values() if s)
 
@@ -3523,7 +3548,10 @@ def get_trio_rank_formation(show_ui: bool = False) -> str:
     return formation_str
 
 
-note_sections.append(f"【3着率ランキングフォーメーション】 {get_trio_rank_formation(False)}")
+# === note出力 ===
+# 例: grade_now = "F2"
+note_sections.append(f"【3着率ランキングフォーメーション】 {get_trio_rank_formation(False, grade_now)}")
+
 
 
 # ======================================================================
