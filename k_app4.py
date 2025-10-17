@@ -3451,24 +3451,47 @@ else:
 # ================== 【3着率ランキングフォーメーション】（堅牢・偏差値不使用／グレード別対応） ==================
 
 def _active_rank_stats(grade: str = ""):
-    """グレード別に正しい実測率テーブル（◎〜無）を選択"""
-    g = str(grade).upper().strip()
+    """
+    グレード別に正しい印別実測率テーブルを選択。
+    例: F1/F2/G/GIRLS/TOTAL。
+    未定義・誤表記も自動補正。
+    """
+    g = str(grade or "").upper().strip()
+    table_map = globals().get("RANK_STATS_BY_GRADE", {})
 
-    # 優先順位: 現行 > グレード別 > 総合
-    if "RANK_STATS_CURRENT" in globals() and isinstance(RANK_STATS_CURRENT, dict):
-        return RANK_STATS_CURRENT
+    # 入力ゆれ（日本語・小文字など）補正
+    if "ガール" in g or "L級" in g or "GIRL" in g:
+        g = "GIRLS"
+    elif g.startswith("G"):  # G, G3, G2, G1 などを一括扱い
+        g = "G"
+    elif "F1" in g:
+        g = "F1"
+    elif "F2" in g:
+        g = "F2"
+    elif "TOTAL" in g or "ALL" in g:
+        g = "TOTAL"
+    else:
+        g = "F2"  # デフォルト
+
+    # グレードマップが存在すればそれを優先
+    if g in table_map:
+        return table_map[g]
+
+    # 旧コード互換（念のため）
     if g == "F1" and "RANK_STATS_F1" in globals():
         return RANK_STATS_F1
     if g == "F2" and "RANK_STATS_F2" in globals():
         return RANK_STATS_F2
-    if g in ("G", "G1", "G2", "G3") and "RANK_STATS_G" in globals():
+    if g == "G" and "RANK_STATS_G" in globals():
         return RANK_STATS_G
-    if g in ("GIRLS", "LADIES") and "RANK_STATS_GIRLS" in globals():
+    if g == "GIRLS" and "RANK_STATS_GIRLS" in globals():
         return RANK_STATS_GIRLS
     if "RANK_STATS_TOTAL" in globals():
         return RANK_STATS_TOTAL
-    # フォールバック
+
+    # 最後のフォールバック
     return globals().get("RANK_STATS", {})
+
 
 
 def _norm_sym(s):
