@@ -3215,97 +3215,61 @@ note_sections.append("\n偏差値（風・ライン込み）")
 note_sections.append(_fmt_hen_lines(race_t, USED_IDS))
 note_sections.append("\n")  # 空行
 
-# ===== Safe note output (no NameError) =====
-# 1) note_sections を必ず用意
+# ====== 最小・堅牢：result_marks だけで2行を動的生成 ======
+
+# note_sections は既に上で作っているが、念のため
 if 'note_sections' not in globals() or not isinstance(note_sections, list):
     note_sections = []
 
-def _safe_note(msg: str) -> None:
-    try:
-        note_sections.append(msg)
-    except Exception:
-        pass
+def _norm_sym(s: str) -> str:
+    # ○→〇 に正規化
+    return "〇" if str(s) == "○" else str(s)
 
-# 2) 3着率ランキングフォーメーションの安全出力
-try:
-    _get_rank = globals().get('get_trio_rank_formation', None)
-    grade_now = globals().get('grade_now', 'F2')
-    if callable(_get_rank):
-        formation_str = _get_rank(False, grade_now)
-        _safe_note(f"【3着率ランキングフォーメーション】 {formation_str}")
-    else:
-        _safe_note("【3着率ランキングフォーメーション】 （関数未定義）")
-except Exception as e:
-    _safe_note(f"【3着率ランキングフォーメーション】 エラー: {e}")
+def _build_sym2id_from_result_marks(rm) -> dict:
+    """result_marks が (記号→番号) or (番号→記号) どちらでも対応して {記号:番号} を返す"""
+    sym2id = {}
+    if not isinstance(rm, dict):
+        return sym2id
 
-# 3) ▲△軸（3連複）＋▲△‐×（ワイド）の動的出力
-try:
-    _id2sym_func = globals().get('_id2sym', None)
-    if callable(_id2sym_func):
-        id2s = _id2sym_func()               # {番号:int -> 印:str}
-        # 印→番号 の逆引き辞書を作成（○→〇 正規化も考慮）
-        def _norm_sym(s): return "〇" if str(s) == "○" else str(s)
-        sym2id = {}
-        for num, sym in id2s.items():
+    # パターンA: { "◎":1, "〇":2, "▲":3, "△":6, "×":7 }
+    if any(k in ("◎", "〇", "○", "▲", "△", "×") for k in rm.keys()):
+        for sym, num in rm.items():
             try:
                 sym2id[_norm_sym(sym)] = int(num)
             except Exception:
                 pass
+        return sym2id
 
-        a = sym2id.get("▲")
-        b = sym2id.get("△")
-        c = sym2id.get("◎")
-        d = sym2id.get("〇") or sym2id.get("○")
-        x = sym2id.get("×")
+    # パターンB: { 1:"◎", 2:"〇", 3:"▲", 6:"△", 7:"×" }
+    for num, sym in rm.items():
+        try:
+            sym2id[_norm_sym(sym)] = int(num)
+        except Exception:
+            pass
+    return sym2id
 
-        if all(v is not None for v in (a, b, c, d)):
-            _safe_note(f"三連複　{a}{b}-{c}{d}{a}{b}-{c}{d}{a}{b}")
-        else:
-            _safe_note("三連複　（印不足で生成不可）")
+_sym2id = _build_sym2id_from_result_marks(result_marks)
 
-        if all(v is not None for v in (a, b, x)):
-            _safe_note(f"ワイド　{a}{b}-{x}")
-        else:
-            _safe_note("ワイド　（印不足で生成不可）")
-    else:
-        _safe_note("▲△出力（_id2sym 未定義）")
-except Exception as e:
-    _safe_note(f"▲△出力エラー: {e}")
-# ===== /Safe note output =====
+a = _sym2id.get("▲")
+b = _sym2id.get("△")
+c = _sym2id.get("◎")
+d = _sym2id.get("〇")  # 〇は正規化済み
+x = _sym2id.get("×")
 
-# === 安全な末尾出力（NameError防止 & note出力対応） ===
-try:
-    if 'note_sections' not in globals() or not isinstance(note_sections, list):
-        note_sections = []
+# 三連複：▲△－◎〇▲△－◎〇▲△
+if all(v is not None for v in (a, b, c, d)):
+    note_sections.append(f"三連複　{a}{b}-{c}{d}{a}{b}-{c}{d}{a}{b}")
+else:
+    note_sections.append("三連複　（印不足で生成不可）")
 
-    # 3着率ランキングフォーメーション（存在すれば出力）
-    if 'get_trio_rank_formation' in globals() and callable(get_trio_rank_formation):
-        grade_now = globals().get("grade_now", "F2")
-        formation_str = get_trio_rank_formation(False, grade_now)
-        note_sections.append(f"【3着率ランキングフォーメーション】 {formation_str}")
+# ワイド：▲△－×
+if all(v is not None for v in (a, b, x)):
+    note_sections.append(f"ワイド　{a}{b}-{x}")
+else:
+    note_sections.append("ワイド　（印不足で生成不可）")
 
-    # 印別三連複＋ワイド出力（存在すれば出力）
-    if '_id2sym' in globals() and callable(_id2sym):
-        id2s = _id2sym()
-        # 印→番号辞書を作成
-        sym2id = {}
-        for num, sym in id2s.items():
-            sym = "〇" if sym == "○" else sym
-            sym2id[sym] = num
+# ====== /最小・堅牢 ======
 
-        a = sym2id.get("▲")
-        b = sym2id.get("△")
-        c = sym2id.get("◎")
-        d = sym2id.get("〇")
-        x = sym2id.get("×")
-
-        if a and b and c and d:
-            note_sections.append(f"三連複　{a}{b}-{c}{d}{a}{b}-{c}{d}{a}{b}")
-        if a and b and x:
-            note_sections.append(f"ワイド　{a}{b}-{x}")
-
-except Exception as e:
-    note_sections.append(f"出力エラー: {e}")
 
 
 # ======================================================================
