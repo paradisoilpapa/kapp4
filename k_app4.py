@@ -3273,6 +3273,39 @@ except Exception as e:
     _safe_note(f"▲△出力エラー: {e}")
 # ===== /Safe note output =====
 
+# === 安全な末尾出力（NameError防止 & note出力対応） ===
+try:
+    if 'note_sections' not in globals() or not isinstance(note_sections, list):
+        note_sections = []
+
+    # 3着率ランキングフォーメーション（存在すれば出力）
+    if 'get_trio_rank_formation' in globals() and callable(get_trio_rank_formation):
+        grade_now = globals().get("grade_now", "F2")
+        formation_str = get_trio_rank_formation(False, grade_now)
+        note_sections.append(f"【3着率ランキングフォーメーション】 {formation_str}")
+
+    # 印別三連複＋ワイド出力（存在すれば出力）
+    if '_id2sym' in globals() and callable(_id2sym):
+        id2s = _id2sym()
+        # 印→番号辞書を作成
+        sym2id = {}
+        for num, sym in id2s.items():
+            sym = "〇" if sym == "○" else sym
+            sym2id[sym] = num
+
+        a = sym2id.get("▲")
+        b = sym2id.get("△")
+        c = sym2id.get("◎")
+        d = sym2id.get("〇")
+        x = sym2id.get("×")
+
+        if a and b and c and d:
+            note_sections.append(f"三連複　{a}{b}-{c}{d}{a}{b}-{c}{d}{a}{b}")
+        if a and b and x:
+            note_sections.append(f"ワイド　{a}{b}-{x}")
+
+except Exception as e:
+    note_sections.append(f"出力エラー: {e}")
 
 
 # ======================================================================
