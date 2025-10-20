@@ -3215,34 +3215,64 @@ note_sections.append("\n偏差値（風・ライン込み）")
 note_sections.append(_fmt_hen_lines(race_t, USED_IDS))
 note_sections.append("\n")  # 空行
 
-# === 【3着率ランキングフォーメーション】出力 ===
-grade_now = globals().get("grade_now", "F2")
-formation_str = get_trio_rank_formation(False, grade_now)
-
-if "note_sections" not in globals():
+# ===== Safe note output (no NameError) =====
+# 1) note_sections を必ず用意
+if 'note_sections' not in globals() or not isinstance(note_sections, list):
     note_sections = []
 
-note_sections.append(f"【3着率ランキングフォーメーション】 {formation_str}")
+def _safe_note(msg: str) -> None:
+    try:
+        note_sections.append(msg)
+    except Exception:
+        pass
 
-# === 【▲△軸フォーメーション＋ワイド】自動出力 ===
+# 2) 3着率ランキングフォーメーションの安全出力
 try:
-    id2s = _id2sym()
-    nums = {sym: n for n, sym in id2s.items()}
-
-    a = nums.get("▲")
-    b = nums.get("△")
-    c = nums.get("◎")
-    d = nums.get("〇")
-    x = nums.get("×")
-
-    if a and b and c and d:
-        note_sections.append(f"三連複　{a}{b}-{c}{d}{a}{b}-{c}{d}{a}{b}")
-
-    if a and b and x:
-        note_sections.append(f"ワイド　{a}{b}-{x}")
-
+    _get_rank = globals().get('get_trio_rank_formation', None)
+    grade_now = globals().get('grade_now', 'F2')
+    if callable(_get_rank):
+        formation_str = _get_rank(False, grade_now)
+        _safe_note(f"【3着率ランキングフォーメーション】 {formation_str}")
+    else:
+        _safe_note("【3着率ランキングフォーメーション】 （関数未定義）")
 except Exception as e:
-    note_sections.append(f"▲△出力エラー: {e}")
+    _safe_note(f"【3着率ランキングフォーメーション】 エラー: {e}")
+
+# 3) ▲△軸（3連複）＋▲△‐×（ワイド）の動的出力
+try:
+    _id2sym_func = globals().get('_id2sym', None)
+    if callable(_id2sym_func):
+        id2s = _id2sym_func()               # {番号:int -> 印:str}
+        # 印→番号 の逆引き辞書を作成（○→〇 正規化も考慮）
+        def _norm_sym(s): return "〇" if str(s) == "○" else str(s)
+        sym2id = {}
+        for num, sym in id2s.items():
+            try:
+                sym2id[_norm_sym(sym)] = int(num)
+            except Exception:
+                pass
+
+        a = sym2id.get("▲")
+        b = sym2id.get("△")
+        c = sym2id.get("◎")
+        d = sym2id.get("〇") or sym2id.get("○")
+        x = sym2id.get("×")
+
+        if all(v is not None for v in (a, b, c, d)):
+            _safe_note(f"三連複　{a}{b}-{c}{d}{a}{b}-{c}{d}{a}{b}")
+        else:
+            _safe_note("三連複　（印不足で生成不可）")
+
+        if all(v is not None for v in (a, b, x)):
+            _safe_note(f"ワイド　{a}{b}-{x}")
+        else:
+            _safe_note("ワイド　（印不足で生成不可）")
+    else:
+        _safe_note("▲△出力（_id2sym 未定義）")
+except Exception as e:
+    _safe_note(f"▲△出力エラー: {e}")
+# ===== /Safe note output =====
+
 
 
 # ======================================================================
