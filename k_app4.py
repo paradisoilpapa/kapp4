@@ -3215,20 +3215,35 @@ note_sections.append("\n偏差値（風・ライン込み）")
 note_sections.append(_fmt_hen_lines(race_t, USED_IDS))
 note_sections.append("\n")  # 空行
 
-id2s = _id2sym()
-nums = {sym: n for n, sym in id2s.items()}
+# === 【3着率ランキングフォーメーション】出力 ===
+grade_now = globals().get("grade_now", "F2")
+formation_str = get_trio_rank_formation(False, grade_now)
 
-a = nums.get("▲")
-b = nums.get("△")
-c = nums.get("◎")
-d = nums.get("〇")
-x = nums.get("×")
+if "note_sections" not in globals():
+    note_sections = []
 
-if a and b and c and d:
-    note_sections.append(f"三連複　{a}{b}-{c}{d}{a}{b}-{c}{d}{a}{b}")
+note_sections.append(f"【3着率ランキングフォーメーション】 {formation_str}")
 
-if a and b and x:
-    note_sections.append(f"ワイド　{a}{b}-{x}")
+# === 【▲△軸フォーメーション＋ワイド】自動出力 ===
+try:
+    id2s = _id2sym()
+    nums = {sym: n for n, sym in id2s.items()}
+
+    a = nums.get("▲")
+    b = nums.get("△")
+    c = nums.get("◎")
+    d = nums.get("〇")
+    x = nums.get("×")
+
+    if a and b and c and d:
+        note_sections.append(f"三連複　{a}{b}-{c}{d}{a}{b}-{c}{d}{a}{b}")
+
+    if a and b and x:
+        note_sections.append(f"ワイド　{a}{b}-{x}")
+
+except Exception as e:
+    note_sections.append(f"▲△出力エラー: {e}")
+
 
 # ======================================================================
 
