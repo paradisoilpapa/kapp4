@@ -3216,46 +3216,50 @@ note_sections.append(_fmt_hen_lines(race_t, USED_IDS))
 note_sections.append("\n")  # 空行
 
 # --- note用出力（ラインと印を対応） ---
-# === 貼るだけ最終パッチ：ライン⇄印 2行を note 用に強制表示 ===
-import re
+# === note用：ライン⇄印 2行（単桁/二桁どちらもOK・貼るだけ） ===
+import streamlit as st
 
-def _note_two_lines(lines_str: str, marks_str: str) -> str:
-    # 全角→半角（数字・スペース）
+def note_two_lines(lines_str: str, marks_str: str) -> str:
+    # 全角→半角（数字/スペース）
     z2h = str.maketrans("０１２３４５６７８９　", "0123456789 ")
     lines_str = str(lines_str or "").translate(z2h).strip()
     marks_str = str(marks_str or "").translate(z2h).strip()
 
-    # 車番→印（例 "7"→"◎"）
+    # 車番→印 の辞書（例: {"7":"◎","5":"〇",...}）
     mp = {}
     for tok in marks_str.split():
         if tok:
             mp[tok[1:]] = tok[0]
 
-    # 各ラインの数字塊を拾って印に変換（1桁/2桁どちらもOK）
-    groups = lines_str.split()
+    groups = lines_str.split()  # 例: ["71","526","43"]
+
+    # 二桁キーが存在するかを確認（10,11などがある場合に貪欲2桁→1桁）
+    has2 = any(len(k) > 1 for k in mp)
+
     mark_groups = []
     for g in groups:
-        nums = re.findall(r"\d+", g) or list(g)
-        mark_groups.append("".join(mp.get(n, "？") for n in nums))
+        i, buf = 0, []
+        while i < len(g):
+            # まず2桁を試す（存在する場合のみ）
+            if has2 and i + 2 <= len(g) and g[i:i+2] in mp:
+                buf.append(mp[g[i:i+2]])
+                i += 2
+                continue
+            # 次に1桁
+            buf.append(mp.get(g[i], "？"))
+            i += 1
+        mark_groups.append("".join(buf))
 
     J = "　"  # 全角スペース
     return f"{J.join(groups)}\n{J.join(mark_groups)}"
 
-# ▼ 川崎1R（そのまま出る）。他レースはこの2行だけ差し替え
-_LINES = "71 526 43"
-_MARKS = "◎7 〇5 ▲2 △1 ×4 α3 無6"
+# ▼ 川崎1R（そのまま出る）。他レースは2行だけ差し替え
+lines_str = "71 526 43"
+marks_str = "◎7 〇5 ▲2 △1 ×4 α3 無6"
 
-_NOTE_BLOCK = _note_two_lines(_LINES, _MARKS)
+note_block = note_two_lines(lines_str, marks_str)
+st.markdown(note_block.replace("\n", "<br>"), unsafe_allow_html=True)
 
-# 表示：note_sections があれば流し込み、無ければ強制表示（どちらでも出る）
-try:
-    note_sections.append(_NOTE_BLOCK)
-except Exception:
-    try:
-        import streamlit as st  # Streamlit 実行時
-        st.text_area("note用（コピー）", _NOTE_BLOCK, height=72, key="__velobi_note_block__")
-    except Exception:
-        print(_NOTE_BLOCK)  # CLI でも一応出す
 # === ここまで ===
 
 
