@@ -3215,91 +3215,25 @@ note_sections.append("\n偏差値（風・ライン込み）")
 note_sections.append(_fmt_hen_lines(race_t, USED_IDS))
 note_sections.append("\n")  # 空行
 
-# ===== 確定版：generate_bets_holemode（ライン×偏差値ベクトル主軸） =====
-
-def format_line_marks(lines_str: str, marks_str: str) -> tuple[str, str]:
-    """
-    入力:
-      lines_str = "17 625 43"   # ライン表記（空白区切り）
-      marks_str = "◎4 〇3 ▲2 △1 ×7 α5 無6"  # 印→車番の並び
-    出力:
-      ("17　625　43", "△×　無▲α　◎〇")
-    """
-    # 1) 車番→印 の辞書を作る（'4'->'◎' など）
-    rider_to_mark = {}
-    for token in marks_str.split():
-        mark = token[0]          # 先頭1文字（◎,〇,▲,△,×,α,無）
-        num  = token[1:]         # 残り（"4","3",…）
-        rider_to_mark[num] = mark
-
-    # 2) 各ラインごとに、車番の並びに対応する印を並べる
-    groups = lines_str.split()
-    mark_groups = []
-    for g in groups:
-        marks = "".join(rider_to_mark.get(ch, "?") for ch in g)  # 未定義は '?'
-        mark_groups.append(marks)
-
-    # 3) 表示は全角スペースで区切る
-    ideographic_space = "　"
-    return ideographic_space.join(groups), ideographic_space.join(mark_groups)
-
-
-# === 使い方（あなたの例） ===
+# --- note用出力（ラインと印を対応） ---
 lines = "17 625 43"
 marks = "◎4 〇3 ▲2 △1 ×7 α5 無6"
 
-line_row, mark_row = format_line_marks(lines, marks)
-print(line_row)
-print(mark_row)
-# → 17　625　43
-#   △×　無▲α　◎〇
-
-# === ここから貼り付け（表示テスト用：そのまま動く） ===
-def _format_line_marks(lines_str: str, marks_str: str):
-    # 車番→印 の辞書を作成（例: '4'→'◎'）
+def format_line_for_note(lines_str, marks_str):
     d = {}
     for tok in marks_str.split():
-        if not tok:
-            continue
-        mark = tok[0]       # 先頭1文字（◎〇▲△×α無）
-        num  = tok[1:]      # 残り＝車番
-        d[num] = mark
+        if tok:
+            d[tok[1:]] = tok[0]  # "4"→"◎"
+    out_lines = []
+    for g in lines_str.split():
+        out_lines.append("".join(d.get(ch, "？") for ch in g))
+    return "　".join(lines_str.split()), "　".join(out_lines)
 
-    groups = lines_str.split()               # ["17","625","43"]
-    mark_groups = []
-    for g in groups:
-        # 2桁車番にも対応：数字の連続として読む
-        i, buf = 0, []
-        while i < len(g):
-            # 次が数字で連続していれば2桁以上対応
-            j = i + 1
-            while j <= len(g) and g[i:j].isdigit():
-                j += 1
-            # 直前の“最大の数字塊”を採用
-            j -= 1
-            num = g[i:j]
-            buf.append(d.get(num, "?"))
-            i = j
-        mark_groups.append("".join(buf))
+line_row, mark_row = format_line_for_note(lines, marks)
 
-    ideospace = "\u3000"  # 全角スペース
-    return ideospace.join(groups), ideospace.join(mark_groups)
+# note用に表示
+st.markdown(f"{line_row}\n{mark_row}")
 
-# 入力（あなたの例そのまま）
-_lines = "17 625 43"
-_marks = "◎4 〇3 ▲2 △1 ×7 α5 無6"
-
-_line_row, _mark_row = _format_line_marks(_lines, _marks)
-
-# Streamlit があれば画面に、なければ print
-try:
-    import streamlit as st
-    st.text(_line_row)
-    st.text(_mark_row)
-except Exception:
-    print(_line_row)
-    print(_mark_row)
-# === ここまで貼り付け ===
 
 
 
