@@ -3269,36 +3269,44 @@ def generate_bets_holemode(marks, lines_str, hens, FR=0.0, U=0.0, VTX_RANK=None)
 
     reverse_lines = [li for li in line_info if li["flow"] == "逆流"]
 
-    # 6) 買い目生成
-    pairs_nf, pairs_w, trios = [], [], []
-    FR_THR, U_THR = 0.15, 0.25
-    if (FR > FR_THR and U > U_THR) and reverse_lines:
-        rev = reverse_lines[0]
-        vtx = vortex["top2"]
-        tail = sorted(rev["ids"], key=lambda i: hens.get(i, 0.0))[:1]
-        for r in tail:
-            for v in vtx:
-                a, b = sorted((r, v))
-                pairs_nf.append((a, b))
-                pairs_w.append((a, b))
-        if len(vtx) == 2 and tail:
-            a, b = sorted(vtx)
-            c = tail[0]
-            trios.append(tuple(sorted((a, b, c))))
-        pattern = "逆流主役化"
-        note = f"[逆流主役] 渦={vtx} 逆流={rev['ids']} FR={FR:.2f} U={U:.2f}"
-    else:
-        vtx = vortex["top2"]
-        others = [i for i in hens.keys() if i not in vortex["ids"]]
-        opp = max(others, key=lambda i: hens.get(i, 0.0)) if others else None
-        if opp and len(vtx) == 2:
-            a, b = sorted(vtx)
-            c = opp
-            pairs_nf = [tuple(sorted((a, c))), tuple(sorted((b, c))), (a, b)]
-            pairs_w = list(pairs_nf)
-            trios = [tuple(sorted((a, b, c)))]
-        pattern = "結束ピボット"
-        note = f"[結束ピボット] 渦={vtx} 対抗={opp} FR={FR:.2f} U={U:.2f}"
+    # 6) 買い目生成（穴波優先）
+pairs_nf, pairs_w, trios = [], [], []
+pattern = note = ""
+
+# 渦ラインを基点に末脚や逆流を拾う
+rev_lines = [li for li in line_info if li["flow"] == "逆流"]
+if rev_lines:
+    rev = rev_lines[0]
+    rev_tail = sorted(rev["ids"], key=lambda i: hens.get(i, 0.0))[:1]  # 逆流の末脚1
+else:
+    rev_tail = []
+
+# 渦ラインの中位を軸（強すぎない中間）
+vtx = vortex["ids"]
+mid = sorted(vtx, key=lambda i: hens.get(i, 0.0))[len(vtx)//2:len(vtx)//2+1] if vtx else []
+
+if rev_tail and mid:
+    # 穴型：渦中位 × 逆流末脚
+    pairs_nf.append(tuple(sorted((mid[0], rev_tail[0]))))
+    pairs_w.append(tuple(sorted((mid[0], rev_tail[0]))))
+    # 渦内ペアも押さえ
+    if len(vtx) >= 2:
+        pairs_nf.append(tuple(sorted((vtx[-2], vtx[-1]))))
+    trios.append(tuple(sorted((mid[0], rev_tail[0], vtx[-1]))))
+    pattern = "穴波（渦×逆流）"
+    note = f"[穴波] 渦={vtx} 逆流={rev_tail} FR={FR:.2f} U={U:.2f}"
+else:
+    # 結束ピボット fallback
+    vtx_top2 = vortex["top2"]
+    others = [i for i in hens.keys() if i not in vortex["ids"]]
+    opp = min(others, key=lambda i: hens.get(i, 0.0)) if others else None  # ←弱めを採用
+    if opp and len(vtx_top2) == 2:
+        pairs_nf = [tuple(sorted((vtx_top2[0], opp))), tuple(sorted((vtx_top2[1], opp))), tuple(sorted(vtx_top2))]
+        pairs_w = list(pairs_nf)
+        trios = [tuple(sorted((vtx_top2[0], vtx_top2[1], opp)))]
+    pattern = "結束ピボット(補完)"
+    note = f"[補完] 渦={vtx_top2} 対抗={opp} FR={FR:.2f} U={U:.2f}"
+
 
     def _dedup(seq):
         seen, out = set(), []
