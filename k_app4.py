@@ -3217,110 +3217,62 @@ note_sections.append("\n")  # 空行
 
 # ===== 確定版：generate_bets_holemode（ライン×偏差値ベクトル主軸） =====
 # -*- coding: utf-8 -*-
-"""
-Velobi Flow-Bets (7車・二車複)
-- 「◎→（順流）」と「無←（逆流）」、その中間“渦層”を数値化して過小人気ラインを抽出
-- 出力：二車複の推奨組（最大3ペア）＋ U点灯時のみ“無”絡み1ペアを薄く
-
-想定入力：
-lines = [[1,7], [6,2,5], [4,3]]  # 例：ライン 17／625／43
-marks = {4:"◎", 3:"〇", 1:"▲", 2:"△", 7:"×", 5:"α", 6:"無"}  # 例：印
-
-使い方：
-reco = suggest_flow_bets(lines, marks, max_pairs=3)
-print(reco["summary"])
-for r in reco["bets_2f"]:
-    print(r)
-"""
+# Velobi Flow-Bets (7車・二車複)
+# 入力：lines = [[...], [...], ...]（ラインごと車番リスト）
+#      marks = {車番: "◎/〇/▲/△/×/α/無"}
+# 出力：二車複の推奨組（◎×渦を主軸、状況次第で“◎×無”を薄く）
 
 from typing import List, Dict, Any, Tuple
 
-# --- 印→pTop3近似（2025/09/28版ベース） ---
-# ◎,〇,▲,△,× は実測。α/無は保守的に低め（必要なら差し替えOK）
+# --- 印→pTop3近似（必要に応じて最新版へ差替え可） ---
 MARK_P3 = {
-    "◎": 0.641,
-    "〇": 0.516,
-    "▲": 0.484,
-    "△": 0.475,
-    "×": 0.332,
-    "α": 0.280,   # 仮置き（運用で調整可）
-    "無": 0.200,  # 仮置き（運用で調整可）
+    "◎": 0.641, "〇": 0.516, "▲": 0.484, "△": 0.475,
+    "×": 0.332, "α": 0.280, "無": 0.200,
 }
-
-# 印の強さ（同ライン内の代表選手選びに使用）
 MARK_ORDER = {"◎":7, "〇":6, "▲":5, "△":4, "×":3, "α":2, "無":1}
 
 def _line_score(line: List[int], marks: Dict[int, str], mark_p3: Dict[str, float]) -> float:
-    vals = []
-    for no in line:
-        sym = marks.get(no, "無")
-        vals.append(mark_p3.get(sym, 0.20))
+    vals = [(mark_p3.get(marks.get(n, "無"), 0.20)) for n in line]
     return sum(vals) / max(1, len(vals))
 
 def _best_in_line(line: List[int], marks: Dict[int, str]) -> int:
-    # 印の強さで代表選手（番手優先等を入れたい場合はここで調整）
     return sorted(line, key=lambda n: (-MARK_ORDER.get(marks.get(n, "無"), 1), n))[0]
 
 def _line_of_symbol(lines: List[List[int]], marks: Dict[int, str], target: str) -> int:
-    # 特定印を含むラインindex（複数ある場合は最も強い印のいるライン優先）
-    cand = []
     for i, line in enumerate(lines):
-        for n in line:
-            if marks.get(n) == target:
-                cand.append(i)
-                break
-    if cand:
-        return cand[0]
+        if any(marks.get(n) == target for n in line):
+            return i
     return -1
 
 def _normalize(v: float, a: float, b: float) -> float:
-    if b <= a: 
-        return 0.5
-    return (v - a) / (b - a)
+    return 0.5 if b <= a else (v - a) / (b - a)
 
 def _vtx_line_index(
     lines: List[List[int]], marks: Dict[int, str], anchor_idx: int, void_idx: int, line_scores: List[float]
 ) -> int:
-    """
-    VTX（渦）＝「◎と無の両方に近く、しかも終盤で伸びやすい“中間層”」をシンプルに抽出
-    近さ：ラインindexでの距離ベース（入力並び順を“隊列の近さ”の代替にする）
-    終盤伸び：line_scoreが高め（◎の過圧で"逆サイド"が浮上する経験則を弱く反映）
-    """
     L = len(lines)
     idxs = list(range(L))
-    others = [i for i in idxs if i not in (anchor_idx, void_idx) and 0 <= anchor_idx and 0 <= void_idx]
+    others = [i for i in idxs if i not in (anchor_idx, void_idx) and anchor_idx >= 0 and void_idx >= 0]
     if not others:
-        # どちらか欠ける場合は単純に二番手ラインをVTX扱い
-        return sorted(idxs, key=lambda i: -line_scores[i])[1 if len(lines) > 1 else 0]
-
-    max_idx = max(idxs); min_idx = min(idxs)
-    best_i, best_score = others[0], -1e9
+        return sorted(idxs, key=lambda i: -line_scores[i])[1 if L > 1 else 0]
+    max_i, min_i = max(idxs), min(idxs)
+    best_i, best_s = others[0], -1e18
     for i in others:
-        # 位置近似：anchor/voidに“両方”近いほど良い（和）
-        near_a = 1.0 - abs(i - anchor_idx) / max(1, max_idx - min_idx)
-        near_v = 1.0 - abs(i - void_idx)  / max(1, max_idx - min_idx)
-        # 伸び近似：line_scoreを0-1正規化して弱く加点
+        near_a = 1.0 - abs(i - anchor_idx) / max(1, max_i - min_i)
+        near_v = 1.0 - abs(i - void_idx)  / max(1, max_i - min_i)
         ls_norm = _normalize(line_scores[i], min(line_scores), max(line_scores))
-        score = (near_a + near_v) + 0.5 * ls_norm
-        if score > best_score:
-            best_score, best_i = score, i
+        score = (near_a + near_v) + 0.5 * ls_norm  # “◎と無に両方近い”＋“伸び”
+        if score > best_s:
+            best_s, best_i = score, i
     return best_i
 
 def _fade_risk(anchor_score: float, all_scores: List[float]) -> float:
-    """
-    失速危険度FR：アンカーと次点の“張り差”が大きいほど、前圧飽和→反発の危険が増す
-    """
     others = sorted([s for s in all_scores if s != anchor_score], reverse=True)
     second = others[0] if others else 0.0
     gap = max(0.0, anchor_score - second)
-    # 0〜1目安に圧縮
-    return min(1.0, gap / max(0.01, (anchor_score + 1e-9)))
+    return min(1.0, gap / max(0.01, (anchor_score + 1e-9)))  # 0..1
 
 def _u_index(vtx_idx: int, anchor_idx: int, void_idx: int, fr: float) -> float:
-    """
-    U点灯（無浮上代理指数）：VTXが“真ん中寄り”かつFRが高い時に上がる
-    """
-    # anchor-void の中点にVTXが近いほど上げたい
     mid = (anchor_idx + void_idx) / 2.0
     dist = abs(vtx_idx - mid)
     span = max(1.0, abs(anchor_idx - void_idx))
@@ -3333,121 +3285,81 @@ def suggest_flow_bets(
     mark_p3: Dict[str, float] = None,
     max_pairs: int = 3,
 ) -> Dict[str, Any]:
-    """
-    戻り値：
-    {
-      "vtx_idx": int, "anchor_idx": int, "void_idx": int,
-      "FR": float, "U": float,
-      "bets_2f": [ "a-b｜理由: ◎×渦", ... ],
-      "notes": [テキスト…],
-      "summary": "…"
-    }
-    """
     if mark_p3 is None:
         mark_p3 = MARK_P3
-
     if not lines or sum(len(l) for l in lines) < 2:
-        return {"bets_2f": [], "notes": ["入力不備：走者が不足"], "summary": "—"}
+        return {"bets_2f": [], "bets_2f_void": [], "summary": "入力不備", "notes": []}
 
-    # ラインスコア
     line_scores = [_line_score(line, marks, mark_p3) for line in lines]
-
-    # アンカー（◎）ライン・無ライン
     anchor_idx = _line_of_symbol(lines, marks, "◎")
     if anchor_idx < 0:
-        # ◎がいない場合は最強スコアラインをアンカー扱い
-        anchor_idx = int(max(range(len(lines)), key=lambda i: line_scores[i]))
-
+        anchor_idx = int(max(range(len(lines)), key=lambda i: line_scores[i]))  # ◎なし→最強ラインで代用
     void_idx = _line_of_symbol(lines, marks, "無")
     if void_idx < 0:
-        # “無”がいないなら最弱スコアラインを逆流扱い
-        void_idx = int(min(range(len(lines)), key=lambda i: line_scores[i]))
-
-    # 渦（VTX）ライン
+        void_idx = int(min(range(len(lines)), key=lambda i: line_scores[i]))    # 無なし→最弱ラインで代用
     vtx_idx = _vtx_line_index(lines, marks, anchor_idx, void_idx, line_scores)
 
-    # 失速危険度＆U点灯
     FR = _fade_risk(line_scores[anchor_idx], line_scores)
     U  = _u_index(vtx_idx, anchor_idx, void_idx, FR)
 
-    # 代表選手を選定
     a_rep = _best_in_line(lines[anchor_idx], marks)
     v_rep = _best_in_line(lines[vtx_idx],   marks)
-    x_pairs: List[Tuple[int, int, str]] = []
-    # 1) ◎×渦
-    x_pairs.append((a_rep, v_rep, "◎×渦（VTX）"))
-    # 2) 渦×（近接2番手ライン）※必要時
-    neighbor_idxs = sorted(
-        [i for i in range(len(lines)) if i not in (anchor_idx, vtx_idx, void_idx)],
-        key=lambda i: abs(i - vtx_idx)
-    )
+
+    # 推奨二車複（◎×渦 を主軸）
+    pairs: List[Tuple[int,int,str]] = [(a_rep, v_rep, "◎×渦（VTX）")]
+
+    # 渦×近接
+    neighbor_idxs = sorted([i for i in range(len(lines)) if i not in (anchor_idx, vtx_idx, void_idx)],
+                           key=lambda i: abs(i - vtx_idx))
     if neighbor_idxs:
         n_rep = _best_in_line(lines[neighbor_idxs[0]], marks)
-        x_pairs.append((v_rep, n_rep, "渦×近接"))
-    # 3) ◎×近接（過密時の堅実サブ）
-    a_neighbor = sorted(
-        [i for i in range(len(lines)) if i not in (anchor_idx, vtx_idx)],
-        key=lambda i: abs(i - anchor_idx)
-    )
+        pairs.append((v_rep, n_rep, "渦×近接"))
+
+    # ◎×近接
+    a_neighbor = sorted([i for i in range(len(lines)) if i not in (anchor_idx, vtx_idx)],
+                        key=lambda i: abs(i - anchor_idx))
     if a_neighbor:
         an_rep = _best_in_line(lines[a_neighbor[0]], marks)
-        x_pairs.append((a_rep, an_rep, "◎×近接"))
+        pairs.append((a_rep, an_rep, "◎×近接"))
 
-    # “無”絡み（薄く）：Uが高い時のみ
-    void_rep = _best_in_line(lines[void_idx], marks)
-    add_void = []
+    # “無”はU高時のみ薄く
+    bets_void = []
     if U >= 0.55:
-        add_void.append((a_rep, void_rep, "薄く：◎×無（U高）"))
+        void_rep = _best_in_line(lines[void_idx], marks)
+        bets_void.append((a_rep, void_rep, "薄く：◎×無（U高）"))
 
-    # 重複排除＆上限
-    def _fmt(p):
-        a, b, why = p
-        # 表示は昇順固定（券種は二車複なので順不同）
-        a2, b2 = sorted([int(a), int(b)])
-        return (a2, b2, why)
-
-    seen = set()
-    bets = []
-    for p in x_pairs:
-        a2, b2, why = _fmt(p)
-        if (a2, b2) not in seen:
-            seen.add((a2, b2))
-            bets.append(f"{a2}-{b2}｜理由: {why}")
+    # 整形・重複排除・上限制御
+    def _fmt(a,b,why):
+        aa, bb = sorted([int(a), int(b)])
+        return f"{aa}-{bb}｜理由: {why}"
+    seen = set(); bets = []
+    for a,b,why in pairs:
+        tag = _fmt(a,b,why)
+        key = tuple(sorted((a,b)))
+        if key not in seen:
+            seen.add(key); bets.append(tag)
         if len(bets) >= max_pairs:
             break
+    bets_2f_void = []
+    for a,b,why in bets_void:
+        tag = _fmt(a,b,why)
+        if tag not in bets and tag not in bets_2f_void:
+            bets_2f_void.append(tag)
 
-    # “無”は別枠（薄く）
-    bets_void = []
-    for p in add_void:
-        a2, b2, why = _fmt(p)
-        tag = f"{a2}-{b2}｜理由: {why}"
-        if tag not in bets and tag not in bets_void:
-            bets_void.append(tag)
-
-    # 要約
-    summary = (
-        f"[順流: L{anchor_idx+1}] [渦: L{vtx_idx+1}] [逆流: L{void_idx+1}]  "
-        f"FR(失速危険度)={FR:.2f}  U(無浮上)={U:.2f}"
-    )
+    summary = f"[順流:L{anchor_idx+1}] [渦:L{vtx_idx+1}] [逆流:L{void_idx+1}]  FR={FR:.2f}  U={U:.2f}"
     notes = [
-        "方針：主軸=『◎ライン×渦ライン』、補助=『渦×近接』,『◎×近接』",
-        "Uが高い場合のみ『◎×無』を“薄く”追加（終盤反発での刺し対策）",
+        "主軸＝『◎ライン×渦ライン』。サブに『渦×近接』『◎×近接』。",
+        "Uが高い時のみ『◎×無』を薄く（終盤の反発対策）。",
     ]
     return {
         "vtx_idx": vtx_idx, "anchor_idx": anchor_idx, "void_idx": void_idx,
-        "FR": FR, "U": U,
-        "bets_2f": bets,
-        "bets_2f_void": bets_void,
-        "summary": summary,
-        "notes": notes,
+        "FR": FR, "U": U, "bets_2f": bets, "bets_2f_void": bets_2f_void,
+        "summary": summary, "notes": notes,
     }
 
-
-# -----------------------
-# 動作サンプル（弥彦1Rの文脈に近い例）
-# -----------------------
+# --- 動作サンプル（必要ならコメントアウトを外す） ---
 if __name__ == "__main__":
-    lines = [[1,7], [6,2,5], [4,3]]  # 17／625／43
+    lines = [[1,7], [6,2,5], [4,3]]  # 例：17／625／43
     marks = {4:"◎", 3:"〇", 1:"▲", 2:"△", 7:"×", 5:"α", 6:"無"}
     reco = suggest_flow_bets(lines, marks, max_pairs=3)
     print(reco["summary"])
@@ -3455,8 +3367,6 @@ if __name__ == "__main__":
         print("二車複:", r)
     for r in reco["bets_2f_void"]:
         print("二車複(薄く):", r)
-    for n in reco["notes"]:
-        print("-", n)
 
 
 
