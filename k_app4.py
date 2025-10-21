@@ -3217,6 +3217,52 @@ note_sections.append("\n")  # 空行
 
 # ===== 自動出力（買い目）修正版 =====
 
+# ===== 仮実装: generate_bets_holemode =====
+try:
+    generate_bets_holemode
+except NameError:
+    def generate_bets_holemode(marks, lines_str, hens, FR=0.2, U=0.3, VTX_RANK=None):
+        """
+        簡易買い目生成（◎依存なし・印＋偏差値＋ライン構造から判断）
+        目的：例外を起こさず最低限の買い目を出す
+        """
+        import itertools
+
+        # 1) 車番を抽出（marks→ID）
+        nums = sorted({int(v) for v in marks.values() if str(v).isdigit()})
+        if not nums:
+            return {"pairs_nf": [], "pairs_w": [], "trios": [], "pattern": "データ不足", "note": "印が不足しています"}
+
+        # 2) 偏差値が高い順に3車を基本とする
+        hen_sorted = sorted(hens.items(), key=lambda x: x[1], reverse=True) if hens else []
+        top3 = [n for n, _ in hen_sorted[:3]] if hen_sorted else nums[:3]
+
+        # 3) 三連複（トップ3）
+        trios = [tuple(top3)] if len(top3) == 3 else []
+
+        # 4) 二車複・ワイドは上位3から組み合わせ
+        pairs = list(itertools.combinations(top3, 2)) if len(top3) >= 2 else []
+
+        # 5) 一応印優先（◎,〇,▲があれば優先して前方へ）
+        priority = ["◎", "〇", "▲", "△", "×", "α", "無"]
+        sorted_marks = sorted(marks.items(), key=lambda kv: priority.index(kv[0]) if kv[0] in priority else 99)
+        top_marks = [v for _, v in sorted_marks[:3] if v in nums]
+
+        # 上書き：印上位から三連複を優先
+        if len(top_marks) >= 3:
+            trios = [tuple(top_marks[:3])]
+            pairs = list(itertools.combinations(top_marks[:3], 2))
+
+        return {
+            "pairs_nf": pairs,
+            "pairs_w": pairs,
+            "trios": trios,
+            "pattern": "簡易生成",
+            "note": f"lines={lines_str} FR={FR} U={U}"
+        }
+# ===== /仮実装 =====
+
+
 # ===== 安全フォールバック：parse_* 系が未定義ならここで簡易定義 =====
 try:
     parse_marks_text
