@@ -3255,6 +3255,7 @@ st.text_area("note用（コピーエリア）｜ライン⇄印", f"{line_row}\n
 
 
 
+
 note_text = "\n".join(note_sections)
 st.markdown("### 📋 note用（コピーエリア）")
 st.text_area("ここを選択してコピー", note_text, height=560)
