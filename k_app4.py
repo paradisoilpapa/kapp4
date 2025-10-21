@@ -3215,60 +3215,146 @@ note_sections.append("\n偏差値（風・ライン込み）")
 note_sections.append(_fmt_hen_lines(race_t, USED_IDS))
 note_sections.append("\n")  # 空行
 
-# ====== 最小・堅牢：result_marks だけで2行を動的生成 ======
+# ====== 差し替え開始：買い目生成（FR/U＋VTX前提の実運用版） ======
+# 期待される入力（上位側で用意されている想定）
+# - result_marks: { "◎":4, "〇":3, "▲":1, "△":2, "×":7, "α":5, "無":6 } など
+# - VTX_RANK: [("1",0.62),("2",0.57),("7",0.20),...]  # ID文字列 or 数値でもOK
+# - FR, U: float（失速危険度・無浮上指標）
+# - note_sections: list（既存の出力バッファ）
+# - ※ なければ適宜フォールバック
 
-# note_sections は既に上で作っているが、念のため
-if 'note_sections' not in globals() or not isinstance(note_sections, list):
-    note_sections = []
+FR_THR, U_THR = 0.15, 0.25     # 逆流主役化の推奨しきい値
+VTX_TOP_K = 2                   # 渦として採用する本数
 
 def _norm_sym(s: str) -> str:
-    # ○→〇 に正規化
     return "〇" if str(s) == "○" else str(s)
 
-def _build_sym2id_from_result_marks(rm) -> dict:
-    """result_marks が (記号→番号) or (番号→記号) どちらでも対応して {記号:番号} を返す"""
+def _build_sym2id(rm: dict) -> dict:
     sym2id = {}
     if not isinstance(rm, dict):
         return sym2id
-
-    # パターンA: { "◎":1, "〇":2, "▲":3, "△":6, "×":7 }
-    if any(k in ("◎", "〇", "○", "▲", "△", "×") for k in rm.keys()):
+    symbols = ("◎","〇","○","▲","△","×","α","無")
+    # パターンA: { "◎":4, ... }
+    if any(k in symbols for k in rm.keys()):
         for sym, num in rm.items():
-            try:
-                sym2id[_norm_sym(sym)] = int(num)
-            except Exception:
-                pass
+            try: sym2id[_norm_sym(sym)] = int(num)
+            except: pass
         return sym2id
-
-    # パターンB: { 1:"◎", 2:"〇", 3:"▲", 6:"△", 7:"×" }
+    # パターンB: { 4:"◎", ... }
     for num, sym in rm.items():
-        try:
-            sym2id[_norm_sym(sym)] = int(num)
-        except Exception:
-            pass
+        try: sym2id[_norm_sym(sym)] = int(num)
+        except: pass
     return sym2id
 
-_sym2id = _build_sym2id_from_result_marks(result_marks)
+def _coerce_id(x):
+    # "4" / 4 / None を int or None に
+    try: return int(x)
+    except: return None
 
-a = _sym2id.get("▲")
-b = _sym2id.get("△")
-c = _sym2id.get("◎")
-d = _sym2id.get("〇")  # 〇は正規化済み
-x = _sym2id.get("×")
+def _get_vtx_ids(VTX_RANK, k=2):
+    ids = []
+    if isinstance(VTX_RANK, (list, tuple)):
+        for rid, v in VTX_RANK:
+            rid_i = _coerce_id(rid)
+            if rid_i is None: continue
+            if isinstance(v, (int, float)) and v <= 0: continue
+            ids.append(rid_i)
+            if len(ids) >= k: break
+    return ids
 
-# 三連複：▲△－◎〇▲△－◎〇▲△
-if all(v is not None for v in (a, b, c, d)):
-    note_sections.append(f"三連複　{a}{b}-{c}{d}{a}{b}-{c}{d}{a}{b}")
+# 入力取得
+_sym2id = _build_sym2id(globals().get('result_marks', {}))
+
+id_main  = _sym2id.get("◎")
+id_mu    = _sym2id.get("無")
+id_alpha = _sym2id.get("α")
+id_a     = _sym2id.get("▲")
+id_d     = _sym2id.get("△")
+id_o     = _sym2id.get("〇")
+id_x     = _sym2id.get("×")
+
+# 渦（VTX上位）優先。無ければ ▲,△,〇,× から補完
+vtx_ids = _get_vtx_ids(globals().get('VTX_RANK'), VTX_TOP_K)
+if len(vtx_ids) < VTX_TOP_K:
+    fallback = [id_a, id_d, id_o, id_x]
+    for z in fallback:
+        if isinstance(z, int) and z not in vtx_ids:
+            vtx_ids.append(z)
+        if len(vtx_ids) >= VTX_TOP_K: break
+vtx_ids = [z for z in vtx_ids if isinstance(z, int)][:VTX_TOP_K]
+
+mu_side = [z for z in (_coerce_id(id_mu), _coerce_id(id_alpha)) if isinstance(z, int)]
+
+FR = float(globals().get('FR', 0.0) or 0.0)
+U  = float(globals().get('U',  0.0) or 0.0)
+is_reverse = (FR > FR_THR) and (U > U_THR)
+
+pairs_nf, pairs_w, trios = [], [], []
+pattern_note = "順流中心"
+
+if is_reverse and mu_side:
+    # ------- 逆流主役化：渦 ×（無/α）、無-α、三連複=渦-無-α -------
+    pattern_note = "逆流主役化"
+    for v in vtx_ids:
+        for r in mu_side:
+            pairs_nf.append((v, r))
+            pairs_w.append((v, r))
+    if len(mu_side) >= 2:
+        pairs_w.append((mu_side[0], mu_side[1]))
+        # 渦1が無ければ渦2にフォールバック
+        v0 = vtx_ids[0] if vtx_ids else (mu_side[0])
+        trios.append((v0, mu_side[0], mu_side[1]))
+    else:
+        # 片側しか無い場合の保険
+        if len(vtx_ids) >= 2:
+            trios.append((vtx_ids[0], vtx_ids[1], mu_side[0]))
+        elif vtx_ids and isinstance(id_main, int):
+            trios.append((id_main, vtx_ids[0], mu_side[0]))
 else:
-    note_sections.append("三連複　（印不足で生成不可）")
+    # ------- 順流中心：◎-渦①/◎-渦②、三連複=◎-渦①-渦② -------
+    if isinstance(id_main, int):
+        for v in vtx_ids:
+            pairs_nf.append((id_main, v))
+            pairs_w.append((id_main, v))
+        if len(vtx_ids) >= 2:
+            trios.append((id_main, vtx_ids[0], vtx_ids[1]))
 
-# ワイド：▲△－×
-if all(v is not None for v in (a, b, x)):
-    note_sections.append(f"ワイド　{a}{b}-{x}")
-else:
-    note_sections.append("ワイド　（印不足で生成不可）")
+# 重複除去
+def _dedup_pairs(ps):
+    seen, out = set(), []
+    for a,b in ps:
+        key = tuple(sorted((a,b)))
+        if key not in seen:
+            seen.add(key); out.append((a,b))
+    return out
 
-# ====== /最小・堅牢 ======
+def _dedup_trios(ts):
+    seen, out = set(), []
+    for a,b,c in ts:
+        key = tuple(sorted((a,b,c)))
+        if key not in seen:
+            seen.add(key); out.append((a,b,c))
+    return out
+
+pairs_nf = _dedup_pairs(pairs_nf)
+pairs_w  = _dedup_pairs(pairs_w)
+trios    = _dedup_trios(trios)
+
+def _fmt_pairs(ps):
+    return "、".join([f"{a}-{b}" for a,b in ps]) if ps else "（生成不可）"
+def _fmt_trios(ts):
+    return "、".join([f"{a}-{b}-{c}" for a,b,c in ts]) if ts else "（生成不可）"
+
+# 出力
+if 'note_sections' not in globals() or not isinstance(note_sections, list):
+    note_sections = []
+note_sections.append("【買い目（自動）】")
+note_sections.append(f"判定：{pattern_note}（FR={FR:.2f}, U={U:.2f} / 渦={vtx_ids} / 逆流={mu_side}）")
+note_sections.append(f"二車複　{_fmt_pairs(pairs_nf)}")
+note_sections.append(f"ワイド　{_fmt_pairs(pairs_w)}")
+note_sections.append(f"三連複　{_fmt_trios(trios)}")
+# ====== 差し替え終わり ======
+
 
 
 
