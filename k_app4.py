@@ -3216,157 +3216,130 @@ note_sections.append(_fmt_hen_lines(race_t, USED_IDS))
 note_sections.append("\n")  # 空行
 
 # ===== 確定版：generate_bets_holemode（ライン×偏差値ベクトル主軸） =====
-# -*- coding: utf-8 -*-
-# Velobi Flow-Bets (7車・二車複)
-# 入力：lines = [[...], [...], ...]（ラインごと車番リスト）
-#      marks = {車番: "◎/〇/▲/△/×/α/無"}
-# 出力：二車複の推奨組（◎×渦を主軸、状況次第で“◎×無”を薄く）
+# ====== 最小・堅牢：買い目生成（result_marks中心／FR,Uがあれば逆流主役化） ======
 
-from typing import List, Dict, Any, Tuple
+# 既存の note_sections が無ければ作る
+if 'note_sections' not in globals() or not isinstance(note_sections, list):
+    note_sections = []
 
-# --- 印→pTop3近似（必要に応じて最新版へ差替え可） ---
-MARK_P3 = {
-    "◎": 0.641, "〇": 0.516, "▲": 0.484, "△": 0.475,
-    "×": 0.332, "α": 0.280, "無": 0.200,
-}
-MARK_ORDER = {"◎":7, "〇":6, "▲":5, "△":4, "×":3, "α":2, "無":1}
+# --- 正規化と取得 ---
+def _norm_sym(s: str) -> str:
+    # ○→〇, 全角半角などはそのまま通す（必要最低限）
+    return "〇" if str(s) == "○" else str(s)
 
-def _line_score(line: List[int], marks: Dict[int, str], mark_p3: Dict[str, float]) -> float:
-    vals = [(mark_p3.get(marks.get(n, "無"), 0.20)) for n in line]
-    return sum(vals) / max(1, len(vals))
+def _build_sym2id_from_result_marks(rm) -> dict:
+    """result_marks が (記号→番号) or (番号→記号) どちらでも {記号:番号} を返す"""
+    sym2id = {}
+    if not isinstance(rm, dict):
+        return sym2id
+    symbols = ("◎","〇","○","▲","△","×","α","無")
+    # パターンA: { "◎":1, "〇":2, ... }
+    if any(k in symbols for k in rm.keys()):
+        for sym, num in rm.items():
+            try:
+                sym2id[_norm_sym(sym)] = int(num)
+            except Exception:
+                pass
+        return sym2id
+    # パターンB: { 1:"◎", 2:"〇", ... }
+    for num, sym in rm.items():
+        try:
+            sym2id[_norm_sym(sym)] = int(num)
+        except Exception:
+            pass
+    return sym2id
 
-def _best_in_line(line: List[int], marks: Dict[int, str]) -> int:
-    return sorted(line, key=lambda n: (-MARK_ORDER.get(marks.get(n, "無"), 1), n))[0]
+_sym2id = _build_sym2id_from_result_marks(globals().get('result_marks', {}))
 
-def _line_of_symbol(lines: List[List[int]], marks: Dict[int, str], target: str) -> int:
-    for i, line in enumerate(lines):
-        if any(marks.get(n) == target for n in line):
-            return i
-    return -1
+# 印の拾い出し（無ければ None）
+id_main = _sym2id.get("◎")
+id_o    = _sym2id.get("〇")
+id_a    = _sym2id.get("▲")
+id_d    = _sym2id.get("△")
+id_x    = _sym2id.get("×")
+id_alpha= _sym2id.get("α")
+id_mu   = _sym2id.get("無")
 
-def _normalize(v: float, a: float, b: float) -> float:
-    return 0.5 if b <= a else (v - a) / (b - a)
+# 渦層の優先候補（▲,△,〇,× の順で2本補完）
+vortex_pool = [id_a, id_d, id_o, id_x]
+vortex_ids = [v for v in vortex_pool if isinstance(v, int)][:2]
 
-def _vtx_line_index(
-    lines: List[List[int]], marks: Dict[int, str], anchor_idx: int, void_idx: int, line_scores: List[float]
-) -> int:
-    L = len(lines)
-    idxs = list(range(L))
-    others = [i for i in idxs if i not in (anchor_idx, void_idx) and anchor_idx >= 0 and void_idx >= 0]
-    if not others:
-        return sorted(idxs, key=lambda i: -line_scores[i])[1 if L > 1 else 0]
-    max_i, min_i = max(idxs), min(idxs)
-    best_i, best_s = others[0], -1e18
-    for i in others:
-        near_a = 1.0 - abs(i - anchor_idx) / max(1, max_i - min_i)
-        near_v = 1.0 - abs(i - void_idx)  / max(1, max_i - min_i)
-        ls_norm = _normalize(line_scores[i], min(line_scores), max(line_scores))
-        score = (near_a + near_v) + 0.5 * ls_norm  # “◎と無に両方近い”＋“伸び”
-        if score > best_s:
-            best_s, best_i = score, i
-    return best_i
+# 逆流側（無/α）
+mu_side = [v for v in (id_mu, id_alpha) if isinstance(v, int)]
 
-def _fade_risk(anchor_score: float, all_scores: List[float]) -> float:
-    others = sorted([s for s in all_scores if s != anchor_score], reverse=True)
-    second = others[0] if others else 0.0
-    gap = max(0.0, anchor_score - second)
-    return min(1.0, gap / max(0.01, (anchor_score + 1e-9)))  # 0..1
+# FR,U があれば逆流主役化で判定（無ければ0扱い）
+FR = float(globals().get('FR', 0.0) or 0.0)
+U  = float(globals().get('U',  0.0) or 0.0)
+FR_THR, U_THR = 0.15, 0.25
+is_reverse = (FR > FR_THR) and (U > U_THR)
 
-def _u_index(vtx_idx: int, anchor_idx: int, void_idx: int, fr: float) -> float:
-    mid = (anchor_idx + void_idx) / 2.0
-    dist = abs(vtx_idx - mid)
-    span = max(1.0, abs(anchor_idx - void_idx))
-    mid_closeness = 1.0 - min(1.0, dist / span)  # 0..1
-    return max(0.0, min(1.0, 0.6 * mid_closeness + 0.4 * fr))
+# --- ここから買い目生成 ---
+pairs_nf, pairs_w, trios = [], [], []
+pattern_note = "順流中心"
 
-def suggest_flow_bets(
-    lines: List[List[int]],
-    marks: Dict[int, str],
-    mark_p3: Dict[str, float] = None,
-    max_pairs: int = 3,
-) -> Dict[str, Any]:
-    if mark_p3 is None:
-        mark_p3 = MARK_P3
-    if not lines or sum(len(l) for l in lines) < 2:
-        return {"bets_2f": [], "bets_2f_void": [], "summary": "入力不備", "notes": []}
+if is_reverse and mu_side:
+    pattern_note = "逆流主役化"
+    # 渦 ×（無/α）
+    for v in vortex_ids or []:
+        for r in mu_side:
+            pairs_nf.append((v, r))
+            pairs_w.append((v, r))
+    # 無-α（2枚ある場合）
+    if len(mu_side) >= 2:
+        pairs_w.append((mu_side[0], mu_side[1]))
+        # 三連複：渦1-無-α を核
+        trios.append(( (vortex_ids[0] if vortex_ids else mu_side[0]),
+                       mu_side[0], mu_side[1] ))
+    else:
+        # 渦1-渦2-無（渦が2本ある時の保険）
+        if len(vortex_ids) >= 2:
+            trios.append((vortex_ids[0], vortex_ids[1], mu_side[0]))
+        elif vortex_ids:
+            # 渦が1本しか無い場合は ◎-渦1-無 にフォールバック
+            if isinstance(id_main, int):
+                trios.append((id_main, vortex_ids[0], mu_side[0]))
+else:
+    # 順流中心：◎-渦①/◎-渦②、三連複は ◎-渦①-渦②
+    if isinstance(id_main, int):
+        for v in vortex_ids:
+            pairs_nf.append((id_main, v))
+            pairs_w.append((id_main, v))
+        if len(vortex_ids) >= 2:
+            trios.append((id_main, vortex_ids[0], vortex_ids[1]))
 
-    line_scores = [_line_score(line, marks, mark_p3) for line in lines]
-    anchor_idx = _line_of_symbol(lines, marks, "◎")
-    if anchor_idx < 0:
-        anchor_idx = int(max(range(len(lines)), key=lambda i: line_scores[i]))  # ◎なし→最強ラインで代用
-    void_idx = _line_of_symbol(lines, marks, "無")
-    if void_idx < 0:
-        void_idx = int(min(range(len(lines)), key=lambda i: line_scores[i]))    # 無なし→最弱ラインで代用
-    vtx_idx = _vtx_line_index(lines, marks, anchor_idx, void_idx, line_scores)
-
-    FR = _fade_risk(line_scores[anchor_idx], line_scores)
-    U  = _u_index(vtx_idx, anchor_idx, void_idx, FR)
-
-    a_rep = _best_in_line(lines[anchor_idx], marks)
-    v_rep = _best_in_line(lines[vtx_idx],   marks)
-
-    # 推奨二車複（◎×渦 を主軸）
-    pairs: List[Tuple[int,int,str]] = [(a_rep, v_rep, "◎×渦（VTX）")]
-
-    # 渦×近接
-    neighbor_idxs = sorted([i for i in range(len(lines)) if i not in (anchor_idx, vtx_idx, void_idx)],
-                           key=lambda i: abs(i - vtx_idx))
-    if neighbor_idxs:
-        n_rep = _best_in_line(lines[neighbor_idxs[0]], marks)
-        pairs.append((v_rep, n_rep, "渦×近接"))
-
-    # ◎×近接
-    a_neighbor = sorted([i for i in range(len(lines)) if i not in (anchor_idx, vtx_idx)],
-                        key=lambda i: abs(i - anchor_idx))
-    if a_neighbor:
-        an_rep = _best_in_line(lines[a_neighbor[0]], marks)
-        pairs.append((a_rep, an_rep, "◎×近接"))
-
-    # “無”はU高時のみ薄く
-    bets_void = []
-    if U >= 0.55:
-        void_rep = _best_in_line(lines[void_idx], marks)
-        bets_void.append((a_rep, void_rep, "薄く：◎×無（U高）"))
-
-    # 整形・重複排除・上限制御
-    def _fmt(a,b,why):
-        aa, bb = sorted([int(a), int(b)])
-        return f"{aa}-{bb}｜理由: {why}"
-    seen = set(); bets = []
-    for a,b,why in pairs:
-        tag = _fmt(a,b,why)
+# --- 文字列化（重複除去＆整形） ---
+def _dedup_pairs(ps):
+    seen, out = set(), []
+    for a,b in ps:
         key = tuple(sorted((a,b)))
         if key not in seen:
-            seen.add(key); bets.append(tag)
-        if len(bets) >= max_pairs:
-            break
-    bets_2f_void = []
-    for a,b,why in bets_void:
-        tag = _fmt(a,b,why)
-        if tag not in bets and tag not in bets_2f_void:
-            bets_2f_void.append(tag)
+            seen.add(key); out.append((a,b))
+    return out
 
-    summary = f"[順流:L{anchor_idx+1}] [渦:L{vtx_idx+1}] [逆流:L{void_idx+1}]  FR={FR:.2f}  U={U:.2f}"
-    notes = [
-        "主軸＝『◎ライン×渦ライン』。サブに『渦×近接』『◎×近接』。",
-        "Uが高い時のみ『◎×無』を薄く（終盤の反発対策）。",
-    ]
-    return {
-        "vtx_idx": vtx_idx, "anchor_idx": anchor_idx, "void_idx": void_idx,
-        "FR": FR, "U": U, "bets_2f": bets, "bets_2f_void": bets_2f_void,
-        "summary": summary, "notes": notes,
-    }
+def _dedup_trios(ts):
+    seen, out = set(), []
+    for a,b,c in ts:
+        key = tuple(sorted((a,b,c)))
+        if key not in seen:
+            seen.add(key); out.append((a,b,c))
+    return out
 
-# --- 動作サンプル（必要ならコメントアウトを外す） ---
-if __name__ == "__main__":
-    lines = [[1,7], [6,2,5], [4,3]]  # 例：17／625／43
-    marks = {4:"◎", 3:"〇", 1:"▲", 2:"△", 7:"×", 5:"α", 6:"無"}
-    reco = suggest_flow_bets(lines, marks, max_pairs=3)
-    print(reco["summary"])
-    for r in reco["bets_2f"]:
-        print("二車複:", r)
-    for r in reco["bets_2f_void"]:
-        print("二車複(薄く):", r)
+pairs_nf = _dedup_pairs(pairs_nf)
+pairs_w  = _dedup_pairs(pairs_w)
+trios    = _dedup_trios(trios)
+
+def _fmt_pairs(ps):
+    return "、".join([f"{a}-{b}" for a,b in ps]) if ps else "（生成不可）"
+def _fmt_trios(ts):
+    return "、".join([f"{a}-{b}-{c}" for a,b,c in ts]) if ts else "（生成不可）"
+
+note_sections.append("【買い目（自動）】")
+note_sections.append(f"判定：{pattern_note}（FR={FR:.2f}, U={U:.2f}）")
+note_sections.append(f"二車複　{_fmt_pairs(pairs_nf)}")
+note_sections.append(f"ワイド　{_fmt_pairs(pairs_w)}")
+note_sections.append(f"三連複　{_fmt_trios(trios)}")
+# ====== /最小・堅牢 ======
+
 
 
 
