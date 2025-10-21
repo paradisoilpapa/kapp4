@@ -3216,35 +3216,60 @@ note_sections.append(_fmt_hen_lines(race_t, USED_IDS))
 note_sections.append("\n")  # 空行
 
 # --- note用出力（ラインと印を対応） ---
+# --- note用：ライン⇄印 2行表示（貼るだけ） ---
 import streamlit as st
 
-# ★ここはレースごとに動的に置き換えてOK
-lines = "17 625 43"
-marks = "◎4 〇3 ▲2 △1 ×7 α5 無6"
+def note_line_block(lines_str: str, marks_str: str) -> str:
+    """
+    例:
+      lines_str = "17 625 43"
+      marks_str = "◎4 〇3 ▲2 △1 ×7 α5 無6"
+    出力（文字列2行）:
+      17　625　43
+      △×　無▲α　◎〇
+    """
+    # 1) 全角→半角 正規化（数字/スペース）
+    z2h = str.maketrans("０１２３４５６７８９　", "0123456789 ")
+    lines_str = str(lines_str).translate(z2h).strip()
+    marks_str = str(marks_str).translate(z2h).strip()
 
-def format_line_for_note(lines_str: str, marks_str: str):
-    """ライン表記と印を対応させて note 用に2行返す"""
-    mapping = {}
+    # 2) 車番→印 の対応表を作成（'4'→'◎' 等）
+    mp = {}
     for tok in marks_str.split():
-        if not tok:
+        if not tok: 
             continue
-        mark = tok[0]       # 先頭＝印（◎〇▲△×α無）
-        num  = tok[1:]      # 残り＝車番
-        mapping[num] = mark
+        mark, num = tok[0], tok[1:]
+        if num:
+            mp[num] = mark
 
-    groups = lines_str.split()        # ["17", "625", "43"]
-    out_groups = []
+    # 3) 各ライン中の車番を（1〜2桁以上も）数字塊として読む
+    groups = lines_str.split()      # ["17","625","43"] など
+    mark_groups = []
     for g in groups:
-        out_groups.append("".join(mapping.get(ch, "？") for ch in g))
+        i, out = 0, []
+        while i < len(g):
+            if not g[i].isdigit():
+                i += 1
+                continue
+            j = i + 1
+            while j <= len(g) and g[i:j].isdigit():
+                j += 1
+            j -= 1
+            num = g[i:j]
+            out.append(mp.get(num, "？"))   # 未定義は "？"
+            i = j
+        mark_groups.append("".join(out))
 
-    ideospace = "　"  # 全角スペース
-    return ideospace.join(groups), ideospace.join(out_groups)
+    ideospace = "　"  # 全角スペースで区切って見やすく
+    return f"{ideospace.join(groups)}\n{ideospace.join(mark_groups)}"
 
-# 実行
-line_row, mark_row = format_line_for_note(lines, marks)
+# ==== ここだけあなたの変数に差し替え ====
+lines_str = "17 625 43"
+marks_str = "◎4 〇3 ▲2 △1 ×7 α5 無6"
+# =========================================
 
-# note欄に出力
-st.markdown(f"{line_row}<br>{mark_row}", unsafe_allow_html=True)
+_block = note_line_block(lines_str, marks_str)
+st.markdown(_block.replace("\n", "<br>"), unsafe_allow_html=True)
 
 
 
