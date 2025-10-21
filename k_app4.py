@@ -3416,6 +3416,15 @@ def render_bets(b):
     _pairs("ワイド",   getattr(b, "wide", []))
     _trios("三連複",  getattr(b, "sanrenpuku", []))
 
+# --- Velobi表示フック（signals が定義されていれば自動表示）---
+try:
+    signals  # FlowSignals のインスタンスが上で作られている前提
+    b = generate_bets(signals)
+    render_bets(b)   # ← 表示だけ（あなたが選んだ1番）
+except NameError:
+    pass  # signals がまだ無い画面では何もしない
+
+
 
 note_text = "\n".join(note_sections)
 st.markdown("### 📋 note用（コピーエリア）")
