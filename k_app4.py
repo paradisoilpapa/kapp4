@@ -3217,6 +3217,44 @@ note_sections.append("\n")  # 空行
 
 # ===== 確定版：generate_bets_holemode（ライン×偏差値ベクトル主軸） =====
 
+def format_line_marks(lines_str: str, marks_str: str) -> tuple[str, str]:
+    """
+    入力:
+      lines_str = "17 625 43"   # ライン表記（空白区切り）
+      marks_str = "◎4 〇3 ▲2 △1 ×7 α5 無6"  # 印→車番の並び
+    出力:
+      ("17　625　43", "△×　無▲α　◎〇")
+    """
+    # 1) 車番→印 の辞書を作る（'4'->'◎' など）
+    rider_to_mark = {}
+    for token in marks_str.split():
+        mark = token[0]          # 先頭1文字（◎,〇,▲,△,×,α,無）
+        num  = token[1:]         # 残り（"4","3",…）
+        rider_to_mark[num] = mark
+
+    # 2) 各ラインごとに、車番の並びに対応する印を並べる
+    groups = lines_str.split()
+    mark_groups = []
+    for g in groups:
+        marks = "".join(rider_to_mark.get(ch, "?") for ch in g)  # 未定義は '?'
+        mark_groups.append(marks)
+
+    # 3) 表示は全角スペースで区切る
+    ideographic_space = "　"
+    return ideographic_space.join(groups), ideographic_space.join(mark_groups)
+
+
+# === 使い方（あなたの例） ===
+lines = "17 625 43"
+marks = "◎4 〇3 ▲2 △1 ×7 α5 無6"
+
+line_row, mark_row = format_line_marks(lines, marks)
+print(line_row)
+print(mark_row)
+# → 17　625　43
+#   △×　無▲α　◎〇
+
+
 note_text = "\n".join(note_sections)
 st.markdown("### 📋 note用（コピーエリア）")
 st.text_area("ここを選択してコピー", note_text, height=560)
