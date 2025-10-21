@@ -3216,24 +3216,35 @@ note_sections.append(_fmt_hen_lines(race_t, USED_IDS))
 note_sections.append("\n")  # 空行
 
 # --- note用出力（ラインと印を対応） ---
+import streamlit as st
+
+# ★ここはレースごとに動的に置き換えてOK
 lines = "17 625 43"
 marks = "◎4 〇3 ▲2 △1 ×7 α5 無6"
 
-def format_line_for_note(lines_str, marks_str):
-    d = {}
+def format_line_for_note(lines_str: str, marks_str: str):
+    """ライン表記と印を対応させて note 用に2行返す"""
+    mapping = {}
     for tok in marks_str.split():
-        if tok:
-            d[tok[1:]] = tok[0]  # "4"→"◎"
-    out_lines = []
-    for g in lines_str.split():
-        out_lines.append("".join(d.get(ch, "？") for ch in g))
-    return "　".join(lines_str.split()), "　".join(out_lines)
+        if not tok:
+            continue
+        mark = tok[0]       # 先頭＝印（◎〇▲△×α無）
+        num  = tok[1:]      # 残り＝車番
+        mapping[num] = mark
 
+    groups = lines_str.split()        # ["17", "625", "43"]
+    out_groups = []
+    for g in groups:
+        out_groups.append("".join(mapping.get(ch, "？") for ch in g))
+
+    ideospace = "　"  # 全角スペース
+    return ideospace.join(groups), ideospace.join(out_groups)
+
+# 実行
 line_row, mark_row = format_line_for_note(lines, marks)
 
-# note用に表示
-st.markdown(f"{line_row}\n{mark_row}")
-
+# note欄に出力
+st.markdown(f"{line_row}<br>{mark_row}", unsafe_allow_html=True)
 
 
 
