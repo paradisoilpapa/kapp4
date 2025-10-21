@@ -3216,60 +3216,42 @@ note_sections.append(_fmt_hen_lines(race_t, USED_IDS))
 note_sections.append("\n")  # 空行
 
 # --- note用出力（ラインと印を対応） ---
-# --- note用：ライン⇄印 2行表示（貼るだけ） ---
+# --- note用：ライン⇄印 2行を確実に表示（貼るだけ） ---
 import streamlit as st
 
-def note_line_block(lines_str: str, marks_str: str) -> str:
-    """
-    例:
-      lines_str = "17 625 43"
-      marks_str = "◎4 〇3 ▲2 △1 ×7 α5 無6"
-    出力（文字列2行）:
-      17　625　43
-      △×　無▲α　◎〇
-    """
-    # 1) 全角→半角 正規化（数字/スペース）
+def _note_lines(lines_str: str, marks_str: str):
+    # 全角→半角（数字・スペース）
     z2h = str.maketrans("０１２３４５６７８９　", "0123456789 ")
     lines_str = str(lines_str).translate(z2h).strip()
     marks_str = str(marks_str).translate(z2h).strip()
 
-    # 2) 車番→印 の対応表を作成（'4'→'◎' 等）
+    # 車番→印 の対応（例: "4"→"◎"）
     mp = {}
     for tok in marks_str.split():
-        if not tok: 
-            continue
-        mark, num = tok[0], tok[1:]
-        if num:
-            mp[num] = mark
+        if tok:
+            mp[tok[1:]] = tok[0]
 
-    # 3) 各ライン中の車番を（1〜2桁以上も）数字塊として読む
-    groups = lines_str.split()      # ["17","625","43"] など
-    mark_groups = []
-    for g in groups:
-        i, out = 0, []
-        while i < len(g):
-            if not g[i].isdigit():
-                i += 1
-                continue
-            j = i + 1
-            while j <= len(g) and g[i:j].isdigit():
-                j += 1
-            j -= 1
-            num = g[i:j]
-            out.append(mp.get(num, "？"))   # 未定義は "？"
-            i = j
-        mark_groups.append("".join(out))
+    # 各ライン中の“数字1文字ずつ”を印へ（7車立て想定ならこれが堅い）
+    groups = lines_str.split()                  # ["17","625","43"]
+    mark_groups = ["".join(mp.get(ch, "？") for ch in g) for g in groups]
 
-    ideospace = "　"  # 全角スペースで区切って見やすく
-    return f"{ideospace.join(groups)}\n{ideospace.join(mark_groups)}"
+    ideospace = "　"                            # 全角スペース
+    return ideospace.join(groups), ideospace.join(mark_groups)
 
-# ==== ここだけあなたの変数に差し替え ====
-lines_str = "17 625 43"
-marks_str = "◎4 〇3 ▲2 △1 ×7 α5 無6"
-# =========================================
+# --- ここをあなたの変数に置き換えてOK（無ければデフォルトで動く） ---
+lines_str = st.session_state.get("lines_str", "17 625 43")
+marks_str = st.session_state.get("marks_str", "◎4 〇3 ▲2 △1 ×7 α5 無6")
+# ----------------------------------------------------------------------
 
-_block = note_line_block(lines_str, marks_str)
-st.markdown(_block.replace("\n", "<br>"), unsafe_allow_html=True)
+line_row, mark_row = _note_lines(lines_str, marks_str)
+
+# 1) 画面にそのまま2行表示
+st.text(line_row)
+st.text(mark_row)
+
+# 2) note用コピーエリアにも同時出力（既存のnote欄に差し替えてOK）
+st.text_area("note用（コピーエリア）｜ライン⇄印", f"{line_row}\n{mark_row}", height=64)
+
 
 
 
