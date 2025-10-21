@@ -3254,6 +3254,54 @@ print(mark_row)
 # → 17　625　43
 #   △×　無▲α　◎〇
 
+# === ここから貼り付け（表示テスト用：そのまま動く） ===
+def _format_line_marks(lines_str: str, marks_str: str):
+    # 車番→印 の辞書を作成（例: '4'→'◎'）
+    d = {}
+    for tok in marks_str.split():
+        if not tok:
+            continue
+        mark = tok[0]       # 先頭1文字（◎〇▲△×α無）
+        num  = tok[1:]      # 残り＝車番
+        d[num] = mark
+
+    groups = lines_str.split()               # ["17","625","43"]
+    mark_groups = []
+    for g in groups:
+        # 2桁車番にも対応：数字の連続として読む
+        i, buf = 0, []
+        while i < len(g):
+            # 次が数字で連続していれば2桁以上対応
+            j = i + 1
+            while j <= len(g) and g[i:j].isdigit():
+                j += 1
+            # 直前の“最大の数字塊”を採用
+            j -= 1
+            num = g[i:j]
+            buf.append(d.get(num, "?"))
+            i = j
+        mark_groups.append("".join(buf))
+
+    ideospace = "\u3000"  # 全角スペース
+    return ideospace.join(groups), ideospace.join(mark_groups)
+
+# 入力（あなたの例そのまま）
+_lines = "17 625 43"
+_marks = "◎4 〇3 ▲2 △1 ×7 α5 無6"
+
+_line_row, _mark_row = _format_line_marks(_lines, _marks)
+
+# Streamlit があれば画面に、なければ print
+try:
+    import streamlit as st
+    st.text(_line_row)
+    st.text(_mark_row)
+except Exception:
+    print(_line_row)
+    print(_mark_row)
+# === ここまで貼り付け ===
+
+
 
 note_text = "\n".join(note_sections)
 st.markdown("### 📋 note用（コピーエリア）")
