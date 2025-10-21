@@ -3421,8 +3421,6 @@ note_text = "\n".join(note_sections)
 st.markdown("### 📋 note用（コピーエリア）")
 st.text_area("ここを選択してコピー", note_text, height=560)
 
-b = generate_bets(signals)  # ← 既に用意している FlowSignals から
-render_bets(b)              # ← 画面にテーブル表示
 
 # =========================
 #  一括置換ブロック ここまで
