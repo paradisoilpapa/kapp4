@@ -3347,6 +3347,94 @@ def generate_bets_holemode(marks, lines_str, hens, FR=0.0, U=0.0, VTX_RANK=None)
         "pattern": pattern,
         "note": note,
     }
+
+# ===== ここから：買い目 自動生成（既存データを確実に拾う） =====
+def _coerce_int(x):
+    try:
+        return int(x)
+    except Exception:
+        return None
+
+def _build_lines_str_from_inputs(line_inputs):
+    # 例: ["71","526","43"] -> "71 526 43"
+    return " ".join([str(x).strip() for x in line_inputs if str(x).strip()])
+
+def _build_hens_from_race_t(race_t, used_ids):
+    """
+    race_t が {1:40.6, 2:60.5, ...} 形式でも、
+    {1:{'偏差値':40.6}, ...} 形式でも吸収して {番号:int -> 偏差値:float} を返す
+    """
+    hens = {}
+    if not isinstance(race_t, dict):
+        return hens
+    for k in used_ids:
+        i = _coerce_int(k)
+        if i is None:
+            continue
+        v = race_t.get(i)
+        if isinstance(v, (int, float)):
+            hens[i] = float(v)
+        elif isinstance(v, dict):
+            # よくあるキー名を順に探索
+            for key in ("偏差値", "hens", "score", "val", "value"):
+                if key in v:
+                    try:
+                        hens[i] = float(v[key])
+                        break
+                    except Exception:
+                        pass
+    return hens
+
+# --- 既存の構造から必須入力を組み立てる ---
+_lines_str = _build_lines_str_from_inputs(line_inputs)              # ← "71 526 43"
+_hens      = _build_hens_from_race_t(race_t, USED_IDS)              # ← {1:40.6, 2:60.5, ...}
+
+# 万一 race_t が空の場合のみ、表示用テキストから救済（任意）
+if not _hens:
+    try:
+        # 例: "1: 40.6\n2: 60.5\n..." をパースできる簡易関数
+        import re
+        hens_str_text = _fmt_hen_lines(race_t, USED_IDS)
+        _hens = {int(n): float(v) for (n, v) in re.findall(r"(\d+)\s*[:：]\s*([0-9]+(?:\.[0-9]+)?)", hens_str_text)}
+    except Exception:
+        _hens = {}
+
+# --- 呼び出し（印は参照しない設計なので空でOK）---
+FR_val = float(globals().get("FR", 0.0) or 0.0)
+U_val  = float(globals().get("U",  0.0) or 0.0)
+
+_result = {"pairs_nf": [], "pairs_w": [], "trios": [], "pattern": "", "note": ""}
+
+try:
+    _result = generate_bets_holemode(
+        marks={},                    # ← 印は使わない
+        lines_str=_lines_str,        # ← "71 526 43"
+        hens=_hens,                  # ← {1:40.6, 2:60.5, ...}
+        FR=FR_val,
+        U=U_val,
+        VTX_RANK=None
+    )
+except Exception as e:
+    _result = {"pairs_nf": [], "pairs_w": [], "trios": [], "pattern": "ERROR", "note": f"{e}"}
+
+# --- 文字列化（既存の「個の欄」に流す用）---
+def _fmt_pairs(ps):  return "、".join([f"{min(a,b)}-{max(a,b)}" for (a,b) in ps]) if ps else "（生成不可）"
+def _fmt_trios(ts):  return "、".join([f"{a}-{b}-{c}" for (a,b,c) in ts]) if ts else "（生成不可）"
+
+OUT_NISHAFUKU   = _fmt_pairs(_result.get("pairs_nf", []))
+OUT_WIDE        = _fmt_pairs(_result.get("pairs_w",  []))
+OUT_SANRENPUKU  = _fmt_trios(_result.get("trios",    []))
+_engine_note    = _result.get("note", "")
+
+# --- 既存の note_sections に追記（UI変更なし）---
+note_sections.append("【買い目】")
+note_sections.append(f"二車複　{OUT_NISHAFUKU}")
+note_sections.append(f"ワイド　{OUT_WIDE}")
+note_sections.append(f"三連複　{OUT_SANRENPUKU}")
+if _engine_note:
+    note_sections.append(_engine_note)
+# ===== ここまで：買い目 自動生成 =====
+
 # ===== /確定版：generate_bets_holemode =====
 =
 
