@@ -3392,7 +3392,6 @@ _hens      = _build_hens_from_race_t(race_t, USED_IDS)              # ← {1:40.
 # 万一 race_t が空の場合のみ、表示用テキストから救済（任意）
 if not _hens:
     try:
-        # 例: "1: 40.6\n2: 60.5\n..." をパースできる簡易関数
         import re
         hens_str_text = _fmt_hen_lines(race_t, USED_IDS)
         _hens = {int(n): float(v) for (n, v) in re.findall(r"(\d+)\s*[:：]\s*([0-9]+(?:\.[0-9]+)?)", hens_str_text)}
@@ -3418,8 +3417,11 @@ except Exception as e:
     _result = {"pairs_nf": [], "pairs_w": [], "trios": [], "pattern": "ERROR", "note": f"{e}"}
 
 # --- 文字列化（既存の「個の欄」に流す用）---
-def _fmt_pairs(ps):  return "、".join([f"{min(a,b)}-{max(a,b)}" for (a,b) in ps]) if ps else "（生成不可）"
-def _fmt_trios(ts):  return "、".join([f"{a}-{b}-{c}" for (a,b,c) in ts]) if ts else "（生成不可）"
+def _fmt_pairs(ps):
+    return "、".join([f"{min(a,b)}-{max(a,b)}" for (a,b) in ps]) if ps else "（生成不可）"
+
+def _fmt_trios(ts):
+    return "、".join([f"{a}-{b}-{c}" for (a,b,c) in ts]) if ts else "（生成不可）"
 
 OUT_NISHAFUKU   = _fmt_pairs(_result.get("pairs_nf", []))
 OUT_WIDE        = _fmt_pairs(_result.get("pairs_w",  []))
@@ -3434,6 +3436,7 @@ note_sections.append(f"三連複　{OUT_SANRENPUKU}")
 if _engine_note:
     note_sections.append(_engine_note)
 # ===== ここまで：買い目 自動生成 =====
+
 
 # ===== /確定版：generate_bets_holemode =====
 =
