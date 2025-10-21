@@ -3217,6 +3217,35 @@ note_sections.append("\n")  # 空行
 
 # ===== 自動出力（買い目）修正版 =====
 
+# ===== 安全フォールバック：parse_* 系が未定義ならここで簡易定義 =====
+try:
+    parse_marks_text
+except NameError:
+    def parse_marks_text(text: str):
+        """印テキスト（例：'◎7 〇2 ▲5 △1 ×3 α4 無6'）を {記号:番号} に変換"""
+        import re
+        if not text:
+            return {}
+        marks = {}
+        for sym, num in re.findall(r"([◎〇○▲△×α無])\s*([0-9]+)", text):
+            marks[sym] = int(num)
+        return marks
+
+try:
+    parse_hens_text
+except NameError:
+    def parse_hens_text(text: str):
+        """偏差値テキスト（例：'1:40.5, 2:60.5, 3:55.4'）を {番号:偏差値(float)} に変換"""
+        import re
+        if not text:
+            return {}
+        hens = {}
+        for num, val in re.findall(r"([0-9]+)\s*[:：]\s*([0-9]+(?:\.[0-9]+)?)", text):
+            hens[int(num)] = float(val)
+        return hens
+# ===== /安全フォールバック =====
+
+
 place        = globals().get("place", "")
 race_class   = globals().get("race_class", "")
 tenkai       = globals().get("tenkai", "")
