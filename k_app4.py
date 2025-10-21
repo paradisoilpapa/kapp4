@@ -3217,6 +3217,186 @@ note_sections.append("\n")  # 空行
 
 # ===== 確定版：generate_bets_holemode（ライン×偏差値ベクトル主軸） =====
 
+# -*- coding: utf-8 -*-
+"""
+Velobi｜flow-based bet generator（堅牢・最小副作用）
+- ロジック層：generate_bets(sig) … 純粋関数（副作用なし）
+- 表示層：render_bets(bets)（任意：Streamlitがあるときのみ）
+- 保存層：store_bets(bets, key="買目")（任意：Streamlit session_state）
+"""
+
+from dataclasses import dataclass
+from typing import List, Tuple, Dict
+
+# ===== しきい値（必要なら外から上書き） =====
+FR_THR: float = 0.15
+U_THR:  float = 0.25
+VTX_TOP_K: int = 2
+
+# ===== 型定義 =====
+@dataclass(frozen=True)
+class FlowSignals:
+    FR: float
+    U: float
+    vtx_rank: List[Tuple[str, float]]  # [("id", vtx), ...] 順不同OK
+    main_id: str                       # ◎
+    mu_ids: List[str]                  # 無（逆流側）
+    alpha_ids: List[str]               # α（逆流補助）
+
+@dataclass(frozen=True)
+class Bets:
+    nishafuku:  List[Tuple[str, str]]
+    wide:       List[Tuple[str, str]]
+    sanrenpuku: List[Tuple[str, str, str]]
+    pattern:    str       # "逆流主役化" or "順流中心"
+    notes:      str
+
+# ===== ユーティリティ（副作用なし） =====
+def _sid(x) -> str:
+    """IDを厳格に文字列化（int混在・空白混入対策）"""
+    return str(x).strip()
+
+def _pick_vtx_ids(vtx_rank: List[Tuple[str, float]], k: int) -> List[str]:
+    """VTX降順→正値優先→不足分は上位で補完。存在分だけ返す。"""
+    ranked = [(_sid(r), float(v)) for r, v in vtx_rank]
+    ranked.sort(key=lambda t: t[1], reverse=True)
+    pos = [r for r, v in ranked if v > 0.0]
+    if len(pos) >= k:
+        return pos[:k]
+    picked = pos[:]
+    for r, _ in ranked:
+        if r not in picked:
+            picked.append(r)
+        if len(picked) >= k:
+            break
+    return picked
+
+def _dedup_pairs(pairs: List[Tuple[str, str]]) -> List[Tuple[str, str]]:
+    seen, out = set(), []
+    for a, b in pairs:
+        a, b = _sid(a), _sid(b)
+        if not a or not b or a == b:
+            continue
+        key = tuple(sorted((a, b)))
+        if key not in seen:
+            seen.add(key); out.append((a, b))
+    return out
+
+def _dedup_trios(trios: List[Tuple[str, str, str]]) -> List[Tuple[str, str, str]]:
+    seen, out = set(), []
+    for a, b, c in trios:
+        a, b, c = _sid(a), _sid(b), _sid(c)
+        if not a or not b or not c or (a == b == c):
+            continue
+        key = tuple(sorted((a, b, c)))
+        if key not in seen:
+            seen.add(key); out.append((a, b, c))
+    return out
+
+# ===== コア（純粋関数） =====
+def generate_bets(sig: FlowSignals) -> Bets:
+    main_id = _sid(sig.main_id)
+    mu_side = [_sid(x) for x in (sig.mu_ids + sig.alpha_ids) if _sid(x)]
+    vortex  = _pick_vtx_ids(sig.vtx_rank, VTX_TOP_K)
+
+    is_reverse = (sig.FR > FR_THR) and (sig.U > U_THR)
+    pattern = "逆流主役化" if is_reverse else "順流中心"
+
+    nishafuku: List[Tuple[str, str]] = []
+    wide:      List[Tuple[str, str]] = []
+    sanren:    List[Tuple[str, str, str]] = []
+
+    if is_reverse:
+        # 渦 ×（無/α）
+        for v in vortex:
+            for r in mu_side:
+                nishafuku.append((v, r))
+                wide.append((v, r))
+        # 無-αの押さえ（ワイド）
+        if len(mu_side) >= 2:
+            wide.append((mu_side[0], mu_side[1]))
+        # 三連複：渦-無-α ＞ 渦-渦-無 ＞ ◎-渦-無 ＞ ◎-渦-渦 ＞ ◎-渦-◎
+        if len(mu_side) >= 2 and len(vortex) >= 1:
+            sanren.append((vortex[0], mu_side[0], mu_side[1]))
+        elif len(mu_side) >= 1 and len(vortex) >= 2:
+            sanren.append((vortex[0], vortex[1], mu_side[0]))
+        elif len(mu_side) >= 1 and len(vortex) >= 1:
+            sanren.append((main_id, vortex[0], mu_side[0]))
+        elif len(vortex) >= 2:
+            sanren.append((main_id, vortex[0], vortex[1]))
+        elif len(vortex) == 1:
+            sanren.append((main_id, vortex[0], main_id))
+    else:
+        # 順流：◎ × 渦
+        for v in vortex:
+            nishafuku.append((main_id, v))
+            wide.append((main_id, v))
+        # 三連複：◎-渦-渦 ＞ ◎-渦-無/α ＞ ◎-渦-◎
+        if len(vortex) >= 2:
+            sanren.append((main_id, vortex[0], vortex[1]))
+        elif len(vortex) == 1 and len(mu_side) >= 1:
+            sanren.append((main_id, vortex[0], mu_side[0]))
+        elif len(vortex) == 1:
+            sanren.append((main_id, vortex[0], main_id))
+
+    # 重複・不正除去
+    nishafuku = _dedup_pairs(nishafuku)
+    wide      = _dedup_pairs(wide)
+    sanren    = _dedup_trios(sanren)
+
+    # 最低保証（空を許さない）
+    if not nishafuku:
+        first = vortex[0] if vortex else (mu_side[0] if mu_side else main_id)
+        if first != main_id:
+            nishafuku.append((main_id, first))
+            wide.append((main_id, first))
+    if not sanren:
+        a = vortex[0] if vortex else (mu_side[0] if mu_side else main_id)
+        b = (vortex[1] if len(vortex) >= 2 else
+             (mu_side[1] if len(mu_side) >= 2 else
+              (mu_side[0] if len(mu_side) >= 1 and a != mu_side[0] else main_id)))
+        sanren.append((main_id, a, b))
+
+    notes = f"[{pattern}] FR={sig.FR:.2f} / U={sig.U:.2f} / 渦={vortex} / 逆流={mu_side}"
+    return Bets(nishafuku, wide, sanren, pattern, notes)
+
+# ===== 機械可読ペイロード（UI層に合わせて使う） =====
+def bets_payload(b: Bets) -> Dict[str, List[str]]:
+    return {
+        "pattern": [b.pattern],
+        "notes":   [b.notes],
+        "二車複":  [f"{a}-{c}"     for a, c in b.nishafuku],
+        "ワイド":  [f"{a}-{c}"     for a, c in b.wide],
+        "三連複":  [f"{a}-{c}-{d}" for a, c, d in b.sanrenpuku],
+    }
+
+# ===== （任意）Streamlitアダプタ：ある時だけ使われる =====
+try:
+    import streamlit as st
+    _HAS_ST = True
+except Exception:
+    _HAS_ST = False
+
+def render_bets(b: Bets) -> None:
+    if not _HAS_ST: 
+        return
+    st.subheader(f"パターン：{b.pattern}")
+    st.caption(b.notes)
+    def _show_pairs(ttl, arr):
+        st.markdown(f"**{ttl}**")
+        st.table({"pair": [f"{x}-{y}" for x, y in arr]}) if arr else st.write("—（無し）")
+    def _show_trios(ttl, arr):
+        st.markdown(f"**{ttl}**")
+        st.table({"trio": [f"{x}-{y}-{z}" for x, y, z in arr]}) if arr else st.write("—（無し）")
+    _show_pairs("二車複", b.nishafuku)
+    _show_pairs("ワイド", b.wide)
+    _show_trios("三連複", b.sanrenpuku)
+
+def store_bets(b: Bets, key: str = "買目") -> None:
+    if not _HAS_ST:
+        return
+    st.session_state[key] = bets_payload(b)
+
 
 
 note_text = "\n".join(note_sections)
