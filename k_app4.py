@@ -3215,144 +3215,140 @@ note_sections.append("\n偏差値（風・ライン込み）")
 note_sections.append(_fmt_hen_lines(race_t, USED_IDS))
 note_sections.append("\n")  # 空行
 
-# ===== 実戦ロジック版：generate_bets_holemode（結束ピボット＋逆流対応） =====
+# ===== 確定版：generate_bets_holemode（ライン×偏差値ベクトル主軸） =====
 def generate_bets_holemode(marks, lines_str, hens, FR=0.0, U=0.0, VTX_RANK=None):
     """
-    目的：
-      - ◎非依存。穴モードでは「渦（結束ライン）× 対抗主力（◎・〇以外）」を基本に組む
-      - FR/U 高なら逆流主役化（渦×〔無/α〕＋無-α／渦-無-α）に切替
-    入力：
-      marks     : {"◎":7, "〇":2, "▲":5, "△":1, "×":3, "α":4, "無":6} など
-      lines_str : "71 526 43" 形式
-      hens      : {番号:偏差値}
-      FR,U      : float（無ければ0でも可）
-      VTX_RANK  : 省略でOK（あれば優先）
-    出力：
-      {"pairs_nf":[(a,b),...], "pairs_w":[...], "trios":[(a,b,c)], "pattern":..., "note":...}
+    ヴェロビ本流の「ライン構造＋偏差値ベクトル」で流れを判定し買い目を生成する。
+    印（◎〇▲など）は参照しない。偏差値から流れを算出する。
     """
-    import itertools
+    import itertools, statistics
 
-    # --- ユーティリティ ---
-    def _coerce_id(x):
-        try: return int(x)
-        except: return None
-
+    # -------------------------
+    # 1. ライン解析
+    # -------------------------
     def _parse_lines(s):
-        # "71 526 43" -> [[7,1],[5,2,6],[4,3]]
         groups = []
         for blk in str(s).split():
-            ids = [_coerce_id(ch) for ch in list(blk)]
-            ids = [i for i in ids if isinstance(i, int)]
-            if ids: groups.append(ids)
+            ids = [int(ch) for ch in blk if ch.isdigit()]
+            if ids:
+                groups.append(ids)
         return groups
 
-    def _cohesion_lines(groups, hens, thr=55.0):
-        """各ラインの上位2名がthr以上なら結束ラインとみなし、強度=上位2の平均で降順返却"""
-        out = []
-        for g in groups:
-            vals = sorted([hens.get(i, 0.0) for i in g], reverse=True)
-            if len(vals) >= 2 and min(vals[:2]) >= thr:
-                out.append((g, sum(vals[:2])/2.0))
-        out.sort(key=lambda x: x[1], reverse=True)
-        return out  # [(line_ids, strength), ...]
-
-    def _top2_from_line(line, hens):
-        return sorted(line, key=lambda i: hens.get(i, 0.0), reverse=True)[:2]
-
-    def _dedup_pairs(ps):
-        seen, out = set(), []
-        for a,b in ps:
-            key = tuple(sorted((a,b)))
-            if key not in seen:
-                seen.add(key); out.append((a,b))
-        return out
-
-    def _dedup_trios(ts):
-        seen, out = set(), []
-        for a,b,c in ts:
-            key = tuple(sorted((a,b,c)))
-            if key not in seen:
-                seen.add(key); out.append((a,b,c))
-        return out
-
-    # --- 正規化 ---
-    marks = {k: _coerce_id(v) for k,v in marks.items()}
-    id_main  = marks.get("◎")
-    id_o     = marks.get("〇")
-    id_mu    = marks.get("無")
-    id_alpha = marks.get("α")
-
     groups = _parse_lines(lines_str)
+    if not groups or not hens:
+        return {"pairs_nf": [], "pairs_w": [], "trios": [], "pattern": "データ不足", "note": ""}
 
-    # --- 渦抽出：VTX優先、なければ「結束ピボット」（同ライン55+×2） ---
-    vtx_ids = []
-    if isinstance(VTX_RANK, (list, tuple)) and len(VTX_RANK) > 0:
-        for rid, val in VTX_RANK:
-            rid = _coerce_id(rid)
-            try:
-                if rid and float(val) > 0 and rid not in vtx_ids:
-                    vtx_ids.append(rid)
-            except:
-                pass
-            if len(vtx_ids) >= 2: break
-    if len(vtx_ids) < 2:
-        coh = _cohesion_lines(groups, hens, thr=55.0)
-        if coh:
-            g0 = coh[0][0]          # 最強結束ライン
-            vtx_ids = _top2_from_line(g0, hens)  # 渦=上位2名
-    vtx_ids = vtx_ids[:2]
+    # -------------------------
+    # 2. 各ラインの平均と上位2名を算出
+    # -------------------------
+    line_info = []
+    for g in groups:
+        vals = [hens.get(i, 0.0) for i in g]
+        mean_v = sum(vals) / len(vals)
+        top2 = sorted(g, key=lambda i: hens.get(i, 0.0), reverse=True)[:2]
+        line_info.append({"ids": g, "mean": mean_v, "top2": top2})
 
-    # --- 逆流（無/α）集合 ---
-    mu_side = [i for i in (id_mu, id_alpha) if isinstance(i, int)]
+    global_mean = statistics.mean(hens.values())
 
-    # --- FR/U 判定：逆流主役化 or 結束ピボット ---
-    FR_THR, U_THR = 0.15, 0.25
-    is_reverse = (float(FR) > FR_THR) and (float(U) > U_THR)
-
-    pairs_nf, pairs_w, trios = [], [], []
-    pattern, note = "", ""
-
-    if is_reverse and mu_side:
-        # 逆流主役化：渦×（無/α）、無-α、渦-無-α
-        pattern = "逆流主役化(穴)"
-        for v in vtx_ids:
-            for r in mu_side:
-                if v and r and v != r:
-                    pairs_nf.append((v, r)); pairs_w.append((v, r))
-        if len(mu_side) >= 2:
-            pairs_w.append(tuple(mu_side[:2]))
-            if vtx_ids:
-                trios.append((vtx_ids[0], mu_side[0], mu_side[1]))
+    # -------------------------
+    # 3. ライン分類（順流／渦／逆流）
+    # -------------------------
+    for li in line_info:
+        diff = li["mean"] - global_mean
+        if diff > 3:
+            li["flow"] = "順流"
+        elif diff < -3:
+            li["flow"] = "逆流"
         else:
-            if len(vtx_ids) >= 2:
-                trios.append((vtx_ids[0], vtx_ids[1], mu_side[0]))
-            elif vtx_ids and id_main:
-                trios.append((id_main, vtx_ids[0], mu_side[0]))
-        note = f"[逆流] 渦={vtx_ids} 逆流={mu_side} FR={FR:.2f} U={U:.2f}"
+            li["flow"] = "渦"
+
+    # -------------------------
+    # 4. 結束ピボット（同ライン55+×2）
+    # -------------------------
+    cohesion = []
+    for li in line_info:
+        t2vals = [hens.get(i, 0.0) for i in li["top2"]]
+        if len(t2vals) == 2 and min(t2vals) >= 55.0:
+            strength = sum(t2vals) / 2
+            cohesion.append((li, strength))
+    cohesion.sort(key=lambda x: x[1], reverse=True)
+
+    # -------------------------
+    # 5. 渦・結束・逆流の優先度
+    # -------------------------
+    vortex = None
+    if cohesion:
+        # 最強結束ラインを渦とする
+        vortex = cohesion[0][0]
+    else:
+        # 結束がなければ「中庸（平均に最も近い）」を渦とする
+        vortex = min(line_info, key=lambda li: abs(li["mean"] - global_mean))
+
+    reverse_lines = [li for li in line_info if li["flow"] == "逆流"]
+    strong_lines = [li for li in line_info if li["flow"] == "順流"]
+
+    # -------------------------
+    # 6. 買い目生成ロジック
+    # -------------------------
+    pairs_nf, pairs_w, trios = [], [], []
+    pattern = note = ""
+
+    # --- 逆流主役（FR/Uが高い or 逆流ラインが存在）
+    FR_THR, U_THR = 0.15, 0.25
+    if (FR > FR_THR and U > U_THR) and reverse_lines:
+        rev = reverse_lines[0]
+        vtx = vortex["top2"]
+        tail = sorted(rev["ids"], key=lambda i: hens.get(i, 0.0))[:1]  # 末脚1
+        for r in tail:
+            for v in vtx:
+                pairs_nf.append(tuple(sorted((r, v))))
+        if len(vtx) == 2 and tail:
+            trios.append(tuple(sorted((vtx[0], vtx[1], tail[0]))))
+        pattern = "逆流主役化"
+        note = f"[逆流主役] 渦={vtx} 逆流={rev['ids']} FR={FR:.2f} U={U:.2f}"
 
     else:
-        # 結束ピボット：渦（同ライン55+×2）× 対抗主力（◎・〇は穴モードでは除外）
-        pattern = "結束ピボット(穴)"
-        avoid = {id_main, id_o} if id_main or id_o else set()
-        candidates = [i for i in hens.keys() if i not in set(vtx_ids) and i not in avoid]
-        # 対抗主力＝偏差値上位（◎・〇を避けることで“ガチガチ”抑制）
-        opp = sorted(candidates, key=lambda i: hens.get(i, 0.0), reverse=True)
-        opp = opp[0] if opp else None
+        # --- 結束ピボット
+        vtx = vortex["top2"]
+        # 対抗：渦外の最高偏差値1名
+        others = [i for i in hens.keys() if i not in vortex["ids"]]
+        opp = max(others, key=lambda i: hens.get(i, 0.0)) if others else None
+        if opp:
+            pairs_nf = [
+                (vtx[0], opp),
+                (vtx[1], opp),
+                (vtx[0], vtx[1]),
+            ]
+            pairs_w = pairs_nf[:]
+            trios = [(vtx[0], vtx[1], opp)]
+        pattern = "結束ピボット"
+        note = f"[結束ピボット] 渦={vtx} 対抗={opp} FR={FR:.2f} U={U:.2f}"
 
-        if len(vtx_ids) >= 2 and opp:
-            pairs_nf = [(vtx_ids[0], opp), (vtx_ids[1], opp), (vtx_ids[0], vtx_ids[1])]
-            pairs_w  = pairs_nf[:]
-            trios    = [(vtx_ids[0], vtx_ids[1], opp)]  # コア1点（例：3-4-5）
+    # -------------------------
+    # 7. 整形
+    # -------------------------
+    def _dedup(seq):
+        seen, out = set(), []
+        for x in seq:
+            key = tuple(sorted(x))
+            if key not in seen:
+                seen.add(key)
+                out.append(x)
+        return out
 
-        note = f"[結束] 渦={vtx_ids} 対抗={opp} (◎,〇を相手から除外) FR={FR:.2f} U={U:.2f}"
+    pairs_nf = _dedup(pairs_nf)[:3]
+    pairs_w = _dedup(pairs_w)[:3]
+    trios = _dedup(trios)[:3]
 
-    # 重複除去・整形
-    pairs_nf = _dedup_pairs(pairs_nf)[:3]
-    pairs_w  = _dedup_pairs(pairs_w)[:3]
-    trios    = _dedup_trios(trios)[:3]
-
-    return {"pairs_nf": pairs_nf, "pairs_w": pairs_w, "trios": trios, "pattern": pattern, "note": note}
-# ===== /実戦ロジック版 =====
+    return {
+        "pairs_nf": pairs_nf,
+        "pairs_w": pairs_w,
+        "trios": trios,
+        "pattern": pattern,
+        "note": note,
+    }
+# ===== /確定版：generate_bets_holemode =====
+=
 
 
 
