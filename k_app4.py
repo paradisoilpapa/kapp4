@@ -3216,129 +3216,133 @@ note_sections.append(_fmt_hen_lines(race_t, USED_IDS))
 note_sections.append("\n")  # 空行
 
 # ===== 確定版：generate_bets_holemode（ライン×偏差値ベクトル主軸） =====
-# ====== 最小・堅牢：買い目生成（result_marks中心／FR,Uがあれば逆流主役化） ======
+# -*- coding: utf-8 -*-
+"""
+Velobi: flow-based bet generator
+  - 逆流主役化: FR>FR_THR 且つ U>U_THR で「無/α」が主役化
+  - 渦層: VTX上位のライン（◎→と無←の交点側、終盤S>0）
+出力:
+  - 二車複/ワイド/三連複 の推奨買い目（銘柄IDのタプル配列）
+"""
 
-# 既存の note_sections が無ければ作る
-if 'note_sections' not in globals() or not isinstance(note_sections, list):
-    note_sections = []
+from dataclasses import dataclass
+from typing import List, Tuple, Dict, Any
 
-# --- 正規化と取得 ---
-def _norm_sym(s: str) -> str:
-    # ○→〇, 全角半角などはそのまま通す（必要最低限）
-    return "〇" if str(s) == "○" else str(s)
+# ====== しきい値（必要に応じて微調整） ======
+FR_THR = 0.15   # 失速危険度の下限
+U_THR  = 0.25   # 無浮上の下限
+VTX_TOP_K = 2   # 渦層として採用する本数
 
-def _build_sym2id_from_result_marks(rm) -> dict:
-    """result_marks が (記号→番号) or (番号→記号) どちらでも {記号:番号} を返す"""
-    sym2id = {}
-    if not isinstance(rm, dict):
-        return sym2id
-    symbols = ("◎","〇","○","▲","△","×","α","無")
-    # パターンA: { "◎":1, "〇":2, ... }
-    if any(k in symbols for k in rm.keys()):
-        for sym, num in rm.items():
-            try:
-                sym2id[_norm_sym(sym)] = int(num)
-            except Exception:
-                pass
-        return sym2id
-    # パターンB: { 1:"◎", 2:"〇", ... }
-    for num, sym in rm.items():
-        try:
-            sym2id[_norm_sym(sym)] = int(num)
-        except Exception:
-            pass
-    return sym2id
+@dataclass
+class FlowSignals:
+    FR: float          # FadeRisk（◎失速×逆流加速）
+    U: float           # 無浮上代理
+    vtx_rank: List[Tuple[str, float]]  # [("ID", VTX値) ...] 降順
+    main_id: str       # ◎ラインのID（例 "4"）
+    mu_ids: List[str]  # 逆流側ID（"無"相当。例 ["6"]）
+    alpha_ids: List[str]  # 逆流側の補助（"α"相当。例 ["5"]）
 
-_sym2id = _build_sym2id_from_result_marks(globals().get('result_marks', {}))
+@dataclass
+class Bets:
+    nishafuku: List[Tuple[str, str]]
+    wide:      List[Tuple[str, str]]
+    sanrenpuku: List[Tuple[str, str, str]]
+    pattern:   str   # "逆流主役化" or "順流中心"
+    notes:     str
 
-# 印の拾い出し（無ければ None）
-id_main = _sym2id.get("◎")
-id_o    = _sym2id.get("〇")
-id_a    = _sym2id.get("▲")
-id_d    = _sym2id.get("△")
-id_x    = _sym2id.get("×")
-id_alpha= _sym2id.get("α")
-id_mu   = _sym2id.get("無")
+def _pick_vtx_ids(vtx_rank: List[Tuple[str, float]], k: int) -> List[str]:
+    # VTX>0 の上位から採用
+    picked = [rid for rid, v in vtx_rank if v > 0.0][:k]
+    # VTXが1本しか点灯しないケースの保険：0でも上位を1本補完
+    if len(picked) < k and len(vtx_rank) > len(picked):
+        for rid, _ in vtx_rank:
+            if rid not in picked:
+                picked.append(rid)
+            if len(picked) >= k:
+                break
+    return picked[:k]
 
-# 渦層の優先候補（▲,△,〇,× の順で2本補完）
-vortex_pool = [id_a, id_d, id_o, id_x]
-vortex_ids = [v for v in vortex_pool if isinstance(v, int)][:2]
+def generate_bets(sig: FlowSignals) -> Bets:
+    # 1) パターン判定
+    is_reverse = (sig.FR > FR_THR) and (sig.U > U_THR)
+    pattern = "逆流主役化" if is_reverse else "順流中心"
 
-# 逆流側（無/α）
-mu_side = [v for v in (id_mu, id_alpha) if isinstance(v, int)]
+    # 2) 渦層（VTX上位）抽出
+    vortex_ids = _pick_vtx_ids(sig.vtx_rank, VTX_TOP_K)  # 例: ["1","2"]
+    mu_side = sig.mu_ids + sig.alpha_ids                 # 例: ["6","5"]
 
-# FR,U があれば逆流主役化で判定（無ければ0扱い）
-FR = float(globals().get('FR', 0.0) or 0.0)
-U  = float(globals().get('U',  0.0) or 0.0)
-FR_THR, U_THR = 0.15, 0.25
-is_reverse = (FR > FR_THR) and (U > U_THR)
+    nishafuku: List[Tuple[str, str]] = []
+    wide:      List[Tuple[str, str]] = []
+    sanrenpuku: List[Tuple[str, str, str]] = []
+    notes = ""
 
-# --- ここから買い目生成 ---
-pairs_nf, pairs_w, trios = [], [], []
-pattern_note = "順流中心"
-
-if is_reverse and mu_side:
-    pattern_note = "逆流主役化"
-    # 渦 ×（無/α）
-    for v in vortex_ids or []:
-        for r in mu_side:
-            pairs_nf.append((v, r))
-            pairs_w.append((v, r))
-    # 無-α（2枚ある場合）
-    if len(mu_side) >= 2:
-        pairs_w.append((mu_side[0], mu_side[1]))
-        # 三連複：渦1-無-α を核
-        trios.append(( (vortex_ids[0] if vortex_ids else mu_side[0]),
-                       mu_side[0], mu_side[1] ))
-    else:
-        # 渦1-渦2-無（渦が2本ある時の保険）
-        if len(vortex_ids) >= 2:
-            trios.append((vortex_ids[0], vortex_ids[1], mu_side[0]))
-        elif vortex_ids:
-            # 渦が1本しか無い場合は ◎-渦1-無 にフォールバック
-            if isinstance(id_main, int):
-                trios.append((id_main, vortex_ids[0], mu_side[0]))
-else:
-    # 順流中心：◎-渦①/◎-渦②、三連複は ◎-渦①-渦②
-    if isinstance(id_main, int):
+    if is_reverse:
+        # --- 逆流主役化：渦 ×（無/α）を主軸、無-αも押さえ、三連複は渦-無-αを1点 ---
         for v in vortex_ids:
-            pairs_nf.append((id_main, v))
-            pairs_w.append((id_main, v))
-        if len(vortex_ids) >= 2:
-            trios.append((id_main, vortex_ids[0], vortex_ids[1]))
+            for r in mu_side:
+                nishafuku.append((v, r))
+                wide.append((v, r))
+        if len(mu_side) >= 2:
+            # 無-α
+            wide.append((mu_side[0], mu_side[1]))
+        # 三連複：渦-無-α（無/αが2枚以上あれば優先1点）
+        if len(mu_side) >= 2:
+            sanrenpuku.append((vortex_ids[0], mu_side[0], mu_side[1]))
+        else:
+            # 片側しかない場合は 渦1-渦2-無 を保険
+            sanrenpuku.append((vortex_ids[0], vortex_ids[1], mu_side[0]))
+        notes = f"[逆流主役化] FR={sig.FR:.2f} U={sig.U:.2f} / 渦={vortex_ids} / 逆流={mu_side}"
+    else:
+        # --- 順流中心：◎ × 渦 を主軸、三連複は◎渦渦＋◎渦（△,×）の6点基本 ---
+        # 二車複/ワイド：◎-渦①, ◎-渦②
+        for v in vortex_ids:
+            nishafuku.append((sig.main_id, v))
+            wide.append((sig.main_id, v))
+        # 三連複：◎-渦①-渦② を核に、次点候補を補完（ここでは簡潔に核1点のみ）
+        sanrenpuku.append((sig.main_id, vortex_ids[0], vortex_ids[1]))
+        notes = f"[順流中心] FR={sig.FR:.2f} U={sig.U:.2f} / 渦={vortex_ids}"
 
-# --- 文字列化（重複除去＆整形） ---
-def _dedup_pairs(ps):
-    seen, out = set(), []
-    for a,b in ps:
-        key = tuple(sorted((a,b)))
-        if key not in seen:
-            seen.add(key); out.append((a,b))
-    return out
+    # 重複除去（順序不問で同一視）
+    def _dedup_pairs(pairs: List[Tuple[str, str]]) -> List[Tuple[str, str]]:
+        seen, out = set(), []
+        for a,b in pairs:
+            key = tuple(sorted((a,b)))
+            if key not in seen:
+                seen.add(key); out.append((a,b))
+        return out
+    def _dedup_trios(trios: List[Tuple[str, str, str]]) -> List[Tuple[str, str, str]]:
+        seen, out = set(), []
+        for a,b,c in trios:
+            key = tuple(sorted((a,b,c)))
+            if key not in seen:
+                seen.add(key); out.append((a,b,c))
+        return out
 
-def _dedup_trios(ts):
-    seen, out = set(), []
-    for a,b,c in ts:
-        key = tuple(sorted((a,b,c)))
-        if key not in seen:
-            seen.add(key); out.append((a,b,c))
-    return out
+    return Bets(
+        nishafuku=_dedup_pairs(nishafuku),
+        wide=_dedup_pairs(wide),
+        sanrenpuku=_dedup_trios(sanrenpuku),
+        pattern=pattern,
+        notes=notes,
+    )
 
-pairs_nf = _dedup_pairs(pairs_nf)
-pairs_w  = _dedup_pairs(pairs_w)
-trios    = _dedup_trios(trios)
-
-def _fmt_pairs(ps):
-    return "、".join([f"{a}-{b}" for a,b in ps]) if ps else "（生成不可）"
-def _fmt_trios(ts):
-    return "、".join([f"{a}-{b}-{c}" for a,b,c in ts]) if ts else "（生成不可）"
-
-note_sections.append("【買い目（自動）】")
-note_sections.append(f"判定：{pattern_note}（FR={FR:.2f}, U={U:.2f}）")
-note_sections.append(f"二車複　{_fmt_pairs(pairs_nf)}")
-note_sections.append(f"ワイド　{_fmt_pairs(pairs_w)}")
-note_sections.append(f"三連複　{_fmt_trios(trios)}")
-# ====== /最小・堅牢 ======
+# ====== 使い方例：弥彦1R（5-2-6 が的中したケース） ======
+if __name__ == "__main__":
+    # VTXランキング（例）：[("1",0.62),("2",0.57),("7",0.20),("3",0.05),("5",0.00)]
+    signals = FlowSignals(
+        FR=0.23,                 # ◎失速×逆流加速が点灯
+        U=0.41,                  # 無浮上も点灯
+        vtx_rank=[("1",0.62),("2",0.57),("7",0.20),("3",0.05),("5",0.00)],
+        main_id="4",             # ◎＝4
+        mu_ids=["6"],            # 無＝6
+        alpha_ids=["5"],         # α＝5（逆流同格扱い）
+    )
+    bets = generate_bets(signals)
+    print("Pattern:", bets.pattern)
+    print("二車複:", bets.nishafuku)
+    print("ワイド:", bets.wide)
+    print("三連複:", bets.sanrenpuku)
+    print(bets.notes)
 
 
 
