@@ -3215,73 +3215,94 @@ note_sections.append("\n偏差値（風・ライン込み）")
 note_sections.append(_fmt_hen_lines(race_t, USED_IDS))
 note_sections.append("\n")  # 空行
 
-# ===== サイドバー廃止：メイン入力UI＋note出力（ここから貼り替え） =====
+# ===== ここから：自動出力（ボタンなし）差し替え =====
 
-st.header("入力")
+# 期待する既存入力変数（なければ空文字/空dictで吸収）
+place        = globals().get("place",        "")
+race_class   = globals().get("race_class",   "")
+tenkai       = globals().get("tenkai",       "")
+lines_str    = globals().get("lines_str",    "")
+marks_str_in = globals().get("marks_str_in", "")
+hens_str     = globals().get("hens_str",     "")
 
-col1, col2 = st.columns(2)
-place = col1.text_input("開催場・R", value="")
-race_class = col2.text_input("クラス", value="S級")  # 例：A級 / S級 / F2 など
-
-col3, col4 = st.columns(2)
-tenkai    = col3.text_input("展開評価", value="互角")   # 例：順流 / 互角 / 混戦
-lines_str = col4.text_input("ライン構成", value="71 526 43")
-
-marks_str_in = st.text_input("印（例：◎7 〇2 ▲5 △1 ×3 α4 無6）", value="")
-hens_str     = st.text_area("偏差値（例：1:40.5, 2:60.5, 3:55.4, ...）", height=80, value="")
-
-st.divider()
-
-if st.button("🔮 穴モードで生成", type="primary"):
-    # 既存のパーサ／ロジックをそのまま使用
+# 既存パーサを利用（なければ各自の関数名に置換）
+try:
     marks_in = parse_marks_text(marks_str_in)
+except Exception:
+    marks_in = {}
+try:
     hens_in  = parse_hens_text(hens_str)
+except Exception:
+    hens_in  = {}
 
-    # 追加機能なし：VTXは未指定、FR/Uは固定（内部で使うだけでUIに出しません）
-    FR_fixed, U_fixed = 0.20, 0.30
-    bets = generate_bets_holemode(
-        marks=marks_in,
-        lines_str=lines_str,
-        hens=hens_in,
-        FR=FR_fixed,
-        U=U_fixed,
-        VTX_RANK=None
-    )
+# FR/U/VTXは既存の推定があれば使用。無ければ内部固定値（UIに出さない）
+FR = float(globals().get("FR", 0.20) or 0.20)
+U  = float(globals().get("U",  0.30) or 0.30)
+VTX_RANK = globals().get("VTX_RANK", None)
 
-    def _fmt_pairs(ps): return "、".join([f"{a}-{b}" for a,b in ps]) if ps else "（なし）"
-    def _fmt_trios(ts): return "、".join([f"{a}-{b}-{c}" for a,b,c in ts]) if ts else "（なし）"
+# 入力が揃っているときだけ生成（最低限：ライン・印・偏差値のいずれかが有効）
+_ready = bool(lines_str or marks_in or hens_in)
 
-    # 結果（短く）
-    st.success("オススメ買い目（穴のみ）")
-    st.markdown(
-        f"**判定**：{bets.get('pattern','—')}  \n"
-        f"**二車複**：{_fmt_pairs(bets.get('pairs_nf', []))}  \n"
-        f"**ワイド**：{_fmt_pairs(bets.get('pairs_w', []))}  \n"
-        f"**三連複**：{_fmt_trios(bets.get('trios', []))}"
-    )
+# 出力用の文字列整形ヘルパ
+def _fmt_pairs(ps): return "、".join([f"{a}-{b}" for a,b in ps]) if ps else ""
+def _fmt_trios(ts): return "、".join([f"{a}-{b}-{c}" for a,b,c in ts]) if ts else ""
 
-    # noteコピーエリア（開催・ライン・印・偏差値・買い目をすべて含む）
-    note_text = "\n".join([
-        f"{place}　{race_class}",
-        f"展開評価：{tenkai}",
-        f"ライン　{lines_str}",
-        marks_str_in,
-        "",
-        "偏差値（風・ライン込み）",
-        "\n".join([f"{k}:{v}" for k,v in hens_in.items()]),
-        "",
-        f"判定：{bets.get('pattern','—')}",
-        f"二車複：{_fmt_pairs(bets.get('pairs_nf', []))}",
-        f"ワイド：{_fmt_pairs(bets.get('pairs_w', []))}",
-        f"三連複：{_fmt_trios(bets.get('trios', []))}",
-        bets.get("note","")
-    ])
-    st.text_area("note用（コピーエリア）", value=note_text, height=200)
+# 既存の「個の欄」に流し込むための出力変数（グローバルに置く）
+OUT_NISHAFUKU = ""
+OUT_WIDE      = ""
+OUT_SANRENPUKU= ""
+NOTE_TEXT     = ""
 
-else:
-    st.info("上の項目を入力して『穴モードで生成』をクリックしてください。")
+if _ready:
+    try:
+        # ◎非依存ロジックで買い目を即生成（関数は既存を利用）
+        bets = generate_bets_holemode(
+            marks=marks_in, lines_str=lines_str, hens=hens_in,
+            FR=FR, U=U, VTX_RANK=VTX_RANK
+        )
 
-# ===== サイドバー廃止：ここまで貼り替え =====
+        # ---- 文字列化（既存の “個の欄” に代入するだけ）----
+        OUT_NISHAFUKU  = _fmt_pairs(bets.get("pairs_nf", []))
+        OUT_WIDE       = _fmt_pairs(bets.get("pairs_w",  []))
+        OUT_SANRENPUKU = _fmt_trios(bets.get("trios",    []))
+
+        # note用（開催・印・ライン・偏差値・買い目をすべて含む）
+        NOTE_TEXT = "\n".join(filter(None, [
+            f"{place}　{race_class}" if place or race_class else "",
+            f"展開評価：{tenkai}"     if tenkai else "",
+            f"ライン　{lines_str}"   if lines_str else "",
+            marks_str_in             if marks_str_in else "",
+            "",
+            "偏差値（風・ライン込み）" if hens_in else "",
+            "\n".join([f"{k}:{v}" for k,v in hens_in.items()]) if hens_in else "",
+            "",
+            f"判定：{bets.get('pattern','')}",
+            f"二車複：{OUT_NISHAFUKU}"      if OUT_NISHAFUKU else "",
+            f"ワイド：{OUT_WIDE}"            if OUT_WIDE else "",
+            f"三連複：{OUT_SANRENPUKU}"      if OUT_SANRENPUKU else "",
+            bets.get("note","")
+        ]))
+
+        # ---- 既存の note_sections 併用の場合（任意）----
+        if isinstance(globals().get("note_sections"), list):
+            note_sections.append("【買い目】")
+            if OUT_NISHAFUKU:  note_sections.append(f"二車複　{OUT_NISHAFUKU}")
+            if OUT_WIDE:       note_sections.append(f"ワイド　{OUT_WIDE}")
+            if OUT_SANRENPUKU: note_sections.append(f"三連複　{OUT_SANRENPUKU}")
+
+    except Exception as e:
+        # 失敗時は安全に空で返す（画面は壊さない）
+        OUT_NISHAFUKU, OUT_WIDE, OUT_SANRENPUKU, NOTE_TEXT = "", "", "", f"[生成エラー] {e}"
+
+# ---- ここで定義した4変数を“個の欄”にそのまま出してください ----
+# 例：
+# st.text_input("二車複", value=OUT_NISHAFUKU)
+# st.text_input("ワイド",  value=OUT_WIDE)
+# st.text_input("三連複",  value=OUT_SANRENPUKU)
+# st.text_area ("note",    value=NOTE_TEXT, height=200)
+
+# ===== ここまで：自動出力（ボタンなし）差し替え =====
+
 
 
 
