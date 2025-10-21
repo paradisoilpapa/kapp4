@@ -3216,42 +3216,44 @@ note_sections.append(_fmt_hen_lines(race_t, USED_IDS))
 note_sections.append("\n")  # 空行
 
 # --- note用出力（ラインと印を対応） ---
-# --- note用：ライン⇄印 2行（貼るだけ・確実表示） ---
+# --- NOTE：ライン⇄印 2行（note_sectionsが無ければ直出し）---
 import re
-import streamlit as st
 
-def note_lines_block(lines_str, marks_str):
-    # 全角→半角（数字・スペース）
+def _mk_line_marks(lines_str: str, marks_str: str) -> str:
     z2h = str.maketrans("０１２３４５６７８９　", "0123456789 ")
     lines_str = str(lines_str or "").translate(z2h).strip()
     marks_str = str(marks_str or "").translate(z2h).strip()
 
-    # 車番→印 例: {"4":"◎","3":"〇",...}
     mp = {}
     for tok in marks_str.split():
         if tok:
-            mp[tok[1:]] = tok[0]
+            mp[tok[1:]] = tok[0]  # "4"→"◎"
 
-    # 各ラインを「数字の塊」で読む（1桁でも2桁でもOK）
     groups = lines_str.split()
     mark_groups = []
     for g in groups:
-        nums = re.findall(r"\d+", g)
+        nums = re.findall(r"\d+", g) or list(g)  # 数字塊が無ければ文字単位
         mark_groups.append("".join(mp.get(n, "？") for n in nums))
 
-    joiner = "　"  # 全角スペース
-    line_row = joiner.join(groups)
-    mark_row = joiner.join(mark_groups)
-    return line_row, mark_row
+    J = "　"  # 全角スペース
+    return f"{J.join(groups)}\n{J.join(mark_groups)}"
 
-# === ここだけ、あなたの変数に置き換えてOK（無ければデフォルトで出る） ===
-lines_input = st.session_state.get("lines_str", "17 625 43")
-marks_input = st.session_state.get("marks_str", "◎4 〇3 ▲2 △1 ×7 α5 無6")
-# =======================================================================
+# ▼ ここだけあなたの入力に置き換え
+LINES_STR = "17 625 43"
+MARKS_STR = "◎4 〇3 ▲2 △1 ×7 α5 無6"
 
-lr, mr = note_lines_block(lines_input, marks_input)
-st.markdown(lr.replace("\n", "<br>"), unsafe_allow_html=True)
-st.markdown(mr.replace("\n", "<br>"), unsafe_allow_html=True)
+BLOCK = _mk_line_marks(LINES_STR, MARKS_STR)
+
+# --- 配管：note_sections があればそこへ／無ければ直出し ---
+try:
+    note_sections.append(BLOCK)
+except NameError:
+    try:
+        import streamlit as st
+        st.markdown(BLOCK.replace("\n", "<br>"), unsafe_allow_html=True)
+    except Exception:
+        print(BLOCK)
+
 
 
 
