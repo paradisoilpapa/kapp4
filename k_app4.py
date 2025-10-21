@@ -3217,10 +3217,6 @@ note_sections.append("\n")  # 空行
 
 # ===== 確定版：generate_bets_holemode（ライン×偏差値ベクトル主軸） =====
 def generate_bets_holemode(marks, lines_str, hens, FR=0.0, U=0.0, VTX_RANK=None):
-    """
-    ヴェロビ本流の「ライン構造＋偏差値ベクトル」で流れを判定し買い目を生成する。
-    印（◎〇▲など）は参照しない。偏差値から流れを算出する。
-    """
     import statistics
 
     # 1) ライン解析
@@ -3246,7 +3242,7 @@ def generate_bets_holemode(marks, lines_str, hens, FR=0.0, U=0.0, VTX_RANK=None)
 
     global_mean = statistics.mean(hens.values())
 
-    # 3) ライン分類（順流／渦／逆流）— ここでは記録のみ
+    # 3) ライン分類（順流／渦／逆流）
     for li in line_info:
         diff = li["mean"] - global_mean
         if diff > 3:
@@ -3267,9 +3263,9 @@ def generate_bets_holemode(marks, lines_str, hens, FR=0.0, U=0.0, VTX_RANK=None)
 
     # 5) 渦の選択
     if cohesion:
-        vortex = cohesion[0][0]  # 最強結束ライン
+        vortex = cohesion[0][0]
     else:
-        vortex = min(line_info, key=lambda li: abs(li["mean"] - global_mean))  # 中庸を渦
+        vortex = min(line_info, key=lambda li: abs(li["mean"] - global_mean))
 
     reverse_lines = [li for li in line_info if li["flow"] == "逆流"]
 
@@ -3277,10 +3273,9 @@ def generate_bets_holemode(marks, lines_str, hens, FR=0.0, U=0.0, VTX_RANK=None)
     pairs_nf, pairs_w, trios = [], [], []
     FR_THR, U_THR = 0.15, 0.25
     if (FR > FR_THR and U > U_THR) and reverse_lines:
-        # 逆流主役化（必要ならここを拡張）
         rev = reverse_lines[0]
         vtx = vortex["top2"]
-        tail = sorted(rev["ids"], key=lambda i: hens.get(i, 0.0))[:1]  # 末脚1
+        tail = sorted(rev["ids"], key=lambda i: hens.get(i, 0.0))[:1]
         for r in tail:
             for v in vtx:
                 a, b = sorted((r, v))
@@ -3289,12 +3284,10 @@ def generate_bets_holemode(marks, lines_str, hens, FR=0.0, U=0.0, VTX_RANK=None)
         if len(vtx) == 2 and tail:
             a, b = sorted(vtx)
             c = tail[0]
-            tri = tuple(sorted((a, b, c)))
-            trios.append(tri)
+            trios.append(tuple(sorted((a, b, c))))
         pattern = "逆流主役化"
         note = f"[逆流主役] 渦={vtx} 逆流={rev['ids']} FR={FR:.2f} U={U:.2f}"
     else:
-        # 結束ピボット：渦（top2）× 渦外の最高偏差値
         vtx = vortex["top2"]
         others = [i for i in hens.keys() if i not in vortex["ids"]]
         opp = max(others, key=lambda i: hens.get(i, 0.0)) if others else None
@@ -3307,7 +3300,6 @@ def generate_bets_holemode(marks, lines_str, hens, FR=0.0, U=0.0, VTX_RANK=None)
         pattern = "結束ピボット"
         note = f"[結束ピボット] 渦={vtx} 対抗={opp} FR={FR:.2f} U={U:.2f}"
 
-    # 7) 重複除去・上限
     def _dedup(seq):
         seen, out = set(), []
         for x in seq:
@@ -3322,9 +3314,10 @@ def generate_bets_holemode(marks, lines_str, hens, FR=0.0, U=0.0, VTX_RANK=None)
     trios    = _dedup(trios)[:3]
 
     return {"pairs_nf": pairs_nf, "pairs_w": pairs_w, "trios": trios, "pattern": pattern, "note": note}
-# ===== /確定版：generate_bets_holemode =====
+# ===== /generate_bets_holemode =====
 
-# ===== ここから：買い目 自動生成（既存データを確実に拾う） =====
+
+# ===== 買い目 自動生成 =====
 def _coerce_int(x):
     try:
         return int(x)
@@ -3332,14 +3325,9 @@ def _coerce_int(x):
         return None
 
 def _build_lines_str_from_inputs(line_inputs):
-    # 例: ["71","526","43"] -> "71 526 43"
     return " ".join([str(x).strip() for x in line_inputs if str(x).strip()])
 
 def _build_hens_from_race_t(race_t, used_ids):
-    """
-    race_t が {1:40.6, 2:60.5, ...} 形式でも、
-    {1:{'偏差値':40.6}, ...} 形式でも吸収して {番号:int -> 偏差値:float} を返す
-    """
     hens = {}
     if not isinstance(race_t, dict):
         return hens
@@ -3360,11 +3348,9 @@ def _build_hens_from_race_t(race_t, used_ids):
                         pass
     return hens
 
-# --- 必須入力の組み立て ---
-_lines_str = _build_lines_str_from_inputs(line_inputs)   # "71 526 43"
-_hens      = _build_hens_from_race_t(race_t, USED_IDS)   # {1:40.6, 2:60.5, ...}
+_lines_str = _build_lines_str_from_inputs(line_inputs)
+_hens = _build_hens_from_race_t(race_t, USED_IDS)
 
-# race_t が空の保険：表示テキストをパース
 if not _hens:
     try:
         import re
@@ -3373,44 +3359,32 @@ if not _hens:
     except Exception:
         _hens = {}
 
-# --- 呼び出し（印は使わない）---
 FR_val = float(globals().get("FR", 0.0) or 0.0)
-U_val  = float(globals().get("U",  0.0) or 0.0)
-
-_result = {"pairs_nf": [], "pairs_w": [], "trios": [], "pattern": "", "note": ""}
+U_val = float(globals().get("U", 0.0) or 0.0)
 
 try:
-    _result = generate_bets_holemode(
-        marks={},                    # 印は使わない
-        lines_str=_lines_str,        # "71 526 43"
-        hens=_hens,                  # {1:40.6, 2:60.5, ...}
-        FR=FR_val,
-        U=U_val,
-        VTX_RANK=None
-    )
+    _result = generate_bets_holemode({}, _lines_str, _hens, FR_val, U_val)
 except Exception as e:
-    _result = {"pairs_nf": [], "pairs_w": [], "trios": [], "pattern": "ERROR", "note": f"{e}"}
+    _result = {"pairs_nf": [], "pairs_w": [], "trios": [], "pattern": "ERROR", "note": str(e)}
 
-# --- 文字列化（既存の「個の欄」に流す用）---
 def _fmt_pairs(ps):
     return "、".join([f"{min(a,b)}-{max(a,b)}" for (a,b) in ps]) if ps else "（生成不可）"
 
 def _fmt_trios(ts):
     return "、".join([f"{a}-{b}-{c}" for (a,b,c) in ts]) if ts else "（生成不可）"
 
-OUT_NISHAFUKU   = _fmt_pairs(_result.get("pairs_nf", []))
-OUT_WIDE        = _fmt_pairs(_result.get("pairs_w",  []))
-OUT_SANRENPUKU  = _fmt_trios(_result.get("trios",    []))
-_engine_note    = _result.get("note", "")
+OUT_NISHAFUKU = _fmt_pairs(_result.get("pairs_nf", []))
+OUT_WIDE = _fmt_pairs(_result.get("pairs_w", []))
+OUT_SANRENPUKU = _fmt_trios(_result.get("trios", []))
+_engine_note = _result.get("note", "")
 
-# --- 既存の note_sections に追記（UI変更なし）---
 note_sections.append("【買い目】")
 note_sections.append(f"二車複　{OUT_NISHAFUKU}")
 note_sections.append(f"ワイド　{OUT_WIDE}")
 note_sections.append(f"三連複　{OUT_SANRENPUKU}")
 if _engine_note:
     note_sections.append(_engine_note)
-# ===== ここまで：買い目 自動生成 =====
+# ===== /買い目 自動生成 =====
 
 
 
