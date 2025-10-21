@@ -3221,11 +3221,9 @@ def generate_bets_holemode(marks, lines_str, hens, FR=0.0, U=0.0, VTX_RANK=None)
     ヴェロビ本流の「ライン構造＋偏差値ベクトル」で流れを判定し買い目を生成する。
     印（◎〇▲など）は参照しない。偏差値から流れを算出する。
     """
-    import itertools, statistics
+    import statistics
 
-    # -------------------------
-    # 1. ライン解析
-    # -------------------------
+    # 1) ライン解析
     def _parse_lines(s):
         groups = []
         for blk in str(s).split():
@@ -3238,9 +3236,7 @@ def generate_bets_holemode(marks, lines_str, hens, FR=0.0, U=0.0, VTX_RANK=None)
     if not groups or not hens:
         return {"pairs_nf": [], "pairs_w": [], "trios": [], "pattern": "データ不足", "note": ""}
 
-    # -------------------------
-    # 2. 各ラインの平均と上位2名を算出
-    # -------------------------
+    # 2) 各ラインの平均と上位2名
     line_info = []
     for g in groups:
         vals = [hens.get(i, 0.0) for i in g]
@@ -3250,9 +3246,7 @@ def generate_bets_holemode(marks, lines_str, hens, FR=0.0, U=0.0, VTX_RANK=None)
 
     global_mean = statistics.mean(hens.values())
 
-    # -------------------------
-    # 3. ライン分類（順流／渦／逆流）
-    # -------------------------
+    # 3) ライン分類（順流／渦／逆流）— ここでは記録のみ
     for li in line_info:
         diff = li["mean"] - global_mean
         if diff > 3:
@@ -3262,9 +3256,7 @@ def generate_bets_holemode(marks, lines_str, hens, FR=0.0, U=0.0, VTX_RANK=None)
         else:
             li["flow"] = "渦"
 
-    # -------------------------
-    # 4. 結束ピボット（同ライン55+×2）
-    # -------------------------
+    # 4) 結束ピボット（同ライン55+×2）
     cohesion = []
     for li in line_info:
         t2vals = [hens.get(i, 0.0) for i in li["top2"]]
@@ -3273,60 +3265,49 @@ def generate_bets_holemode(marks, lines_str, hens, FR=0.0, U=0.0, VTX_RANK=None)
             cohesion.append((li, strength))
     cohesion.sort(key=lambda x: x[1], reverse=True)
 
-    # -------------------------
-    # 5. 渦・結束・逆流の優先度
-    # -------------------------
-    vortex = None
+    # 5) 渦の選択
     if cohesion:
-        # 最強結束ラインを渦とする
-        vortex = cohesion[0][0]
+        vortex = cohesion[0][0]  # 最強結束ライン
     else:
-        # 結束がなければ「中庸（平均に最も近い）」を渦とする
-        vortex = min(line_info, key=lambda li: abs(li["mean"] - global_mean))
+        vortex = min(line_info, key=lambda li: abs(li["mean"] - global_mean))  # 中庸を渦
 
     reverse_lines = [li for li in line_info if li["flow"] == "逆流"]
-    strong_lines = [li for li in line_info if li["flow"] == "順流"]
 
-    # -------------------------
-    # 6. 買い目生成ロジック
-    # -------------------------
+    # 6) 買い目生成
     pairs_nf, pairs_w, trios = [], [], []
-    pattern = note = ""
-
-    # --- 逆流主役（FR/Uが高い or 逆流ラインが存在）
     FR_THR, U_THR = 0.15, 0.25
     if (FR > FR_THR and U > U_THR) and reverse_lines:
+        # 逆流主役化（必要ならここを拡張）
         rev = reverse_lines[0]
         vtx = vortex["top2"]
         tail = sorted(rev["ids"], key=lambda i: hens.get(i, 0.0))[:1]  # 末脚1
         for r in tail:
             for v in vtx:
-                pairs_nf.append(tuple(sorted((r, v))))
+                a, b = sorted((r, v))
+                pairs_nf.append((a, b))
+                pairs_w.append((a, b))
         if len(vtx) == 2 and tail:
-            trios.append(tuple(sorted((vtx[0], vtx[1], tail[0]))))
+            a, b = sorted(vtx)
+            c = tail[0]
+            tri = tuple(sorted((a, b, c)))
+            trios.append(tri)
         pattern = "逆流主役化"
         note = f"[逆流主役] 渦={vtx} 逆流={rev['ids']} FR={FR:.2f} U={U:.2f}"
-
     else:
-        # --- 結束ピボット
+        # 結束ピボット：渦（top2）× 渦外の最高偏差値
         vtx = vortex["top2"]
-        # 対抗：渦外の最高偏差値1名
         others = [i for i in hens.keys() if i not in vortex["ids"]]
         opp = max(others, key=lambda i: hens.get(i, 0.0)) if others else None
-        if opp:
-            pairs_nf = [
-                (vtx[0], opp),
-                (vtx[1], opp),
-                (vtx[0], vtx[1]),
-            ]
-            pairs_w = pairs_nf[:]
-            trios = [(vtx[0], vtx[1], opp)]
+        if opp and len(vtx) == 2:
+            a, b = sorted(vtx)
+            c = opp
+            pairs_nf = [tuple(sorted((a, c))), tuple(sorted((b, c))), (a, b)]
+            pairs_w = list(pairs_nf)
+            trios = [tuple(sorted((a, b, c)))]
         pattern = "結束ピボット"
         note = f"[結束ピボット] 渦={vtx} 対抗={opp} FR={FR:.2f} U={U:.2f}"
 
-    # -------------------------
-    # 7. 整形
-    # -------------------------
+    # 7) 重複除去・上限
     def _dedup(seq):
         seen, out = set(), []
         for x in seq:
@@ -3337,16 +3318,11 @@ def generate_bets_holemode(marks, lines_str, hens, FR=0.0, U=0.0, VTX_RANK=None)
         return out
 
     pairs_nf = _dedup(pairs_nf)[:3]
-    pairs_w = _dedup(pairs_w)[:3]
-    trios = _dedup(trios)[:3]
+    pairs_w  = _dedup(pairs_w)[:3]
+    trios    = _dedup(trios)[:3]
 
-    return {
-        "pairs_nf": pairs_nf,
-        "pairs_w": pairs_w,
-        "trios": trios,
-        "pattern": pattern,
-        "note": note,
-    }
+    return {"pairs_nf": pairs_nf, "pairs_w": pairs_w, "trios": trios, "pattern": pattern, "note": note}
+# ===== /確定版：generate_bets_holemode =====
 
 # ===== ここから：買い目 自動生成（既存データを確実に拾う） =====
 def _coerce_int(x):
@@ -3375,7 +3351,6 @@ def _build_hens_from_race_t(race_t, used_ids):
         if isinstance(v, (int, float)):
             hens[i] = float(v)
         elif isinstance(v, dict):
-            # よくあるキー名を順に探索
             for key in ("偏差値", "hens", "score", "val", "value"):
                 if key in v:
                     try:
@@ -3385,11 +3360,11 @@ def _build_hens_from_race_t(race_t, used_ids):
                         pass
     return hens
 
-# --- 既存の構造から必須入力を組み立てる ---
-_lines_str = _build_lines_str_from_inputs(line_inputs)              # ← "71 526 43"
-_hens      = _build_hens_from_race_t(race_t, USED_IDS)              # ← {1:40.6, 2:60.5, ...}
+# --- 必須入力の組み立て ---
+_lines_str = _build_lines_str_from_inputs(line_inputs)   # "71 526 43"
+_hens      = _build_hens_from_race_t(race_t, USED_IDS)   # {1:40.6, 2:60.5, ...}
 
-# 万一 race_t が空の場合のみ、表示用テキストから救済（任意）
+# race_t が空の保険：表示テキストをパース
 if not _hens:
     try:
         import re
@@ -3398,7 +3373,7 @@ if not _hens:
     except Exception:
         _hens = {}
 
-# --- 呼び出し（印は参照しない設計なので空でOK）---
+# --- 呼び出し（印は使わない）---
 FR_val = float(globals().get("FR", 0.0) or 0.0)
 U_val  = float(globals().get("U",  0.0) or 0.0)
 
@@ -3406,9 +3381,9 @@ _result = {"pairs_nf": [], "pairs_w": [], "trios": [], "pattern": "", "note": ""
 
 try:
     _result = generate_bets_holemode(
-        marks={},                    # ← 印は使わない
-        lines_str=_lines_str,        # ← "71 526 43"
-        hens=_hens,                  # ← {1:40.6, 2:60.5, ...}
+        marks={},                    # 印は使わない
+        lines_str=_lines_str,        # "71 526 43"
+        hens=_hens,                  # {1:40.6, 2:60.5, ...}
         FR=FR_val,
         U=U_val,
         VTX_RANK=None
@@ -3436,10 +3411,6 @@ note_sections.append(f"三連複　{OUT_SANRENPUKU}")
 if _engine_note:
     note_sections.append(_engine_note)
 # ===== ここまで：買い目 自動生成 =====
-
-
-# ===== /確定版：generate_bets_holemode =====
-=
 
 
 
