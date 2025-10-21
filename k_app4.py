@@ -3216,41 +3216,43 @@ note_sections.append(_fmt_hen_lines(race_t, USED_IDS))
 note_sections.append("\n")  # 空行
 
 # --- note用出力（ラインと印を対応） ---
-# --- note用：ライン⇄印 2行を確実に表示（貼るだけ） ---
+# --- note用：ライン⇄印 2行（貼るだけ・確実表示） ---
+import re
 import streamlit as st
 
-def _note_lines(lines_str: str, marks_str: str):
+def note_lines_block(lines_str, marks_str):
     # 全角→半角（数字・スペース）
     z2h = str.maketrans("０１２３４５６７８９　", "0123456789 ")
-    lines_str = str(lines_str).translate(z2h).strip()
-    marks_str = str(marks_str).translate(z2h).strip()
+    lines_str = str(lines_str or "").translate(z2h).strip()
+    marks_str = str(marks_str or "").translate(z2h).strip()
 
-    # 車番→印 の対応（例: "4"→"◎"）
+    # 車番→印 例: {"4":"◎","3":"〇",...}
     mp = {}
     for tok in marks_str.split():
         if tok:
             mp[tok[1:]] = tok[0]
 
-    # 各ライン中の“数字1文字ずつ”を印へ（7車立て想定ならこれが堅い）
-    groups = lines_str.split()                  # ["17","625","43"]
-    mark_groups = ["".join(mp.get(ch, "？") for ch in g) for g in groups]
+    # 各ラインを「数字の塊」で読む（1桁でも2桁でもOK）
+    groups = lines_str.split()
+    mark_groups = []
+    for g in groups:
+        nums = re.findall(r"\d+", g)
+        mark_groups.append("".join(mp.get(n, "？") for n in nums))
 
-    ideospace = "　"                            # 全角スペース
-    return ideospace.join(groups), ideospace.join(mark_groups)
+    joiner = "　"  # 全角スペース
+    line_row = joiner.join(groups)
+    mark_row = joiner.join(mark_groups)
+    return line_row, mark_row
 
-# --- ここをあなたの変数に置き換えてOK（無ければデフォルトで動く） ---
-lines_str = st.session_state.get("lines_str", "17 625 43")
-marks_str = st.session_state.get("marks_str", "◎4 〇3 ▲2 △1 ×7 α5 無6")
-# ----------------------------------------------------------------------
+# === ここだけ、あなたの変数に置き換えてOK（無ければデフォルトで出る） ===
+lines_input = st.session_state.get("lines_str", "17 625 43")
+marks_input = st.session_state.get("marks_str", "◎4 〇3 ▲2 △1 ×7 α5 無6")
+# =======================================================================
 
-line_row, mark_row = _note_lines(lines_str, marks_str)
+lr, mr = note_lines_block(lines_input, marks_input)
+st.markdown(lr.replace("\n", "<br>"), unsafe_allow_html=True)
+st.markdown(mr.replace("\n", "<br>"), unsafe_allow_html=True)
 
-# 1) 画面にそのまま2行表示
-st.text(line_row)
-st.text(mark_row)
-
-# 2) note用コピーエリアにも同時出力（既存のnote欄に差し替えてOK）
-st.text_area("note用（コピーエリア）｜ライン⇄印", f"{line_row}\n{mark_row}", height=64)
 
 
 
