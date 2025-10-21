@@ -3215,36 +3215,46 @@ note_sections.append("\n偏差値（風・ライン込み）")
 note_sections.append(_fmt_hen_lines(race_t, USED_IDS))
 note_sections.append("\n")  # 空行
 
-# -*- coding: utf-8 -*-
-"""
-Velobi Hole-Mode Bet Generator
-  - 基本コンセプト：◎非依存。「渦（VTX or 結束）」×「反発（無/α）」×「支援（同ライン結束 or 渦補助）」
-  - 互角/混戦では「結束ピボット（同ライン55+が複数）」を渦に昇格
-  - 逆流主役化（FR×U）で「渦×無/α」「無-α（同ライン）」を優先
-  - 出力：二車複／ワイド／三連複（穴狙いのみ）
+# app.py — Velobi Hole-Mode（全面改定版）
+# ------------------------------------------------------------
+# 目的：
+# - 画面崩れの根本対策（折り返しCSS＋レイアウト最適化）
+# - UIを「入力（左）→結果＋コピー（右）」に簡素化
+# - 穴モード買い目生成を内蔵（◎非依存、渦×反発×結束）
+# - 既存運用に配慮：入力は“人がそのまま書ける形式”を許容
+# ------------------------------------------------------------
 
-必要入力（dictでOK）：
-- marks: 例 {"◎":4, "〇":3, "▲":1, "△":2, "×":7, "α":5, "無":6}（印→番号）
-- lines_str: 例 "17 625 43"（半角スペース区切り、各ブロックがライン）
-- hens: 偏差値 dict（{番号:int/float}）
-- FR, U: 失速危険度・無浮上（float）
-- VTX_RANK: 任意（[("1",0.62),("2",0.57),...]）。無ければ結束から渦抽出
-- (任意) race_meta: {"class":"A級","cond":"混戦"} など
-
-出力：
-- dict {"pattern":..., "pairs_nf":[(a,b),...], "pairs_w":[...], "trios":[(a,b,c),...], "note":"..."}
-"""
-
+import streamlit as st
 from dataclasses import dataclass
 from typing import List, Tuple, Dict, Any
+
+# ---------------- UI 基本設定 / CSS（崩れ対策） ----------------
+st.set_page_config(page_title="Velobi Hole-Mode", layout="centered")
+st.markdown("""
+<style>
+/* コンテナ幅（読みやすい幅に固定） */
+.block-container { max-width: 920px; padding-top: 0.6rem; }
+
+/* 長文Markdown/コードの折り返し・横スクロール */
+.stMarkdown pre, .stMarkdown code { white-space: pre-wrap; word-break: break-word; }
+pre, code { overflow-x: auto; }
+
+/* ラベル・見出しの間隔を詰めて情報密度を最適化 */
+h1, h2, h3 { margin-bottom: .3rem; }
+section[data-testid="stSidebar"] .stMarkdown p { margin-bottom: .4rem; }
+</style>
+""", unsafe_allow_html=True)
+
+st.title("✅ Velobi：穴モード Bet Generator（全面改定）")
+
+# ====================== ロジック本体 ======================
 
 FR_THR, U_THR = 0.15, 0.25       # 逆流主役化の初期しきい値
 COH_THR = 55.0                   # 結束判定の偏差値しきい値
 VTX_TOP_K = 2                    # 渦として採用する本数
-MAX_WIDE_NISHAFUKU = 3           # 穴モードは点数を絞る
+MAX_WIDE_NISHAFUKU = 3           # 穴モードでは点数を絞る
 
-# ---------- ユーティリティ ----------
-def _coerce_id(x): 
+def _coerce_id(x):
     try: return int(x)
     except: return None
 
@@ -3259,19 +3269,19 @@ def _parse_lines(lines_str: str) -> List[List[int]]:
     return groups
 
 def _norm_marks(marks: Dict[Any, Any]) -> Dict[str, int]:
-    # 記号→番号 の dict を返す（番号→記号 の場合も吸収）
+    """記号→番号の dict を返す（番号→記号でも吸収）"""
     mp = {}
     if not isinstance(marks, dict): 
         return mp
     syms = ("◎","〇","○","▲","△","×","α","無")
-    # パターンA
+    # A: {"◎":4, ...}
     if any(k in syms for k in marks.keys()):
         for s, n in marks.items():
             s2 = "〇" if str(s) == "○" else str(s)
             try: mp[s2] = int(n)
             except: pass
         return mp
-    # パターンB
+    # B: {4:"◎", ...}
     for n, s in marks.items():
         s2 = "〇" if str(s) == "○" else str(s)
         try: mp[s2] = int(n)
@@ -3295,14 +3305,15 @@ def _get_vtx_ids(VTX_RANK, k=VTX_TOP_K) -> List[int]:
     if isinstance(VTX_RANK, (list, tuple)):
         for rid, v in VTX_RANK:
             rid_i = _coerce_id(rid)
-            if rid_i is None: 
+            if rid_i is None:
                 continue
             try:
-                if float(v) <= 0: 
+                if float(v) <= 0:
                     continue
             except:
                 pass
-            ids.append(rid_i)
+            if rid_i not in ids:
+                ids.append(rid_i)
             if len(ids) >= k: break
     return ids
 
@@ -3322,7 +3333,6 @@ def _dedup_trios(ts: List[Tuple[int,int,int]]) -> List[Tuple[int,int,int]]:
             seen.add(key); out.append((a,b,c))
     return out
 
-# ---------- 中核：穴モード買い目 ----------
 def generate_bets_holemode(
     marks: Dict[Any, Any],
     lines_str: str,
@@ -3330,22 +3340,21 @@ def generate_bets_holemode(
     FR: float = 0.0,
     U: float  = 0.0,
     VTX_RANK: List[Tuple[Any, float]] = None,
-    race_meta: Dict[str, Any] = None,
 ) -> Dict[str, Any]:
+    """◎非依存。渦（VTX or 結束）× 反発（無/α） × 支援で穴のみを生成"""
     sym2id = _norm_marks(marks)
     id_mu    = sym2id.get("無")
     id_alpha = sym2id.get("α")
-    id_main  = sym2id.get("◎")  # 参照用（必須ではない）
+    id_main  = sym2id.get("◎")  # 参照のみ
 
     groups = _parse_lines(lines_str)
-    # 1) 渦の抽出：VTX優先、無ければ「結束ピボット」
+
+    # 1) 渦抽出：VTX優先→無ければ結束ピボット
     vtx_ids = _get_vtx_ids(VTX_RANK, VTX_TOP_K)
     if len(vtx_ids) < VTX_TOP_K:
         coh = _cohesion_lines(groups, hens, COH_THR)
-        # 最強結束ラインの上位2人を採用
         if coh:
             g0 = coh[0][0]
-            # 偏差値高い順で2名
             g0_sorted = sorted(g0, key=lambda i: hens.get(i, 0.0), reverse=True)
             for i in g0_sorted:
                 if i not in vtx_ids:
@@ -3354,10 +3363,10 @@ def generate_bets_holemode(
                     break
     vtx_ids = vtx_ids[:VTX_TOP_K]
 
-    # 2) 反発（逆流）側の候補：無/α を集約（欠けてもOK）
+    # 2) 反発（逆流）候補
     mu_side = [i for i in [id_mu, id_alpha] if isinstance(i, int)]
 
-    # 3) 逆流主役化判定
+    # 3) パターン判定
     is_reverse = (float(FR) > FR_THR) and (float(U) > U_THR)
 
     pairs_nf, pairs_w, trios = [], [], []
@@ -3366,17 +3375,15 @@ def generate_bets_holemode(
 
     if is_reverse and mu_side:
         pattern = "逆流主役化(穴モード)"
-        # 渦×（無/α）
+        # 渦 ×（無/α）
         for v in vtx_ids:
             for r in mu_side:
                 pairs_nf.append((v, r)); pairs_w.append((v, r))
-        # 無-α（同ライン・逆流同士）
+        # 無-α（同ライン）
         if len(mu_side) >= 2:
             pairs_w.append((mu_side[0], mu_side[1]))
-            # コア：渦1−無−α（厚め1点）
-            trios.append((vtx_ids[0], mu_side[0], mu_side[1]))
+            trios.append((vtx_ids[0], mu_side[0], mu_side[1]))  # コア
         else:
-            # 片側しかない場合：渦1−渦2−無（or 渦1−主流−無）で保険
             if len(vtx_ids) >= 2:
                 trios.append((vtx_ids[0], vtx_ids[1], mu_side[0]))
             elif isinstance(id_main, int):
@@ -3384,8 +3391,7 @@ def generate_bets_holemode(
         note = f"[逆流主役化] FR={FR:.2f} U={U:.2f} 渦={vtx_ids} 逆流={mu_side}"
 
     else:
-        # 互角/混戦に強い「結束ピボット」：渦（=結束ライン上位2）× 対抗主力1
-        # 対抗主力：渦に含まれないIDの中で偏差値が最上位
+        # 結束ピボット：渦（＝結束ラインの上位2）× 対抗最上位
         others = sorted(
             [i for i in hens.keys() if i not in vtx_ids],
             key=lambda i: hens.get(i, 0.0),
@@ -3393,21 +3399,16 @@ def generate_bets_holemode(
         )
         opp = others[0] if others else None
 
-        # 二車複/ワイド：渦1-opp、渦2-opp、渦1-渦2（MAX 3点に制限）
+        cand_pairs = []
         if isinstance(opp, int) and len(vtx_ids) >= 2:
             cand_pairs = [(vtx_ids[0], opp), (vtx_ids[1], opp), (vtx_ids[0], vtx_ids[1])]
         elif isinstance(opp, int) and len(vtx_ids) == 1:
             cand_pairs = [(vtx_ids[0], opp)]
-        else:
-            cand_pairs = []
 
         pairs_nf = cand_pairs[:MAX_WIDE_NISHAFUKU]
         pairs_w  = cand_pairs[:MAX_WIDE_NISHAFUKU]
-
-        # 三連複コア：渦1-渦2-opp（1点）
         if len(vtx_ids) >= 2 and isinstance(opp, int):
             trios.append((vtx_ids[0], vtx_ids[1], opp))
-
         pattern = "結束ピボット(穴モード)"
         note = f"[結束] 渦={vtx_ids} 対抗={opp} FR={FR:.2f} U={U:.2f}"
 
@@ -3416,34 +3417,135 @@ def generate_bets_holemode(
     pairs_w  = _dedup_pairs(pairs_w)
     trios    = _dedup_trios(trios)
 
-    return {
-        "pattern": pattern,
-        "pairs_nf": pairs_nf,
-        "pairs_w": pairs_w,
-        "trios": trios,
-        "note": note
-    }
+    return {"pattern": pattern, "pairs_nf": pairs_nf, "pairs_w": pairs_w, "trios": trios, "note": note}
 
-# ---------- ここから下はデモ（弥彦1R/5Rの再現） ----------
-if __name__ == "__main__":
-    # 弥彦1R（混戦・結果 5-2-6）
-    marks_1R = {"◎":4, "〇":3, "▲":1, "△":2, "×":7, "α":5, "無":6}
-    lines_1R = "17 625 43"
-    hens_1R  = {1:59.9, 2:59.8, 3:60.3, 4:61.5, 5:36.9, 6:37.4, 7:49.3}
-    # 波評価：渦は(1,2)、逆流(5,6)。FR/Uを点灯させる
-    VTX_1R   = [("1",0.6),("2",0.55),("7",0.1)]
-    out_1R = generate_bets_holemode(marks_1R, lines_1R, hens_1R, FR=0.23, U=0.41, VTX_RANK=VTX_1R)
-    print("【弥彦1R 穴モード】")
-    print(out_1R)  # 期待：pairsに(1-6,2-6,5-6)含む、triosに(1-5-6) or (2-5-6)
+# ====================== 入力UI ======================
 
-    # 弥彦5R（互角・結果 3-5-4）
-    marks_5R = {"◎":7, "〇":2, "▲":5, "△":1, "×":3, "α":4, "無":6}
-    lines_5R = "71 526 43"
-    hens_5R  = {1:40.5, 2:60.5, 3:55.4, 4:55.6, 5:59.6, 6:36.7, 7:62.7}
-    # FR/Uは点灯なし。VTX未指定なら結束ピボット（43ラインの3,4が55+）から渦抽出→対抗は5
-    out_5R = generate_bets_holemode(marks_5R, lines_5R, hens_5R, FR=0.00, U=0.00, VTX_RANK=None)
-    print("【弥彦5R 穴モード】")
-    print(out_5R)  # 期待：pairsに(3-5,4-5,3-4)、triosに(3-4-5)
+with st.sidebar:
+    st.header("入力")
+    place = st.text_input("開催場・R（例：弥彦 5R）", value="")
+    race_class = st.selectbox("クラス", ["A級", "S級", "チャレンジ", "F2"], index=1)
+    tenkai = st.selectbox("展開評価", ["順流", "互角", "混戦"], index=1)
+
+    st.divider()
+    lines_str = st.text_input("ライン（例：'17 625 43'）", value="")
+    marks_str_in = st.text_input("印（例：'◎7 〇2 ▲5 △1 ×3 α4 無6'）", value="")
+    hens_str = st.text_area("偏差値（例：'1:40.5, 2:60.5, 3:55.4, ...'）", height=80, value="")
+    st.caption("※ 1〜7について任意。欠けても可。")
+
+    st.divider()
+    FR = st.slider("FR（失速危険度）", 0.0, 1.0, 0.0, 0.01)
+    U  = st.slider("U（無浮上）",      0.0, 1.0, 0.0, 0.01)
+
+    st.divider()
+    vtx_in = st.text_input("VTX_RANK（任意：'1:0.6,2:0.55' 形式）", value="")
+
+# ------- パーサ（人間が書いた文字列を吸収） -------
+def parse_marks_text(s: str) -> Dict[str, int]:
+    # "◎7 〇2 ▲5 △1 ×3 α4 無6" → {"◎":7, ...}
+    mp = {}
+    if not s: return mp
+    tokens = s.replace("　", " ").split()
+    for tok in tokens:
+        try:
+            sym = tok[0]
+            num = int(tok[1:])
+            if sym == "○": sym = "〇"
+            mp[sym] = num
+        except:
+            pass
+    return mp
+
+def parse_hens_text(s: str) -> Dict[int, float]:
+    # "1:40.5, 2:60.5" → {1:40.5, 2:60.5}
+    d = {}
+    for part in s.replace("　"," ").replace("，",",").split(","):
+        part = part.strip()
+        if not part: continue
+        if ":" in part:
+            k,v = part.split(":",1)
+            try:
+                d[int(k.strip())] = float(v.strip())
+            except:
+                pass
+    return d
+
+def parse_vtx_text(s: str) -> List[Tuple[int, float]]:
+    lst = []
+    for part in s.replace("　"," ").replace("，",",").split(","):
+        part = part.strip()
+        if not part: continue
+        if ":" in part:
+            k,v = part.split(":",1)
+            try:
+                lst.append((int(k.strip()), float(v.strip())))
+            except:
+                pass
+    return lst
+
+# ====================== 推論・出力 ======================
+
+marks_in = parse_marks_text(marks_str_in)
+hens_in  = parse_hens_text(hens_str)
+vtx_rank = parse_vtx_text(vtx_in)
+
+if st.button("🔮 穴モードで生成", type="primary"):
+    try:
+        bets = generate_bets_holemode(
+            marks=marks_in, lines_str=lines_str, hens=hens_in, FR=FR, U=U, VTX_RANK=vtx_rank or None
+        )
+        # ---- 結果表示（短く） ----
+        def _fmt_pairs(ps): return "、".join([f"{a}-{b}" for a,b in ps]) if ps else "（なし）"
+        def _fmt_trios(ts): return "、".join([f"{a}-{b}-{c}" for a,b,c in ts]) if ts else "（なし）"
+
+        st.success("オススメ買い目（穴のみ）")
+        st.markdown(f"""
+**判定**：{bets.get('pattern','—')}  
+**二車複**：{_fmt_pairs(bets.get('pairs_nf', []))}  
+**ワイド**：{_fmt_pairs(bets.get('pairs_w', []))}  
+**三連複**：{_fmt_trios(bets.get('trios', []))}
+""")
+
+        # ---- note用コピーボックス ----
+        note_text = "\n".join(filter(None, [
+            f"{place}　{race_class}",
+            f"展開評価：{tenkai}",
+            f"ライン　{lines_str}" if lines_str else "",
+            f"{marks_str_in}" if marks_str_in else "",
+            "",
+            f"判定：{bets.get('pattern','—')}",
+            f"二車複：{_fmt_pairs(bets.get('pairs_nf', []))}",
+            f"ワイド：{_fmt_pairs(bets.get('pairs_w', []))}",
+            f"三連複：{_fmt_trios(bets.get('trios', []))}",
+            bets.get("note",""),
+        ]))
+        st.text_area("note用（コピーエリア）", value=note_text, height=160)
+
+        with st.expander("内部ログ（必要時のみ）"):
+            st.json({
+                "marks_parsed": marks_in,
+                "hens_parsed": hens_in,
+                "VTX_RANK": vtx_rank,
+                "FR": FR, "U": U,
+                "lines_groups": _parse_lines(lines_str),
+                "engine_note": bets.get("note","")
+            })
+    except Exception as e:
+        st.error(f"生成時エラー：{e}")
+
+else:
+    st.info("左サイドで入力 → 上の『穴モードで生成』をクリックしてください。")
+
+# ====================== 動作確認用プリセット（任意） ======================
+with st.expander("デモプリセット（クリックで入力）"):
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("弥彦1R（混戦：5-2-6 型）を入力"):
+            st.session_state["ライン（例：'17 625 43'）"] = "17 625 43"
+    with col2:
+        if st.button("弥彦5R（互角：3-5-4 型）を入力"):
+            st.session_state["ライン（例：'17 625 43'）"] = "71 526 43"
+# ※ Streamlitのセッション操作は環境により制限があるため、プリセットは簡易表記のみ
 
 
 
