@@ -3218,75 +3218,67 @@ note_sections.append("\n")  # 空行
 # ===== 確定版：generate_bets_holemode（ライン×偏差値ベクトル主軸） =====
 # -*- coding: utf-8 -*-
 """
-Velobi: flow-based bet generator
-  - 逆流主役化: FR>FR_THR 且つ U>U_THR で「無/α」が主役化
-  - 渦層: VTX上位のライン（◎→と無←の交点側、終盤S>0）
+Velobi: flow-based bet generator (display + session_state['買目'] 保存つき)
+- FR>FR_THR 且つ U>U_THR で「逆流主役化」
+- 渦層: VTX上位
 出力:
-  - 二車複/ワイド/三連複 の推奨買い目（銘柄IDのタプル配列）
+  - 二車複/ワイド/三連複 の推奨買い目
+  - 画面表示（Streamlit）＋ st.session_state["買目"] へ機械可読で保存
 """
 
 from dataclasses import dataclass
-from typing import List, Tuple
+from typing import List, Tuple, Dict
 
-# ====== しきい値（必要に応じて微調整） ======
-FR_THR = 0.15   # 失速危険度の下限
-U_THR  = 0.25   # 無浮上の下限
-VTX_TOP_K = 2   # 渦層として採用する本数
+# ====== しきい値 ======
+FR_THR = 0.15
+U_THR  = 0.25
+VTX_TOP_K = 2
 
-# ====== 型定義 ======
+# ====== 型 ======
 @dataclass
 class FlowSignals:
-    FR: float                         # FadeRisk（◎失速×逆流加速）
-    U: float                          # 無浮上代理
-    vtx_rank: List[Tuple[str, float]] # [("ID", VTX値) ...] 降順想定/順不同でも可
-    main_id: str                      # ◎ラインのID（例 "4"）
-    mu_ids: List[str]                 # 逆流側ID（"無"相当。例 ["6"]）
-    alpha_ids: List[str]              # 逆流側の補助（"α"相当。例 ["5"]）
+    FR: float
+    U: float
+    vtx_rank: List[Tuple[str, float]]  # [("ID", VTX)]
+    main_id: str
+    mu_ids: List[str]
+    alpha_ids: List[str]
 
 @dataclass
 class Bets:
     nishafuku: List[Tuple[str, str]]
     wide:      List[Tuple[str, str]]
     sanrenpuku: List[Tuple[str, str, str]]
-    pattern:   str   # "逆流主役化" or "順流中心"
+    pattern:   str
     notes:     str
 
-# ====== ユーティリティ ======
+# ====== util ======
 def _norm_id(x) -> str:
-    # IDを必ずstr化（int混在対策）
     return str(x).strip()
 
 def _pick_vtx_ids(vtx_rank: List[Tuple[str, float]], k: int) -> List[str]:
-    """
-    VTX>0 を優先。足りなければ0以下も上位から補完。
-    元データが少なければ存在分だけ返す。
-    """
     ranked = [(_norm_id(rid), float(v)) for rid, v in vtx_rank]
-    # 一応降順じゃなくても動くようにソート（VTX高い順）
     ranked.sort(key=lambda t: t[1], reverse=True)
-
     pos = [rid for rid, v in ranked if v > 0.0]
     if len(pos) >= k:
         return pos[:k]
-
     picked = pos[:]
     for rid, _ in ranked:
         if rid not in picked:
             picked.append(rid)
         if len(picked) >= k:
             break
-    return picked  # そもそも本数が足りなければ少ない本数のまま
+    return picked
 
 def _dedup_pairs(pairs: List[Tuple[str, str]]) -> List[Tuple[str, str]]:
     seen, out = set(), []
     for a, b in pairs:
         a, b = _norm_id(a), _norm_id(b)
         if a == b:
-            continue  # 同一IDの二車は除外
+            continue
         key = tuple(sorted((a, b)))
         if key not in seen:
-            seen.add(key)
-            out.append((a, b))
+            seen.add(key); out.append((a, b))
     return out
 
 def _dedup_trios(trios: List[Tuple[str, str, str]]) -> List[Tuple[str, str, str]]:
@@ -3294,21 +3286,18 @@ def _dedup_trios(trios: List[Tuple[str, str, str]]) -> List[Tuple[str, str, str]
     for a, b, c in trios:
         a, b, c = _norm_id(a), _norm_id(b), _norm_id(c)
         if a == b == c:
-            continue  # 3つ同一は除外
+            continue
         key = tuple(sorted((a, b, c)))
         if key not in seen:
-            seen.add(key)
-            out.append((a, b, c))
+            seen.add(key); out.append((a, b, c))
     return out
 
-# ====== コア：買目生成 ======
+# ====== コア ======
 def generate_bets(sig: FlowSignals) -> Bets:
-    # 正規化
-    main_id   = _norm_id(sig.main_id)
-    mu_side   = [_norm_id(x) for x in (sig.mu_ids + sig.alpha_ids)]
-    vortex_ids= _pick_vtx_ids(sig.vtx_rank, VTX_TOP_K)
+    main_id    = _norm_id(sig.main_id)
+    mu_side    = [_norm_id(x) for x in (sig.mu_ids + sig.alpha_ids)]
+    vortex_ids = _pick_vtx_ids(sig.vtx_rank, VTX_TOP_K)
 
-    # パターン判定
     is_reverse = (sig.FR > FR_THR) and (sig.U > U_THR)
     pattern = "逆流主役化" if is_reverse else "順流中心"
 
@@ -3317,15 +3306,12 @@ def generate_bets(sig: FlowSignals) -> Bets:
     sanrenpuku: List[Tuple[str, str, str]] = []
 
     if is_reverse:
-        # --- 逆流主役化：渦 ×（無/α）を主軸、無-αも押さえ、三連複は渦-無-αを優先 ---
         for v in vortex_ids:
             for r in mu_side:
-                # main_id と同一vはそのまま（vortexに◎混入許容）
                 nishafuku.append((v, r))
                 wide.append((v, r))
         if len(mu_side) >= 2:
             wide.append((mu_side[0], mu_side[1]))
-        # 三連複（優先 → 次点 → 最低保証）
         if len(mu_side) >= 2 and len(vortex_ids) >= 1:
             sanrenpuku.append((vortex_ids[0], mu_side[0], mu_side[1]))
         elif len(mu_side) >= 1 and len(vortex_ids) >= 2:
@@ -3337,7 +3323,6 @@ def generate_bets(sig: FlowSignals) -> Bets:
         elif len(vortex_ids) == 1:
             sanrenpuku.append((main_id, vortex_ids[0], main_id))
     else:
-        # --- 順流中心：◎ × 渦 を主軸、三連複は◎渦渦を優先 ---
         for v in vortex_ids:
             nishafuku.append((main_id, v))
             wide.append((main_id, v))
@@ -3348,12 +3333,10 @@ def generate_bets(sig: FlowSignals) -> Bets:
         elif len(vortex_ids) == 1:
             sanrenpuku.append((main_id, vortex_ids[0], main_id))
 
-    # 重複除去
     nishafuku = _dedup_pairs(nishafuku)
     wide      = _dedup_pairs(wide)
     sanrenpuku= _dedup_trios(sanrenpuku)
 
-    # 最低保証：どれも空なら ◎-第一候補 を1点、三連複も1点作る
     if not nishafuku:
         first = vortex_ids[0] if vortex_ids else (mu_side[0] if mu_side else main_id)
         if first != main_id:
@@ -3367,50 +3350,52 @@ def generate_bets(sig: FlowSignals) -> Bets:
         sanrenpuku.append((main_id, a, b))
 
     notes = f"[{pattern}] FR={sig.FR:.2f} / U={sig.U:.2f} / 渦={vortex_ids} / 逆流={mu_side}"
-    return Bets(nishafuku=nishafuku, wide=wide, sanrenpuku=sanrenpuku, pattern=pattern, notes=notes)
+    return Bets(nishafuku, wide, sanrenpuku, pattern, notes)
 
-# ====== 表示（Streamlit / CLI 両対応） ======
+# ====== “買目” ペイロード化（機械可読） ======
+def bets_to_kaime(b: Bets) -> Dict[str, List[str]]:
+    """アプリ既定の '買目' 向け形式に変換（文字列配列）。"""
+    return {
+        "pattern": [b.pattern],
+        "notes":   [b.notes],
+        "二車複":  [f"{a}-{c}"   for a, c in b.nishafuku],
+        "ワイド":  [f"{a}-{c}"   for a, c in b.wide],
+        "三連複":  [f"{a}-{c}-{d}" for a, c, d in b.sanrenpuku],
+    }
+
+# ====== 表示＋保存 ======
 try:
     import streamlit as st
     _IS_ST = True
 except Exception:
     _IS_ST = False
 
-def _render_bets(bets: Bets) -> None:
+def _render_and_store(bets: Bets, store_key: str = "買目") -> None:
+    # 1) 画面表示（あれば）
     if _IS_ST:
         st.subheader(f"パターン：{bets.pattern}")
         st.caption(bets.notes)
 
         st.markdown("**二車複**")
-        if bets.nishafuku:
-            st.table({"pair": [f"{a}-{b}" for a, b in bets.nishafuku]})
-        else:
-            st.write("—（無し）")
+        st.table({"pair": [f"{a}-{b}" for a, b in bets.nishafuku]}) if bets.nishafuku else st.write("—（無し）")
 
         st.markdown("**ワイド**")
-        if bets.wide:
-            st.table({"pair": [f"{a}-{b}" for a, b in bets.wide]})
-        else:
-            st.write("—（無し）")
+        st.table({"pair": [f"{a}-{b}" for a, b in bets.wide]}) if bets.wide else st.write("—（無し）")
 
         st.markdown("**三連複**")
-        if bets.sanrenpuku:
-            st.table({"trio": [f"{a}-{b}-{c}" for a, b, c in bets.sanrenpuku]})
-        else:
-            st.write("—（無し）")
-    else:
-        print("Pattern:", bets.pattern)
-        print("二車複:", bets.nishafuku or "—")
-        print("ワイド:", bets.wide or "—")
-        print("三連複:", bets.sanrenpuku or "—")
-        print(bets.notes)
+        st.table({"trio": [f"{a}-{b}-{c}" for a, b, c in bets.sanrenpuku]}) if bets.sanrenpuku else st.write("—（無し）")
 
-def velobi_emit(sig: FlowSignals) -> Bets:
+    # 2) session_state["買目"] へ保存（ここが本題）
+    payload = bets_to_kaime(bets)  # 文字列配列の辞書
+    if _IS_ST:
+        st.session_state[store_key] = payload
+
+def velobi_emit(sig: FlowSignals, store_key: str = "買目") -> Bets:
     bets = generate_bets(sig)
-    _render_bets(bets)
+    _render_and_store(bets, store_key=store_key)
     return bets
 
-# ====== デモ（そのままでも動作確認可） ======
+# ====== デモ（必要なら削除OK） ======
 if __name__ == "__main__":
     demo = FlowSignals(
         FR=0.23, U=0.41,
@@ -3419,7 +3404,7 @@ if __name__ == "__main__":
         mu_ids=["6"],
         alpha_ids=["5"],
     )
-    velobi_emit(demo)
+    velobi_emit(demo)  # ← Streamlitなら session_state["買目"] に入る
 
 
 
