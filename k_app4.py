@@ -3215,112 +3215,98 @@ note_sections.append("\n偏差値（風・ライン込み）")
 note_sections.append(_fmt_hen_lines(race_t, USED_IDS))
 note_sections.append("\n")  # 空行
 
-# ====== 差し替え開始：買い目生成（FR/U＋VTX前提の実運用版） ======
-# 期待される入力（上位側で用意されている想定）
-# - result_marks: { "◎":4, "〇":3, "▲":1, "△":2, "×":7, "α":5, "無":6 } など
-# - VTX_RANK: [("1",0.62),("2",0.57),("7",0.20),...]  # ID文字列 or 数値でもOK
-# - FR, U: float（失速危険度・無浮上指標）
-# - note_sections: list（既存の出力バッファ）
-# - ※ なければ適宜フォールバック
+# -*- coding: utf-8 -*-
+"""
+Velobi Hole-Mode Bet Generator
+  - 基本コンセプト：◎非依存。「渦（VTX or 結束）」×「反発（無/α）」×「支援（同ライン結束 or 渦補助）」
+  - 互角/混戦では「結束ピボット（同ライン55+が複数）」を渦に昇格
+  - 逆流主役化（FR×U）で「渦×無/α」「無-α（同ライン）」を優先
+  - 出力：二車複／ワイド／三連複（穴狙いのみ）
 
-FR_THR, U_THR = 0.15, 0.25     # 逆流主役化の推奨しきい値
-VTX_TOP_K = 2                   # 渦として採用する本数
+必要入力（dictでOK）：
+- marks: 例 {"◎":4, "〇":3, "▲":1, "△":2, "×":7, "α":5, "無":6}（印→番号）
+- lines_str: 例 "17 625 43"（半角スペース区切り、各ブロックがライン）
+- hens: 偏差値 dict（{番号:int/float}）
+- FR, U: 失速危険度・無浮上（float）
+- VTX_RANK: 任意（[("1",0.62),("2",0.57),...]）。無ければ結束から渦抽出
+- (任意) race_meta: {"class":"A級","cond":"混戦"} など
 
-def _norm_sym(s: str) -> str:
-    return "〇" if str(s) == "○" else str(s)
+出力：
+- dict {"pattern":..., "pairs_nf":[(a,b),...], "pairs_w":[...], "trios":[(a,b,c),...], "note":"..."}
+"""
 
-def _build_sym2id(rm: dict) -> dict:
-    sym2id = {}
-    if not isinstance(rm, dict):
-        return sym2id
-    symbols = ("◎","〇","○","▲","△","×","α","無")
-    # パターンA: { "◎":4, ... }
-    if any(k in symbols for k in rm.keys()):
-        for sym, num in rm.items():
-            try: sym2id[_norm_sym(sym)] = int(num)
-            except: pass
-        return sym2id
-    # パターンB: { 4:"◎", ... }
-    for num, sym in rm.items():
-        try: sym2id[_norm_sym(sym)] = int(num)
-        except: pass
-    return sym2id
+from dataclasses import dataclass
+from typing import List, Tuple, Dict, Any
 
-def _coerce_id(x):
-    # "4" / 4 / None を int or None に
+FR_THR, U_THR = 0.15, 0.25       # 逆流主役化の初期しきい値
+COH_THR = 55.0                   # 結束判定の偏差値しきい値
+VTX_TOP_K = 2                    # 渦として採用する本数
+MAX_WIDE_NISHAFUKU = 3           # 穴モードは点数を絞る
+
+# ---------- ユーティリティ ----------
+def _coerce_id(x): 
     try: return int(x)
     except: return None
 
-def _get_vtx_ids(VTX_RANK, k=2):
+def _parse_lines(lines_str: str) -> List[List[int]]:
+    # "17 625 43" -> [[1,7],[6,2,5],[4,3]]
+    groups = []
+    for blk in str(lines_str).split():
+        ids = [_coerce_id(ch) for ch in list(blk)]
+        ids = [i for i in ids if isinstance(i, int)]
+        if ids:
+            groups.append(ids)
+    return groups
+
+def _norm_marks(marks: Dict[Any, Any]) -> Dict[str, int]:
+    # 記号→番号 の dict を返す（番号→記号 の場合も吸収）
+    mp = {}
+    if not isinstance(marks, dict): 
+        return mp
+    syms = ("◎","〇","○","▲","△","×","α","無")
+    # パターンA
+    if any(k in syms for k in marks.keys()):
+        for s, n in marks.items():
+            s2 = "〇" if str(s) == "○" else str(s)
+            try: mp[s2] = int(n)
+            except: pass
+        return mp
+    # パターンB
+    for n, s in marks.items():
+        s2 = "〇" if str(s) == "○" else str(s)
+        try: mp[s2] = int(n)
+        except: pass
+    return mp
+
+def _cohesion_lines(groups: List[List[int]], hens: Dict[int, float], thr=COH_THR) -> List[Tuple[List[int], float]]:
+    """各ラインの上位2人の偏差値がthr以上かを見て、結束強度で降順に返す"""
+    out = []
+    for g in groups:
+        vals = sorted([hens.get(i, 0.0) for i in g], reverse=True)
+        if len(vals) >= 2:
+            top2 = vals[0:2]
+            if min(top2) >= thr:
+                out.append((g, sum(top2)/2.0))
+    out.sort(key=lambda x: x[1], reverse=True)
+    return out
+
+def _get_vtx_ids(VTX_RANK, k=VTX_TOP_K) -> List[int]:
     ids = []
     if isinstance(VTX_RANK, (list, tuple)):
         for rid, v in VTX_RANK:
             rid_i = _coerce_id(rid)
-            if rid_i is None: continue
-            if isinstance(v, (int, float)) and v <= 0: continue
+            if rid_i is None: 
+                continue
+            try:
+                if float(v) <= 0: 
+                    continue
+            except:
+                pass
             ids.append(rid_i)
             if len(ids) >= k: break
     return ids
 
-# 入力取得
-_sym2id = _build_sym2id(globals().get('result_marks', {}))
-
-id_main  = _sym2id.get("◎")
-id_mu    = _sym2id.get("無")
-id_alpha = _sym2id.get("α")
-id_a     = _sym2id.get("▲")
-id_d     = _sym2id.get("△")
-id_o     = _sym2id.get("〇")
-id_x     = _sym2id.get("×")
-
-# 渦（VTX上位）優先。無ければ ▲,△,〇,× から補完
-vtx_ids = _get_vtx_ids(globals().get('VTX_RANK'), VTX_TOP_K)
-if len(vtx_ids) < VTX_TOP_K:
-    fallback = [id_a, id_d, id_o, id_x]
-    for z in fallback:
-        if isinstance(z, int) and z not in vtx_ids:
-            vtx_ids.append(z)
-        if len(vtx_ids) >= VTX_TOP_K: break
-vtx_ids = [z for z in vtx_ids if isinstance(z, int)][:VTX_TOP_K]
-
-mu_side = [z for z in (_coerce_id(id_mu), _coerce_id(id_alpha)) if isinstance(z, int)]
-
-FR = float(globals().get('FR', 0.0) or 0.0)
-U  = float(globals().get('U',  0.0) or 0.0)
-is_reverse = (FR > FR_THR) and (U > U_THR)
-
-pairs_nf, pairs_w, trios = [], [], []
-pattern_note = "順流中心"
-
-if is_reverse and mu_side:
-    # ------- 逆流主役化：渦 ×（無/α）、無-α、三連複=渦-無-α -------
-    pattern_note = "逆流主役化"
-    for v in vtx_ids:
-        for r in mu_side:
-            pairs_nf.append((v, r))
-            pairs_w.append((v, r))
-    if len(mu_side) >= 2:
-        pairs_w.append((mu_side[0], mu_side[1]))
-        # 渦1が無ければ渦2にフォールバック
-        v0 = vtx_ids[0] if vtx_ids else (mu_side[0])
-        trios.append((v0, mu_side[0], mu_side[1]))
-    else:
-        # 片側しか無い場合の保険
-        if len(vtx_ids) >= 2:
-            trios.append((vtx_ids[0], vtx_ids[1], mu_side[0]))
-        elif vtx_ids and isinstance(id_main, int):
-            trios.append((id_main, vtx_ids[0], mu_side[0]))
-else:
-    # ------- 順流中心：◎-渦①/◎-渦②、三連複=◎-渦①-渦② -------
-    if isinstance(id_main, int):
-        for v in vtx_ids:
-            pairs_nf.append((id_main, v))
-            pairs_w.append((id_main, v))
-        if len(vtx_ids) >= 2:
-            trios.append((id_main, vtx_ids[0], vtx_ids[1]))
-
-# 重複除去
-def _dedup_pairs(ps):
+def _dedup_pairs(ps: List[Tuple[int,int]]) -> List[Tuple[int,int]]:
     seen, out = set(), []
     for a,b in ps:
         key = tuple(sorted((a,b)))
@@ -3328,7 +3314,7 @@ def _dedup_pairs(ps):
             seen.add(key); out.append((a,b))
     return out
 
-def _dedup_trios(ts):
+def _dedup_trios(ts: List[Tuple[int,int,int]]) -> List[Tuple[int,int,int]]:
     seen, out = set(), []
     for a,b,c in ts:
         key = tuple(sorted((a,b,c)))
@@ -3336,25 +3322,128 @@ def _dedup_trios(ts):
             seen.add(key); out.append((a,b,c))
     return out
 
-pairs_nf = _dedup_pairs(pairs_nf)
-pairs_w  = _dedup_pairs(pairs_w)
-trios    = _dedup_trios(trios)
+# ---------- 中核：穴モード買い目 ----------
+def generate_bets_holemode(
+    marks: Dict[Any, Any],
+    lines_str: str,
+    hens: Dict[int, float],
+    FR: float = 0.0,
+    U: float  = 0.0,
+    VTX_RANK: List[Tuple[Any, float]] = None,
+    race_meta: Dict[str, Any] = None,
+) -> Dict[str, Any]:
+    sym2id = _norm_marks(marks)
+    id_mu    = sym2id.get("無")
+    id_alpha = sym2id.get("α")
+    id_main  = sym2id.get("◎")  # 参照用（必須ではない）
 
-def _fmt_pairs(ps):
-    return "、".join([f"{a}-{b}" for a,b in ps]) if ps else "（生成不可）"
-def _fmt_trios(ts):
-    return "、".join([f"{a}-{b}-{c}" for a,b,c in ts]) if ts else "（生成不可）"
+    groups = _parse_lines(lines_str)
+    # 1) 渦の抽出：VTX優先、無ければ「結束ピボット」
+    vtx_ids = _get_vtx_ids(VTX_RANK, VTX_TOP_K)
+    if len(vtx_ids) < VTX_TOP_K:
+        coh = _cohesion_lines(groups, hens, COH_THR)
+        # 最強結束ラインの上位2人を採用
+        if coh:
+            g0 = coh[0][0]
+            # 偏差値高い順で2名
+            g0_sorted = sorted(g0, key=lambda i: hens.get(i, 0.0), reverse=True)
+            for i in g0_sorted:
+                if i not in vtx_ids:
+                    vtx_ids.append(i)
+                if len(vtx_ids) >= VTX_TOP_K:
+                    break
+    vtx_ids = vtx_ids[:VTX_TOP_K]
 
-# 出力
-if 'note_sections' not in globals() or not isinstance(note_sections, list):
-    note_sections = []
-note_sections.append("【買い目（自動）】")
-note_sections.append(f"判定：{pattern_note}（FR={FR:.2f}, U={U:.2f} / 渦={vtx_ids} / 逆流={mu_side}）")
-note_sections.append(f"二車複　{_fmt_pairs(pairs_nf)}")
-note_sections.append(f"ワイド　{_fmt_pairs(pairs_w)}")
-note_sections.append(f"三連複　{_fmt_trios(trios)}")
-# ====== 差し替え終わり ======
+    # 2) 反発（逆流）側の候補：無/α を集約（欠けてもOK）
+    mu_side = [i for i in [id_mu, id_alpha] if isinstance(i, int)]
 
+    # 3) 逆流主役化判定
+    is_reverse = (float(FR) > FR_THR) and (float(U) > U_THR)
+
+    pairs_nf, pairs_w, trios = [], [], []
+    pattern = "順流中心(穴モード)"
+    note = ""
+
+    if is_reverse and mu_side:
+        pattern = "逆流主役化(穴モード)"
+        # 渦×（無/α）
+        for v in vtx_ids:
+            for r in mu_side:
+                pairs_nf.append((v, r)); pairs_w.append((v, r))
+        # 無-α（同ライン・逆流同士）
+        if len(mu_side) >= 2:
+            pairs_w.append((mu_side[0], mu_side[1]))
+            # コア：渦1−無−α（厚め1点）
+            trios.append((vtx_ids[0], mu_side[0], mu_side[1]))
+        else:
+            # 片側しかない場合：渦1−渦2−無（or 渦1−主流−無）で保険
+            if len(vtx_ids) >= 2:
+                trios.append((vtx_ids[0], vtx_ids[1], mu_side[0]))
+            elif isinstance(id_main, int):
+                trios.append((id_main, vtx_ids[0], mu_side[0]))
+        note = f"[逆流主役化] FR={FR:.2f} U={U:.2f} 渦={vtx_ids} 逆流={mu_side}"
+
+    else:
+        # 互角/混戦に強い「結束ピボット」：渦（=結束ライン上位2）× 対抗主力1
+        # 対抗主力：渦に含まれないIDの中で偏差値が最上位
+        others = sorted(
+            [i for i in hens.keys() if i not in vtx_ids],
+            key=lambda i: hens.get(i, 0.0),
+            reverse=True
+        )
+        opp = others[0] if others else None
+
+        # 二車複/ワイド：渦1-opp、渦2-opp、渦1-渦2（MAX 3点に制限）
+        if isinstance(opp, int) and len(vtx_ids) >= 2:
+            cand_pairs = [(vtx_ids[0], opp), (vtx_ids[1], opp), (vtx_ids[0], vtx_ids[1])]
+        elif isinstance(opp, int) and len(vtx_ids) == 1:
+            cand_pairs = [(vtx_ids[0], opp)]
+        else:
+            cand_pairs = []
+
+        pairs_nf = cand_pairs[:MAX_WIDE_NISHAFUKU]
+        pairs_w  = cand_pairs[:MAX_WIDE_NISHAFUKU]
+
+        # 三連複コア：渦1-渦2-opp（1点）
+        if len(vtx_ids) >= 2 and isinstance(opp, int):
+            trios.append((vtx_ids[0], vtx_ids[1], opp))
+
+        pattern = "結束ピボット(穴モード)"
+        note = f"[結束] 渦={vtx_ids} 対抗={opp} FR={FR:.2f} U={U:.2f}"
+
+    # 重複除去
+    pairs_nf = _dedup_pairs(pairs_nf)
+    pairs_w  = _dedup_pairs(pairs_w)
+    trios    = _dedup_trios(trios)
+
+    return {
+        "pattern": pattern,
+        "pairs_nf": pairs_nf,
+        "pairs_w": pairs_w,
+        "trios": trios,
+        "note": note
+    }
+
+# ---------- ここから下はデモ（弥彦1R/5Rの再現） ----------
+if __name__ == "__main__":
+    # 弥彦1R（混戦・結果 5-2-6）
+    marks_1R = {"◎":4, "〇":3, "▲":1, "△":2, "×":7, "α":5, "無":6}
+    lines_1R = "17 625 43"
+    hens_1R  = {1:59.9, 2:59.8, 3:60.3, 4:61.5, 5:36.9, 6:37.4, 7:49.3}
+    # 波評価：渦は(1,2)、逆流(5,6)。FR/Uを点灯させる
+    VTX_1R   = [("1",0.6),("2",0.55),("7",0.1)]
+    out_1R = generate_bets_holemode(marks_1R, lines_1R, hens_1R, FR=0.23, U=0.41, VTX_RANK=VTX_1R)
+    print("【弥彦1R 穴モード】")
+    print(out_1R)  # 期待：pairsに(1-6,2-6,5-6)含む、triosに(1-5-6) or (2-5-6)
+
+    # 弥彦5R（互角・結果 3-5-4）
+    marks_5R = {"◎":7, "〇":2, "▲":5, "△":1, "×":3, "α":4, "無":6}
+    lines_5R = "71 526 43"
+    hens_5R  = {1:40.5, 2:60.5, 3:55.4, 4:55.6, 5:59.6, 6:36.7, 7:62.7}
+    # FR/Uは点灯なし。VTX未指定なら結束ピボット（43ラインの3,4が55+）から渦抽出→対抗は5
+    out_5R = generate_bets_holemode(marks_5R, lines_5R, hens_5R, FR=0.00, U=0.00, VTX_RANK=None)
+    print("【弥彦5R 穴モード】")
+    print(out_5R)  # 期待：pairsに(3-5,4-5,3-4)、triosに(3-4-5)
 
 
 
