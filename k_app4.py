@@ -3215,139 +3215,184 @@ note_sections.append("\n偏差値（風・ライン込み）")
 note_sections.append(_fmt_hen_lines(race_t, USED_IDS))
 note_sections.append("\n")  # 空行
 
-def select_columns(line_inputs, result_marks, tenkai="優位"):
-    """
-    ライン構成・印に連動して col2(2車)/col3(4車) を自動生成。
-    追加: ライン未提供（または全空）時は印の優先度だけで 2-4 を組むフォールバック。
-    """
-    # ---- 共通ユーティリティ ----
-    def _split_ids(g):
-        return [ch for ch in str(g) if ch.isdigit()]
+# ===== note出力直後に貼るだけ（完全統合版） =====
+# これを note 出力処理の直後に丸ごと貼ってください。
+import re
 
-    def _marks_map(rm):
-        # {"◎": "1", "〇": "2", "▲":"3",...} -> {"1":"◎", "2":"〇", ...}
-        return {str(v): k for k, v in (rm or {}).items() if v}
-
-    def _choose_axis(rm):
-        if "◎" in rm and rm["◎"]:
-            return str(rm["◎"])
-        if "〇" in rm and rm["〇"]:
-            return str(rm["〇"])
-        return None
-
-    def _unique_keep_order(seq):
-        out = []
-        for x in seq:
-            if x and x not in out:
-                out.append(x)
-        return out
-
-    # ---- 入力を分解 ----
-    groups = [_split_ids(g) for g in (line_inputs or []) if str(g).strip()]
-    marks  = _marks_map(result_marks)
-    axis   = _choose_axis(result_marks)
-
-    # 「ラインが実質空？」判定
-    no_lines = (len(groups) == 0) or all(len(g) == 0 for g in groups)
-
-    # ---- ライン有りルート ----
-    if not no_lines:
-
-        # 軸/対抗ライン検出（◎優先、対抗は▲>〇）
-        axis_line  = next((g for g in groups if "◎" in [marks.get(x, "") for x in g]), None)
-        rival_line = next((g for g in groups if "▲" in [marks.get(x, "") for x in g] and g is not axis_line), None)
-        if rival_line is None:
-            rival_line = next((g for g in groups if "〇" in [marks.get(x, "") for x in g] and g is not axis_line), None)
-        others = [g for g in groups if g not in (axis_line, rival_line)]
-
-        # 軸ライン番手／対抗／第三極
-        A2 = axis_line[1] if (axis_line and len(axis_line) >= 2) else None
-        A3 = axis_line[2] if (axis_line and len(axis_line) >= 3) else None
-        B2 = (rival_line[1] if rival_line and len(rival_line) >= 2 else (rival_line[0] if rival_line else None))
-        B1 = rival_line[0] if rival_line else None
-        C1 = (others[0][0] if (others and others[0]) else None)
-
-        # 第2列の優先（展開別）
-        pref2 = {
-            "優位": [A2, B2, A3, C1],
-            "混戦": [A2, C1, B2, A3],
-            "逆流": [A3, C1, B2, A2],
-        }.get(tenkai, [A2, B2, A3, C1])
-
-        col2 = []
-        for x in pref2:
-            if x and x != axis and x not in col2:
-                col2.append(x)
-            if len(col2) == 2:
-                break
-
-        # ◎と〇の先頭は潰し合いを想定（優位のみ両先頭を抑制）
-        AXIS_HEAD  = axis_line[0]  if axis_line  else None
-        RIVAL_HEAD = rival_line[0] if rival_line else None
-        if tenkai == "優位":
-            ban_heads = {AXIS_HEAD, RIVAL_HEAD}
-
-            # ただし“例外”：A2が無い or 対抗単騎なら 〇頭(B1)許容
-            if (A2 is None) or (rival_line and len(rival_line) == 1):
-                ban_heads = {AXIS_HEAD}
+# --- ヘルパ: 入力ソース取得（柔軟） ---
+def _get_note_source():
+    # 優先順: note_sections の末尾 -> note_text 変数 -> raw_block -> "" 
+    src = ""
+    try:
+        if "note_sections" in globals() and isinstance(note_sections, list) and note_sections:
+            src = note_sections[-1]
+        elif "note_text" in globals():
+            src = note_text
+        elif "raw_block" in globals():
+            src = raw_block
         else:
-            # 混戦/逆流は〇頭(B1)も可
-            ban_heads = {AXIS_HEAD} if AXIS_HEAD else set()
+            src = ""
+    except Exception:
+        src = ""
+    return (src or "")
 
-        pref3 = {
-            "優位": [A3, C1, B2, A2, B1],
-            "逆流": [B1, C1, A3, B2, A2],
-            "混戦": [B1, C1, A3, B2, A2],
-        }.get(tenkai, [B1, A3, C1, B2, A2])
+# --- パーサ ---
+def _parse_note_for_inputs(text: str):
+    text = (text or "").replace("　", " ").strip()
+    # ライン（例: ライン　641　3　257 / ライン: 641 3 257）
+    m_line = re.search(r"ライン[:：]?\s*([0-9\s]+)", text)
+    lines_str = (m_line.group(1).strip()) if m_line else ""
 
-        col3 = col2[:]
-        for x in pref3:
-            if x and x != axis and x not in col3 and x not in ban_heads:
-                col3.append(x)
-            if len(col3) == 4:
-                break
+    # 印（◎ 〇 ○ ▲ △ × α 無）
+    marks = {}
+    for sym in ["◎","〇","○","▲","△","×","α","無"]:
+        for mm in re.finditer(fr"{re.escape(sym)}\s*([0-9])", text):
+            key = "〇" if sym in ("○","〇") else sym
+            marks[key] = int(mm.group(1))
 
-        # 足りなければ全体から補完（軸・重複・ban除外）
-        if len(col2) < 2 or len(col3) < 4:
-            flat = [n for g in groups for n in g]
-            for n in flat:
-                if n == axis or (n in ban_heads if 'ban_heads' in locals() else False):
-                    continue
-                if len(col2) < 2 and n not in col2:
-                    col2.append(n)
-                if len(col3) < 4 and n not in col3:
-                    col3.append(n)
-                if len(col2) >= 2 and len(col3) >= 4:
-                    break
+    # 偏差値／スコア（例: 1: 60.8 ）
+    scores = {}
+    for mm in re.finditer(r"(\d)\s*[:：]\s*(-?\d+(?:\.\d+)?)", text):
+        scores[int(mm.group(1))] = float(mm.group(2))
 
-        return axis, col2[:2], col3[:4], groups
+    return lines_str, marks, scores
 
-    # ---- ライン無しルート（フォーメーションを印のみで構築）----
-    # 展開別に“印の優先度”で並べる（◎は軸なので除外）
-    priority_by_tenkai = {
-        # 優位: 〇の頭はやや抑制、▲/α寄りに
-        "優位": ["▲", "α", "×", "〇", "△", "無"],
-        # 混戦: 〇と▲を最優先、次いでα、×、△、無
-        "混戦": ["〇", "▲", "α", "×", "△", "無"],
-        # 逆流: α/〇/▲ の“自力寄り→対抗頭”順
-        "逆流": ["α", "〇", "▲", "×", "△", "無"],
-    }
-    prio = priority_by_tenkai.get(tenkai, ["〇", "▲", "α", "×", "△", "無"])
+# --- 既存 generate_fixed24 があれば使い、なければ内蔵版を用意（軽量かつ互換） ---
+_use_builtin = False
+if "generate_fixed24" in globals() and callable(globals()["generate_fixed24"]):
+    _gen = globals()["generate_fixed24"]
+else:
+    _use_builtin = True
+    def generate_fixed24(marks, lines_str, scores, adaptive=True):
+        # --- 非常にシンプルだが実用的な生成ロジック（単騎軸対応／2-3 or 2-4） ---
+        # 型安全化
+        try:
+            scores = {int(k): float(v) for k, v in (scores or {}).items()}
+        except Exception:
+            scores = {}
+        def _norm(s): return (s or "").replace("　", " ").strip()
+        def _parse_lines(s):
+            parts = [p for p in _norm(s).split() if p]
+            out=[]
+            for p in parts:
+                try:
+                    out.append([int(ch) for ch in p])
+                except Exception:
+                    out.append([int(ch) for ch in p if ch.isdigit()])
+            return out
+        def _buckets(lines):
+            m={}; lid=0
+            for ln in lines:
+                if len(ln)==1:
+                    m[ln[0]] = f"S{ln[0]}"
+                else:
+                    lid+=1
+                    for n in ln: m[n]=f"L{lid}"
+            return m
+        lines = _parse_lines(lines_str)
+        if not lines:
+            base = sorted(scores.keys() or [marks.get("◎",1)])
+            lines = [[n] for n in base]
+        buckets = _buckets(lines)
+        all_nums = sorted({n for ln in lines for n in ln})
+        if not all_nums:
+            return {"note":"—","pairs_nf":[],"pairs_w":[],"trios":[],"pattern":"","second":[],"third":[]}
+        anchor = int((marks or {}).get("◎", all_nums[0]))
+        if anchor not in all_nums:
+            anchor = max(all_nums, key=lambda n: scores.get(n,0))
+        cands = sorted([n for n in all_nums if n!=anchor], key=lambda n:(-scores.get(n,0), n))
+        ab = buckets.get(anchor, None)
+        # 第2列
+        second=[]
+        if ab and ab.startswith("L"):
+            same = [n for n in next((ln for ln in lines if anchor in ln), []) if n!=anchor]
+            if same:
+                second.append(sorted(same, key=lambda n:(-scores.get(n,0), n))[0])
+            for n in cands:
+                if n in second: continue
+                if buckets.get(n)!=ab:
+                    second.append(n); break
+            # 補完
+            for n in cands:
+                if len(second)>=2: break
+                if n not in second: second.append(n)
+        else:
+            # 単騎軸：上位2名（ライン重複は軽く考慮）
+            used=set([anchor])
+            for n in cands:
+                if len(second)>=2: break
+                if n in used: continue
+                second.append(n); used.add(n)
+        second = second[:2]
+        # 第3列サイズ
+        line_cnt = sum(1 for ln in lines if len(ln)>=2)
+        sing_cnt = sum(1 for ln in lines if len(ln)==1)
+        tsz = 3 if (line_cnt<=2 and sing_cnt<=1) else 4
+        third = list(second)
+        for n in cands:
+            if len(third)>=tsz: break
+            if n not in third: third.append(n)
+        third = third[:tsz]
+        pairs = [(anchor,x) for x in second]
+        trios = []
+        seen=set()
+        for a in second:
+            for b in third:
+                if a==b: continue
+                tri=tuple(sorted((anchor,a,b)))
+                if tri not in seen:
+                    seen.add(tri); trios.append(tri)
+        # note 作成
+        def _fmt(nums): return "・".join(str(x) for x in nums) if nums else "—"
+        def _cmp(nums): return "".join(str(x) for x in nums) if nums else ""
+        title = "【フォーメーション（固定2-4）】" if tsz==4 else "【フォーメーション（固定2-3）】"
+        pattern = f"{anchor}-{_cmp(second)}-{_cmp(third)}"
+        note = "\n".join([
+            title,
+            f"ライン：{lines_str or '—'}",
+            f"軸：{anchor}",
+            f"第2列（2車）：{_fmt(second)}",
+            f"第3列（{tsz}車）：{_fmt(third)}",
+            (f"ワイド＆２車複：{pairs[0][0]}-{pairs[0][1]} / {pairs[1][0]}-{pairs[1][1]}" if len(pairs)>=2 else "ワイド＆２車複：—"),
+            f"三連複（展開）：{pattern if pattern else '—'}",
+        ])
+        return {"pairs_nf":pairs,"pairs_w":pairs,"trios":trios,"pattern":pattern,"note":note,"second":second,"third":third}
 
-    # 印→車番へ展開（存在しない印はスキップ）
-    candidates = []
-    for mk in prio:
-        v = result_marks.get(mk)
-        if v and str(v) != str(axis):
-            candidates.append(str(v))
-    candidates = _unique_keep_order(candidates)
+    _gen = generate_fixed24
 
-    # col2: 先頭2台 / col3: col2 + 次の2台 で計4台
-    col2 = candidates[:2]
-    col3 = _unique_keep_order(col2 + candidates[2:])[:4]
+# --- 実行: note から抽出して直接 note_sections に追記 ---
+_note_src = _get_note_source()
+_lines_str, _marks, _scores = _parse_note_for_inputs(_note_src)
 
-    # groups は空配列で返す（上流の表示は "ライン：" のみ or 必要なら '—' を足してOK）
-    return axis, col2, col3, []
+_missing = []
+if not _marks or "◎" not in _marks: _missing.append("◎（軸）")
+if not _lines_str: _missing.append("ライン")
+if not _scores: _missing.append("偏差値")
+
+if _missing:
+    # 不足時は note_sections にエラーメッセージを直書きして終了（画面に出る）
+    msg = "⚠ フォーメーション出力に必要な入力が不足しています: " + "・".join(_missing)
+    if "note_sections" in globals() and isinstance(note_sections, list):
+        note_sections.append(msg)
+    else:
+        # 最低限、print にも出す（デバッグ）
+        print(msg)
+else:
+    try:
+        res = _gen(marks=_marks, lines_str=_lines_str, scores=_scores, adaptive=True)
+        if "note_sections" in globals() and isinstance(note_sections, list):
+            note_sections.append(res["note"])
+        else:
+            # 無ければ print に出す
+            print(res["note"])
+    except Exception as e:
+        err = f"⚠ フォーメーション生成中に例外: {e}"
+        if "note_sections" in globals() and isinstance(note_sections, list):
+            note_sections.append(err)
+        else:
+            print(err)
+# ===== end block =====
+
 
 # === ここまで ===
 
