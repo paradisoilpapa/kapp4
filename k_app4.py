@@ -3354,7 +3354,46 @@ except NameError:
         st.write(f"選出：{'・'.join(selected)}")
         st.write(f"買目（三連複4点）: {lines_str}")
     except Exception:
-        print(f"軸:{axis}, 選出:{selected}, 買目:{lines_str}")
+        # === 安全出力ブロック（note_sections があればそちらへ） ===
+try:
+    # 変数が無い時でも落とさない（プレースホルダ表示）
+    axis_str = str(axis) if 'axis' in locals() and axis else "（軸未設定）"
+    sel_list = selected if 'selected' in locals() and selected else []
+    sel_str  = "・".join(map(str, sel_list)) if sel_list else "（選出なし）"
+
+    trio_list = []
+    if 'combs' in locals() and combs:
+        trio_list = combs
+    elif 'trio' in locals() and trio:   # 変数名が違う場合の救済
+        trio_list = trio
+
+    kaime_str = " / ".join("-".join(map(str, t)) for t in trio_list) if trio_list else "（組み合わせ未生成）"
+
+    if 'note_sections' in globals():
+        note_sections.append("【フォーメーション（自動選定）】")
+        note_sections.append(f"軸：{axis_str}")
+        note_sections.append(f"選出：{sel_str}")
+        note_sections.append(f"買目（三連複）: {kaime_str}")
+    else:
+        try:
+            import streamlit as st
+            st.markdown("### 【フォーメーション（自動選定）】")
+            st.write(f"軸：{axis_str}")
+            st.write(f"選出：{sel_str}")
+            st.write(f"買目（三連複）: {kaime_str}")
+        except Exception:
+            print("【フォーメーション（自動選定）】")
+            print(f"軸：{axis_str}")
+            print(f"選出：{sel_str}")
+            print(f"買目（三連複）: {kaime_str}")
+except Exception as e:
+    try:
+        import streamlit as st
+        st.error(f"出力ブロックで例外: {e!s}")
+    except Exception:
+        print("出力ブロックで例外:", e)
+# === ここまで ===
+
 
 
 # === ここまで ===
