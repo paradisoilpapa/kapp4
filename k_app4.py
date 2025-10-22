@@ -3215,258 +3215,99 @@ note_sections.append("\n偏差値（風・ライン込み）")
 note_sections.append(_fmt_hen_lines(race_t, USED_IDS))
 note_sections.append("\n")  # 空行
 
-# -*- coding: utf-8 -*-
-"""
-Velobi｜note本文 連動フォーメーション（固定2-4・完全一括版）
-------------------------------------------------------------------
-- StreamlitでもCLIでも動作
-- 本文が無ければ自動で貼り付け欄を出す（落ちない）
-- 全角スペース／改行混在も正確に抽出
-- ライン構成・◎〇印に完全連動
-- 展開（優位/混戦/逆流）別で対抗ライン頭を自動切替
-- 出力：note_sections → Streamlit → CLI → formation_result.txt（すべて自動）
-"""
+# =============================
+# 追加ブロック：フォーメーション生成（固定2-4・上流連動版）
+# =============================
 
-import os, re, sys
-from typing import Dict, List, Optional, Tuple
+# --- ユーティリティ ---
+def _split_ids(g):
+    return [ch for ch in str(g) if ch.isdigit()]
 
-# =====================================================
-# 1. 本文の自動取得（安全版）
-# =====================================================
-def read_note_text_auto() -> str:
-    """本文を自動取得。なければStreamlitで貼付欄を出す。"""
-    # 1) 引数ファイル
-    if len(sys.argv) >= 2:
-        p = sys.argv[1]
-        if os.path.isfile(p):
-            with open(p, encoding="utf-8") as f:
-                return f.read()
+def _fmt_groups(gs):
+    return "　".join("".join(x) for x in gs)
 
-    # 2) 環境変数
-    env_txt = os.environ.get("NOTE_TEXT", "")
-    if env_txt.strip():
-        return env_txt
-
-    # 3) note_latest.txt
-    if os.path.isfile("note_latest.txt"):
-        with open("note_latest.txt", encoding="utf-8") as f:
-            t = f.read()
-            if t.strip():
-                return t
-
-    # 4) グローバル変数
-    if "note_text" in globals() and isinstance(globals()["note_text"], str):
-        t = globals()["note_text"]
-        if t.strip():
-            return t
-
-    # 5) Streamlit入力
-    try:
-        import streamlit as st
-        st.markdown("### 入力本文（ここに貼り付け）")
-        default_hint = "例）\n小松島7R\n展開評価：優位\n\nデイ　Ｓ級\nライン　41　256　37\n◎2 〇3 ▲7 △5 ×6 α4 無1"
-        txt = st.text_area("note本文", value=st.session_state.get("note_text", ""), height=240, placeholder=default_hint)
-        if txt and txt.strip():
-            st.session_state["note_text"] = txt
-            return txt
-        st.error("本文が未入力です。貼り付けて再実行してください。")
-        st.stop()
-    except Exception:
-        print("本文が見つかりません。以下のいずれかで供給してください：")
-        print("  1) python k_app4.py path/to/note.txt")
-        print("  2) 環境変数 NOTE_TEXT に本文を設定して実行")
-        print("  3) ./note_latest.txt に本文を保存して実行")
-        sys.exit(0)
-
-
-# =====================================================
-# 2. パース関数（全角・改行対応）
-# =====================================================
-def parse_note_text(text: str) -> Tuple[str, List[Dict[str, str]], str]:
-    t = text.replace("\t", " ")
-    m_line = re.search(r"ライン[：:\s\u3000]+([0-9\s\u3000]+)", t)
-    lines = m_line.group(1).strip().replace("\u3000", " ") if m_line else ""
-    mark_pairs = re.findall(r"([◎〇▲△×α無])\s*([0-9]+)", t)
-    riders = [{"no": b, "mark": a} for a, b in mark_pairs]
-    m_tenkai = re.search(r"展開評価[：:\s\u3000]+(優位|混戦|逆流|互角|不明)", t)
-    tenkai = (m_tenkai.group(1) if m_tenkai else "優位").strip()
-    return lines, riders, tenkai
-
-
-# =====================================================
-# 3. ユーティリティ
-# =====================================================
-def _split_ids(grp: str) -> List[str]:
-    grp = grp.replace("\u3000", "").strip()
-    return [ch for ch in grp if ch.isdigit()]
-
-def _fmt_groups(gs: List[List[str]]) -> str:
-    return "　".join("".join(ids) for ids in gs)
-
-def _fmt_pairs(ps: List[Tuple[str, str]]) -> str:
+def _fmt_pairs(ps):
     return " / ".join(f"{a}-{b}" for a, b in ps) if ps else "—"
 
-def _fmt_trio(axis: str, col2: List[str], col3: List[str]) -> str:
+def _fmt_trio(axis, col2, col3):
     return f"{axis}-" + "".join(col2) + "-" + "".join(col3) if axis and col2 and col3 else "—"
 
 
-# =====================================================
-# 4. 軸決定
-# =====================================================
-def choose_axis(riders: List[Dict[str, str]]) -> Optional[str]:
-    for r in riders:
-        if r.get("mark") == "◎":
-            return r["no"]
-    for r in riders:
-        if r.get("mark") == "〇":
-            return r["no"]
+# --- 軸決定 ---
+def choose_axis(result_marks):
+    if "◎" in result_marks:
+        return str(result_marks["◎"])
+    if "〇" in result_marks:
+        return str(result_marks["〇"])
     return None
 
 
-# =====================================================
-# 5. 列決定（展開別処理）
-# =====================================================
-def select_columns(lines_str: str, riders: List[Dict[str, str]], tenkai: str
-                   ) -> Tuple[Optional[str], List[str], List[str], List[List[str]]]:
-    groups_raw = (lines_str or "").split()
-    groups = [_split_ids(g) for g in groups_raw if g.strip()]
-    mark = {r["no"]: r.get("mark", "") for r in riders}
-
-    def has_mark(ids: List[str], sym: str) -> bool:
-        return any(mark.get(x) == sym for x in ids)
-
-    axis = choose_axis(riders)
-    axis_line = next((ids for ids in groups if has_mark(ids, "◎")), None)
-    rival_line = next((ids for ids in groups if has_mark(ids, "▲") and ids is not axis_line), None)
+# --- 列構成 ---
+def select_columns(line_inputs, result_marks, tenkai="優位"):
+    """ライン構成・印に連動して col2(2車)/col3(4車) を自動生成"""
+    groups = [_split_ids(g) for g in line_inputs if str(g).strip()]
+    marks = {str(v): k for k, v in result_marks.items()}
+    axis = choose_axis(result_marks)
+    axis_line = next((g for g in groups if "◎" in [marks.get(x, "") for x in g]), None)
+    rival_line = next((g for g in groups if "▲" in [marks.get(x, "") for x in g] and g is not axis_line), None)
     if rival_line is None:
-        rival_line = next((ids for ids in groups if has_mark(ids, "〇") and ids is not axis_line), None)
-    if rival_line is None:
-        others_tmp = [ids for ids in groups if ids is not axis_line]
-        rival_line = others_tmp[0] if others_tmp else None
-    others = [ids for ids in groups if ids not in (axis_line, rival_line)]
+        rival_line = next((g for g in groups if "〇" in [marks.get(x, "") for x in g] and g is not axis_line), None)
+    others = [g for g in groups if g not in (axis_line, rival_line)]
 
-    # 候補
+    # 軸ラインの番手
     A2 = axis_line[1] if (axis_line and len(axis_line) >= 2) else None
     A3 = axis_line[2] if (axis_line and len(axis_line) >= 3) else None
-    B2 = (rival_line[1] if (rival_line and len(rival_line) >= 2)
-          else (rival_line[0] if rival_line else None))
+    # 対抗ライン
+    B2 = (rival_line[1] if rival_line and len(rival_line) >= 2 else rival_line[0] if rival_line else None)
     B1 = rival_line[0] if rival_line else None
-    C1 = (others[0][0] if (others and len(others[0]) >= 1) else None)
-    AXIS_HEAD = axis_line[0] if axis_line else None
-    RIVAL_HEAD = rival_line[0] if rival_line else None
-
-    def _should_allow_B1(tenkai: str, A2: Optional[str], rival_line: Optional[List[str]]) -> bool:
-        if tenkai in ("混戦", "逆流"):
-            return True
-        if tenkai == "優位":
-            if not A2 or not rival_line or len(rival_line) < 2:
-                return True
-        return False
-
-    allow_B1 = _should_allow_B1(tenkai, A2, rival_line)
-    ban_heads = {AXIS_HEAD, RIVAL_HEAD} if tenkai == "優位" and not allow_B1 else {AXIS_HEAD}
+    # 第三ライン
+    C1 = others[0][0] if (others and others[0]) else None
 
     pref2 = {
         "優位": [A2, B2, A3, C1],
         "混戦": [A2, C1, B2, A3],
         "逆流": [A3, C1, B2, A2],
-        "互角": [A2, B2, C1, A3],
-        "不明": [A2, B2, C1, A3],
     }.get(tenkai, [A2, B2, A3, C1])
 
-    def _push(dst: List[str], x: Optional[str]):
-        if x and x not in dst and x not in ban_heads and x != axis:
-            dst.append(x)
-
-    col2: List[str] = []
+    col2 = []
     for x in pref2:
-        _push(col2, x)
+        if x and x != axis and x not in col2:
+            col2.append(x)
         if len(col2) == 2:
             break
 
-    if tenkai == "優位":
-        pref3 = ([B1] if allow_B1 else []) + [A3, C1, B2, A2]
-    else:
-        pref3 = [B1, C1, A3, B2, A2]
-
-    col3: List[str] = col2[:]
+    pref3 = [A3, C1, B2, A2, B1]
+    col3 = col2[:]
     for x in pref3:
-        _push(col3, x)
+        if x and x != axis and x not in col3:
+            col3.append(x)
         if len(col3) == 4:
             break
-
-    # 補完
-    if len(col2) < 2 or len(col3) < 4:
-        flat = [n for ids in groups for n in ids]
-        for x in flat:
-            _push(col2, x)
-            _push(col3, x)
-            if len(col2) >= 2 and len(col3) >= 4:
-                break
 
     return axis, col2[:2], col3[:4], groups
 
 
-# =====================================================
-# 6. 券種生成
-# =====================================================
-def build_bets(axis: Optional[str], col2: List[str], col3: List[str]
-               ) -> Tuple[List[Tuple[str, str]], List[Tuple[str, str]], str]:
-    if not axis or len(col2) < 2 or len(col3) < 2:
+# --- 券種展開 ---
+def build_bets(axis, col2, col3):
+    if not axis or not col2 or not col3:
         return [], [], "—"
-    wide = [(axis, col2[0]), (axis, col2[1])]
+    wide = [(axis, col2[0]), (axis, col2[1])] if len(col2) >= 2 else []
     nisha = wide[:]
-    trio_form = _fmt_trio(axis, col2, col3)
-    return wide, nisha, trio_form
+    trio = _fmt_trio(axis, col2, col3)
+    return wide, nisha, trio
 
 
-# =====================================================
-# 7. 出力
-# =====================================================
-def emit_note(lines_str: str, axis: Optional[str], col2: List[str], col3: List[str],
-              wide: List[Tuple[str, str]], nisha: List[Tuple[str, str]],
-              trio_form: str, groups: List[List[str]],
-              write_path: str = "formation_result.txt"):
-    header  = "【フォーメーション（固定2-4）】"
-    linestr = f"ライン：{_fmt_groups(groups)}"
-    axisstr = f"軸：{axis or '（軸未設定）'}"
-    col2str = f"第2列（2車）：{'・'.join(col2) or '—'}"
-    col3str = f"第3列（4車）：{'・'.join(col3) or '—'}"
-    pairstr = f"ワイド＆２車複：{_fmt_pairs(wide)}"
-    triostr = f"三連複（展開）：{trio_form}"
+# --- 出力ブロック ---
+axis, col2, col3, groups = select_columns(line_inputs, result_marks, tenkai=_eval)
+wide, nisha, trio = build_bets(axis, col2, col3)
 
-    try:
-        note_sections.append(header)
-        for s in (linestr, axisstr, col2str, col3str, pairstr, triostr):
-            note_sections.append(s)
-    except NameError:
-        try:
-            import streamlit as st
-            st.markdown(f"### {header}")
-            for s in (linestr, axisstr, col2str, col3str, pairstr, triostr):
-                st.write(s)
-        except Exception:
-            print(header)
-            print(linestr)
-            print(axisstr)
-            print(col2str)
-            print(col3str)
-            print(pairstr)
-            print(triostr)
-    with open(write_path, "w", encoding="utf-8") as f:
-        for s in (header, linestr, axisstr, col2str, col3str, pairstr, triostr):
-            f.write(s + "\n")
-
-
-# =====================================================
-# 8. 実行
-# =====================================================
-if __name__ == "__main__":
-    note_text = read_note_text_auto()
-    lines, riders, tenkai = parse_note_text(note_text)
-    axis, col2, col3, groups = select_columns(lines, riders, tenkai)
-    wide, nisha, trio_form = build_bets(axis, col2, col3)
-    emit_note(lines, axis, col2, col3, wide, nisha, trio_form, groups)
+note_sections.append("【フォーメーション（固定2-4）】")
+note_sections.append(f"ライン：{_fmt_groups(groups)}")
+note_sections.append(f"軸：{axis if axis else '（軸未設定）'}")
+note_sections.append(f"第2列（2車）：{'・'.join(col2) if col2 else '—'}")
+note_sections.append(f"第3列（4車）：{'・'.join(col3) if col3 else '—'}")
+note_sections.append(f"ワイド＆２車複：{_fmt_pairs(wide)}")
+note_sections.append(f"三連複（展開）：{trio}")
 
 # === ここまで ===
 
