@@ -3216,82 +3216,72 @@ note_sections.append(_fmt_hen_lines(race_t, USED_IDS))
 note_sections.append("\n")  # 空行
 
 # ===== note出力直後に貼るだけ（完全統合版） =====
-# これを note 出力処理の直後に丸ごと貼ってください。
-import re
+# ここから追記（note_sections への固定2-4/2-3 出力・完全版）
 
-# --- ヘルパ: 入力ソース取得（柔軟） ---
-def _get_note_source():
-    # 優先順: note_sections の末尾 -> note_text 変数 -> raw_block -> "" 
-    src = ""
+# --- 入力整形 ---
+try:
+    # ライン表記（全角スペース対応）
+    lines_str = " ".join([str(x).replace("　", " ").strip() for x in (line_inputs or []) if str(x).strip()])
+except Exception:
+    lines_str = ""
+
+# 印（◎ など）
+marks = result_marks if isinstance(result_marks, dict) else {}
+
+# 偏差値スコアの抽出（race_t から柔軟に拾う）
+def _num(v):
     try:
-        if "note_sections" in globals() and isinstance(note_sections, list) and note_sections:
-            src = note_sections[-1]
-        elif "note_text" in globals():
-            src = note_text
-        elif "raw_block" in globals():
-            src = raw_block
-        else:
-            src = ""
+        return float(v)
     except Exception:
-        src = ""
-    return (src or "")
-
-# --- パーサ ---
-def _parse_note_for_inputs(text: str):
-    text = (text or "").replace("　", " ").strip()
-    # ライン（例: ライン　641　3　257 / ライン: 641 3 257）
-    m_line = re.search(r"ライン[:：]?\s*([0-9\s]+)", text)
-    lines_str = (m_line.group(1).strip()) if m_line else ""
-
-    # 印（◎ 〇 ○ ▲ △ × α 無）
-    marks = {}
-    for sym in ["◎","〇","○","▲","△","×","α","無"]:
-        for mm in re.finditer(fr"{re.escape(sym)}\s*([0-9])", text):
-            key = "〇" if sym in ("○","〇") else sym
-            marks[key] = int(mm.group(1))
-
-    # 偏差値／スコア（例: 1: 60.8 ）
-    scores = {}
-    for mm in re.finditer(r"(\d)\s*[:：]\s*(-?\d+(?:\.\d+)?)", text):
-        scores[int(mm.group(1))] = float(mm.group(2))
-
-    return lines_str, marks, scores
-
-# --- 既存 generate_fixed24 があれば使い、なければ内蔵版を用意（軽量かつ互換） ---
-_use_builtin = False
-if "generate_fixed24" in globals() and callable(globals()["generate_fixed24"]):
-    _gen = globals()["generate_fixed24"]
-else:
-    _use_builtin = True
-    def generate_fixed24(marks, lines_str, scores, adaptive=True):
-        # --- 非常にシンプルだが実用的な生成ロジック（単騎軸対応／2-3 or 2-4） ---
-        # 型安全化
         try:
-            scores = {int(k): float(v) for k, v in (scores or {}).items()}
+            return float(str(v).replace("%","").strip())
         except Exception:
-            scores = {}
+            return 0.0
+
+def _get_score_from_entry(e):
+    if isinstance(e, (int, float)): return float(e)
+    if isinstance(e, dict):
+        for k in ("偏差値","hensachi","dev","score","sc","S","s","val","value"):
+            if k in e: return _num(e[k])
+    return 0.0
+
+scores = {}
+try:
+    for n in USED_IDS:
+        e = race_t.get(n, race_t.get(int(n), race_t.get(str(n), {})))
+        scores[int(n)] = _get_score_from_entry(e)
+except Exception:
+    # フォールバック：全員0
+    scores = {int(n): 0.0 for n in USED_IDS}
+
+# --- フォーメーション生成（既存があれば使用、無ければ内蔵版） ---
+if "generate_fixed24" in globals() and callable(globals()["generate_fixed24"]):
+    _gen_fixed = globals()["generate_fixed24"]
+else:
+    # 最小・堅牢な内蔵版（単騎軸対応／2-3 or 2-4）
+    from typing import Dict, List, Tuple, Set
+    def generate_fixed24(marks: Dict[str, int], lines_str: str, scores: Dict[int, float], adaptive: bool = True) -> Dict[str, object]:
+        scores = {int(k): float(v) for k, v in (scores or {}).items()}
         def _norm(s): return (s or "").replace("　", " ").strip()
-        def _parse_lines(s):
+        def _parse_lines_local(s: str) -> List[List[int]]:
             parts = [p for p in _norm(s).split() if p]
-            out=[]
+            out: List[List[int]] = []
             for p in parts:
-                try:
-                    out.append([int(ch) for ch in p])
-                except Exception:
-                    out.append([int(ch) for ch in p if ch.isdigit()])
+                nums = [int(ch) for ch in p if ch.isdigit()]
+                if nums: out.append(nums)
             return out
-        def _buckets(lines):
-            m={}; lid=0
+        def _buckets(lines: List[List[int]]) -> Dict[int, str]:
+            m: Dict[int,str] = {}; lid = 0
             for ln in lines:
-                if len(ln)==1:
+                if len(ln) == 1:
                     m[ln[0]] = f"S{ln[0]}"
                 else:
-                    lid+=1
-                    for n in ln: m[n]=f"L{lid}"
+                    lid += 1
+                    for n in ln: m[n] = f"L{lid}"
             return m
-        lines = _parse_lines(lines_str)
+        lines = _parse_lines_local(lines_str)
         if not lines:
-            base = sorted(scores.keys() or [marks.get("◎",1)])
+            base = sorted(scores.keys() or [marks.get("◎", 1)])
             lines = [[n] for n in base]
         buckets = _buckets(lines)
         all_nums = sorted({n for ln in lines for n in ln})
@@ -3299,53 +3289,58 @@ else:
             return {"note":"—","pairs_nf":[],"pairs_w":[],"trios":[],"pattern":"","second":[],"third":[]}
         anchor = int((marks or {}).get("◎", all_nums[0]))
         if anchor not in all_nums:
-            anchor = max(all_nums, key=lambda n: scores.get(n,0))
-        cands = sorted([n for n in all_nums if n!=anchor], key=lambda n:(-scores.get(n,0), n))
+            anchor = max(all_nums, key=lambda n: scores.get(n, 0.0))
+        cands = sorted([n for n in all_nums if n != anchor], key=lambda n: (-scores.get(n,0.0), n))
         ab = buckets.get(anchor, None)
+
         # 第2列
-        second=[]
+        second: List[int] = []
         if ab and ab.startswith("L"):
-            same = [n for n in next((ln for ln in lines if anchor in ln), []) if n!=anchor]
+            same = [n for n in next((ln for ln in lines if anchor in ln), []) if n != anchor]
             if same:
-                second.append(sorted(same, key=lambda n:(-scores.get(n,0), n))[0])
+                second.append(sorted(same, key=lambda n: (-scores.get(n,0.0), n))[0])
             for n in cands:
                 if n in second: continue
-                if buckets.get(n)!=ab:
+                if buckets.get(n) != ab:
                     second.append(n); break
-            # 補完
             for n in cands:
-                if len(second)>=2: break
+                if len(second) >= 2: break
                 if n not in second: second.append(n)
         else:
-            # 単騎軸：上位2名（ライン重複は軽く考慮）
-            used=set([anchor])
+            # 単騎軸：スコア順 2名（ライン重複は軽回避）
+            used: Set[int] = {anchor}
             for n in cands:
-                if len(second)>=2: break
+                if len(second) >= 2: break
                 if n in used: continue
                 second.append(n); used.add(n)
         second = second[:2]
-        # 第3列サイズ
-        line_cnt = sum(1 for ln in lines if len(ln)>=2)
-        sing_cnt = sum(1 for ln in lines if len(ln)==1)
-        tsz = 3 if (line_cnt<=2 and sing_cnt<=1) else 4
+
+        # 第3列サイズ（展開厚み）
+        line_cnt = sum(1 for ln in lines if len(ln) >= 2)
+        sing_cnt = sum(1 for ln in lines if len(ln) == 1)
+        tsz = 3 if (adaptive and line_cnt <= 2 and sing_cnt <= 1) else 4
+
+        # 第3列（第2列内包）
         third = list(second)
         for n in cands:
-            if len(third)>=tsz: break
+            if len(third) >= tsz: break
             if n not in third: third.append(n)
         third = third[:tsz]
-        pairs = [(anchor,x) for x in second]
-        trios = []
-        seen=set()
+
+        # 実点
+        pairs = [(anchor, x) for x in second]
+        seen: Set[Tuple[int,int,int]] = set()
+        trios: List[Tuple[int,int,int]] = []
         for a in second:
             for b in third:
-                if a==b: continue
-                tri=tuple(sorted((anchor,a,b)))
-                if tri not in seen:
-                    seen.add(tri); trios.append(tri)
-        # note 作成
+                if a == b: continue
+                t = tuple(sorted((anchor, a, b)))
+                if t not in seen:
+                    seen.add(t); trios.append(t)
+
         def _fmt(nums): return "・".join(str(x) for x in nums) if nums else "—"
         def _cmp(nums): return "".join(str(x) for x in nums) if nums else ""
-        title = "【フォーメーション（固定2-4）】" if tsz==4 else "【フォーメーション（固定2-3）】"
+        title = "【フォーメーション（固定2-4）】" if tsz == 4 else "【フォーメーション（固定2-3）】"
         pattern = f"{anchor}-{_cmp(second)}-{_cmp(third)}"
         note = "\n".join([
             title,
@@ -3353,45 +3348,24 @@ else:
             f"軸：{anchor}",
             f"第2列（2車）：{_fmt(second)}",
             f"第3列（{tsz}車）：{_fmt(third)}",
-            (f"ワイド＆２車複：{pairs[0][0]}-{pairs[0][1]} / {pairs[1][0]}-{pairs[1][1]}" if len(pairs)>=2 else "ワイド＆２車複：—"),
+            (f"ワイド＆２車複：{pairs[0][0]}-{pairs[0][1]} / {pairs[1][0]}-{pairs[1][1]}" if len(pairs) >= 2 else "ワイド＆２車複：—"),
             f"三連複（展開）：{pattern if pattern else '—'}",
         ])
-        return {"pairs_nf":pairs,"pairs_w":pairs,"trios":trios,"pattern":pattern,"note":note,"second":second,"third":third}
+        return {"pairs_nf": pairs, "pairs_w": pairs, "trios": trios, "pattern": pattern, "note": note,
+                "second": second, "third": third}
+    _gen_fixed = generate_fixed24
 
-    _gen = generate_fixed24
+# --- 生成して note_sections に追記 ---
+try:
+    res__ = _gen_fixed(marks=marks, lines_str=lines_str, scores=scores, adaptive=True)
+    note_sections.append(res__["note"])
+    # 実点の列挙（表は使わない）
+    if res__.get("trios"):
+        _triostr = ", ".join(f"{a}-{b}-{c}" for a,b,c in res__["trios"])
+        note_sections.append("三連複（ユニーク実点）: " + _triostr)
+except Exception as _e:
+    note_sections.append(f"⚠ フォーメーション生成エラー: {type(_e).__name__}: {str(_e)}")
 
-# --- 実行: note から抽出して直接 note_sections に追記 ---
-_note_src = _get_note_source()
-_lines_str, _marks, _scores = _parse_note_for_inputs(_note_src)
-
-_missing = []
-if not _marks or "◎" not in _marks: _missing.append("◎（軸）")
-if not _lines_str: _missing.append("ライン")
-if not _scores: _missing.append("偏差値")
-
-if _missing:
-    # 不足時は note_sections にエラーメッセージを直書きして終了（画面に出る）
-    msg = "⚠ フォーメーション出力に必要な入力が不足しています: " + "・".join(_missing)
-    if "note_sections" in globals() and isinstance(note_sections, list):
-        note_sections.append(msg)
-    else:
-        # 最低限、print にも出す（デバッグ）
-        print(msg)
-else:
-    try:
-        res = _gen(marks=_marks, lines_str=_lines_str, scores=_scores, adaptive=True)
-        if "note_sections" in globals() and isinstance(note_sections, list):
-            note_sections.append(res["note"])
-        else:
-            # 無ければ print に出す
-            print(res["note"])
-    except Exception as e:
-        err = f"⚠ フォーメーション生成中に例外: {e}"
-        if "note_sections" in globals() and isinstance(note_sections, list):
-            note_sections.append(err)
-        else:
-            print(err)
-# ===== end block =====
 
 
 # === ここまで ===
