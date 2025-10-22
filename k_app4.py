@@ -3399,41 +3399,45 @@ if __name__ == "__main__":
     axis, col2, col3, groups = select_columns(lines, riders, tenkai=tenkai)
     wide, nisha, trio = build_bets(axis, col2, col3)
 
-    # --- note出力（append配管があれば使う／無ければ直出し） ---
-   def _fmt_groups(gs): return "　".join("".join(ids) for ids in gs)
-   def _fmt_pairs(ps):  return " / ".join(f"{a}-{b}" for a,b in ps) if ps else "—"
-   def _fmt_trios_form(axis, col2, col3):
-    if not axis or not col2 or not col3:
-        return "（組み合わせ未生成）"
-    return f"{axis}-" + "".join(col2) + "-" + "".join(col3)
+    # --- 出力用フォーマッタ（__main__ の中で定義／インデント4スペース） ---
+    def _fmt_groups(gs):
+        return "　".join("".join(ids) for ids in gs)
 
-try:
-    note_sections.append("【フォーメーション（固定2-4）】")
-    note_sections.append(f"ライン：{_fmt_groups(groups)}")
-    note_sections.append(f"軸：{axis if axis else '（軸未設定）'}")
-    note_sections.append(f"第2列（2車）：{'・'.join(col2) if col2 else '—'}")
-    note_sections.append(f"第3列（4車）：{'・'.join(col3) if col3 else '—'}")
-    note_sections.append(f"ワイド＆２車複：{_fmt_pairs(wide)}")
-    note_sections.append(f"三連複（展開）：{_fmt_trios_form(axis, col2, col3)}")
+    def _fmt_pairs(ps):
+        return " / ".join(f"{a}-{b}" for a, b in ps) if ps else "—"
 
-except NameError:
+    def _fmt_trios_form(axis_no, c2, c3):
+        if not axis_no or not c2 or not c3:
+            return "（組み合わせ未生成）"
+        return f"{axis_no}-" + "".join(c2) + "-" + "".join(c3)
+
+    # --- note出力（append配管があれば使う／無ければ Streamlit/CLI） ---
     try:
-        import streamlit as st
-        st.markdown("### 【フォーメーション（固定2-4）】")
-        st.write(f"ライン：{_fmt_groups(groups)}")
-        st.write(f"軸：{axis if axis else '（軸未設定）'}")
-        st.write(f"第2列（2車）：{'・'.join(col2) if col2 else '—'}")
-        st.write(f"第3列（4車）：{'・'.join(col3) if col3 else '—'}")
-        st.write(f"ワイド＆２車複：{_fmt_pairs(wide)}")
-        st.write(f"三連複（展開）：{_fmt_trios_form(axis, col2, col3)}")
-    except Exception:
-        print("【フォーメーション（固定2-4）】")
-        print("ライン：", _fmt_groups(groups))
-        print("軸：", axis if axis else "（軸未設定）")
-        print("第2列（2車）：", "・".join(col2) if col2 else "—")
-        print("第3列（4車）：", "・".join(col3) if col3 else "—")
-        print("ワイド＆２車複：", _fmt_pairs(wide))
-        print("三連複（展開）：", _fmt_trios_form(axis, col2, col3))
+        note_sections.append("【フォーメーション（固定2-4）】")
+        note_sections.append(f"ライン：{_fmt_groups(groups)}")
+        note_sections.append(f"軸：{axis if axis else '（軸未設定）'}")
+        note_sections.append(f"第2列（2車）：{'・'.join(col2) if col2 else '—'}")
+        note_sections.append(f"第3列（4車）：{'・'.join(col3) if col3 else '—'}")
+        note_sections.append(f"ワイド＆２車複：{_fmt_pairs(wide)}")
+        note_sections.append(f"三連複（展開）：{_fmt_trios_form(axis, col2, col3)}")
+    except NameError:
+        try:
+            import streamlit as st
+            st.markdown("### 【フォーメーション（固定2-4）】")
+            st.write(f"ライン：{_fmt_groups(groups)}")
+            st.write(f"軸：{axis if axis else '（軸未設定）'}")
+            st.write(f"第2列（2車）：{'・'.join(col2) if col2 else '—'}")
+            st.write(f"第3列（4車）：{'・'.join(col3) if col3 else '—'}")
+            st.write(f"ワイド＆２車複：{_fmt_pairs(wide)}")
+            st.write(f"三連複（展開）：{_fmt_trios_form(axis, col2, col3)}")
+        except Exception:
+            print("【フォーメーション（固定2-4）】")
+            print("ライン：", _fmt_groups(groups))
+            print("軸：", axis if axis else "（軸未設定）")
+            print("第2列（2車）：", "・".join(col2) if col2 else "—")
+            print("第3列（4車）：", "・".join(col3) if col3 else "—")
+            print("ワイド＆２車複：", _fmt_pairs(wide))
+            print("三連複（展開）：", _fmt_trios_form(axis, col2, col3))
 
 
 # === ここまで ===
