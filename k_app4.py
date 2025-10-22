@@ -3326,33 +3326,34 @@ axis, pool, groups = select_pool(lines, riders)
 trios = make_trio(axis, pool)
 
 
-    # --- note出力（append配管があれば使う／無ければ直出し） ---
-    def _fmt_trios(trios):
-        return " / ".join("-".join(map(str, t)) for t in trios) if trios else "（組み合わせ未生成）"
+   # --- note出力（append配管があれば使う／無ければ直出し） ---
+def _fmt_trios(trios):
+    return " / ".join("-".join(map(str, t)) for t in trios) if trios else "（組み合わせ未生成）"
 
-    def _fmt_groups(gs):
-        return "　".join("".join(ids) for ids in gs)
+def _fmt_groups(gs):
+    return "　".join("".join(ids) for ids in gs)
 
+try:
+    note_sections.append("【フォーメーション（自動選定）】")
+    note_sections.append(f"ライン：{_fmt_groups(groups)}")
+    note_sections.append(f"軸：{axis if axis else '（軸未設定）'}")
+    note_sections.append(f"相手プール：{'・'.join(pool) if pool else '（空）'}")
+    note_sections.append(f"買目（三連複）: {_fmt_trios(trios)}")
+
+except NameError:
     try:
-        note_sections.append("【フォーメーション（自動選定）】")
-        note_sections.append(f"ライン：{_fmt_groups(groups)}")
-        note_sections.append(f"軸：{axis if axis else '（軸未設定）'}")
-        note_sections.append(f"相手プール：{'・'.join(pool) if pool else '（空）'}")
-        note_sections.append(f"買目（三連複）: {_fmt_trios(trios)}")
-    except NameError:
-        try:
-            import streamlit as st
-            st.markdown("### 【フォーメーション（自動選定）】")
-            st.write(f"ライン：{_fmt_groups(groups)}")
-            st.write(f"軸：{axis if axis else '（軸未設定）'}")
-            st.write(f"相手プール：{'・'.join(pool) if pool else '（空）'}")
-            st.write(f"買目（三連複）: {_fmt_trios(trios)}")
-        except Exception:
-            print("【フォーメーション（自動選定）】")
-            print("ライン：", _fmt_groups(groups))
-            print("軸：", axis if axis else "（軸未設定）")
-            print("相手プール：", "・".join(pool) if pool else "（空）")
-            print("買目（三連複）：", _fmt_trios(trios))
+        import streamlit as st
+        st.markdown("### 【フォーメーション（自動選定）】")
+        st.write(f"ライン：{_fmt_groups(groups)}")
+        st.write(f"軸：{axis if axis else '（軸未設定）'}")
+        st.write(f"相手プール：{'・'.join(pool) if pool else '（空）'}")
+        st.write(f"買目（三連複）: {_fmt_trios(trios)}")
+    except Exception:
+        print("【フォーメーション（自動選定）】")
+        print("ライン：", _fmt_groups(groups))
+        print("軸：", axis if axis else "（軸未設定）")
+        print("相手プール：", "・".join(pool) if pool else "（空）")
+        print("買目（三連複）：", _fmt_trios(trios))
 
 # === ここまで ===
 
