@@ -3401,8 +3401,8 @@ if __name__ == "__main__":
 
     # --- note出力（append配管があれば使う／無ければ直出し） ---
    def _fmt_groups(gs): return "　".join("".join(ids) for ids in gs)
-def _fmt_pairs(ps):  return " / ".join(f"{a}-{b}" for a,b in ps) if ps else "—"
-def _fmt_trios_form(axis, col2, col3):
+   def _fmt_pairs(ps):  return " / ".join(f"{a}-{b}" for a,b in ps) if ps else "—"
+   def _fmt_trios_form(axis, col2, col3):
     if not axis or not col2 or not col3:
         return "（組み合わせ未生成）"
     return f"{axis}-" + "".join(col2) + "-" + "".join(col3)
