@@ -3362,7 +3362,7 @@ try:
     # 実点の列挙（表は使わない）
     if res__.get("trios"):
         _triostr = ", ".join(f"{a}-{b}-{c}" for a,b,c in res__["trios"])
-        note_sections.append("三連複（ユニーク実点）: " + _triostr)
+       
 except Exception as _e:
     note_sections.append(f"⚠ フォーメーション生成エラー: {type(_e).__name__}: {str(_e)}")
 
