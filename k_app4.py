@@ -3216,49 +3216,123 @@ note_sections.append(_fmt_hen_lines(race_t, USED_IDS))
 note_sections.append("\n")  # 空行
 
 # --- note用出力（ラインと印を対応） ---
-# === note用：ライン⇄印 2行（単桁/二桁どちらもOK・貼るだけ） ===
-import streamlit as st
+# -*- coding: utf-8 -*-
+"""
+軸の概念と3車選定ロジック（Velobi基幹思想）
+---------------------------------------------------
+1. 軸は「展開を支配する者」
+    - ◎が先行/捲り型なら ◎軸
+    - ◎が追込/自在型なら ○軸
+    - 展開が読めない/混戦なら ○軸
 
-def note_two_lines(lines_str: str, marks_str: str) -> str:
-    # 全角→半角（数字/スペース）
-    z2h = str.maketrans("０１２３４５６７８９　", "0123456789 ")
-    lines_str = str(lines_str or "").translate(z2h).strip()
-    marks_str = str(marks_str or "").translate(z2h).strip()
+2. 相手の3車構成（ワイド・3連複共通）
+    A = ◎ラインの2番手
+    B = 対抗ラインの2番手
+    C = 無所属（どちらのラインでもない）の1番手
+    → 軸＋A,B,C で構成（軸を含む場合は3〜4点）
+"""
 
-    # 車番→印 の辞書（例: {"7":"◎","5":"〇",...}）
-    mp = {}
-    for tok in marks_str.split():
-        if tok:
-            mp[tok[1:]] = tok[0]
+from typing import Dict, List, Optional
 
-    groups = lines_str.split()  # 例: ["71","526","43"]
+def choose_axis(riders: List[Dict[str, str]]) -> Optional[str]:
+    """
+    軸を決定する。
+    riders: [{"no":"4","mark":"◎","style":"逃"}, {"no":"3","mark":"〇","style":"追"} ...]
+    戻り値: 軸となる選手番号（str）
+    """
+    axis = None
+    # 1. ◎が自力（逃・捲）なら◎軸
+    for r in riders:
+        if r["mark"] == "◎" and r["style"] in ("逃", "捲"):
+            axis = r["no"]
+            break
+    # 2. ◎が追・自在なら○軸
+    if not axis:
+        for r in riders:
+            if r["mark"] == "◎" and r["style"] in ("追","自","自在"):
+                # ◎が他力型 → ○軸
+                for s in riders:
+                    if s["mark"] == "〇":
+                        axis = s["no"]
+                        break
+    # 3. 展開不明なら○軸優先
+    if not axis:
+        for r in riders:
+            if r["mark"] == "〇":
+                axis = r["no"]
+                break
+    return axis
 
-    # 二桁キーが存在するかを確認（10,11などがある場合に貪欲2桁→1桁）
-    has2 = any(len(k) > 1 for k in mp)
 
-    mark_groups = []
+def select_3cars(lines_str: str, riders: List[Dict[str, str]]) -> List[str]:
+    """
+    3車を自動選定する（◎ライン2番手、対抗ライン2番手、無所属1番手）
+    lines_str: "17 625 43" のような文字列
+    riders: [{"no":"4","mark":"◎"}, {"no":"3","mark":"〇"}, {"no":"2","mark":"▲"}, ...]
+    """
+    groups = lines_str.split()
+    mark_map = {r["no"]: r["mark"] for r in riders}
+    # ◎と〇が属するラインを抽出
+    axis_line, rival_line = None, None
     for g in groups:
-        i, buf = 0, []
-        while i < len(g):
-            # まず2桁を試す（存在する場合のみ）
-            if has2 and i + 2 <= len(g) and g[i:i+2] in mp:
-                buf.append(mp[g[i:i+2]])
-                i += 2
-                continue
-            # 次に1桁
-            buf.append(mp.get(g[i], "？"))
-            i += 1
-        mark_groups.append("".join(buf))
+        if any(ch for ch in g if mark_map.get(ch) == "◎"):
+            axis_line = g
+        if any(ch for ch in g if mark_map.get(ch) == "〇"):
+            rival_line = g
 
-    J = "　"  # 全角スペース
-    return f"{J.join(groups)}\n{J.join(mark_groups)}"
+    A = None  # ◎ラインの2番手
+    B = None  # 対抗ラインの2番手
+    C = None  # 無所属ラインの1番手
 
-# ▼ 川崎1R（そのまま出る）。他レースは2行だけ差し替え
-lines_str = "71 526 43"
-marks_str = "◎7 〇5 ▲2 △1 ×4 α3 無6"
+    if axis_line and len(axis_line) >= 2:
+        A = axis_line[1]  # 2番手
+    if rival_line and len(rival_line) >= 2:
+        B = rival_line[1]
+    # 無所属ライン＝◎ライン・対抗ライン以外のグループ
+    others = [g for g in groups if g not in (axis_line, rival_line)]
+    if others:
+        C = others[0][0]  # そのラインの1番手
 
-note_block = note_two_lines(lines_str, marks_str)
-st.markdown(note_block.replace("\n", "<br>"), unsafe_allow_html=True)
+    out = [x for x in (A, B, C) if x]
+    return out
+
+
+def generate_combination(lines_str: str, riders: List[Dict[str, str]]) -> Dict[str, List[tuple]]:
+    """
+    軸＋3車構成に基づくフォーメーションを生成
+    """
+    axis = choose_axis(riders)
+    selected = select_3cars(lines_str, riders)
+
+    if not axis or len(selected) < 2:
+        return {"error": "軸または3車構成が不十分"}
+
+    # 3連複（◎含む4点構成）
+    from itertools import combinations
+    base = [axis] + selected
+    combs = list(combinations(base, 3))
+    return {
+        "axis": axis,
+        "selected": selected,
+        "trio": combs
+    }
+
+
+# ==== 使用例 ====
+if __name__ == "__main__":
+    riders = [
+        {"no": "4", "mark": "◎", "style": "逃"},
+        {"no": "3", "mark": "〇", "style": "追"},
+        {"no": "2", "mark": "▲", "style": "自在"},
+        {"no": "1", "mark": "△", "style": "追"},
+        {"no": "7", "mark": "×", "style": "追"},
+        {"no": "5", "mark": "α", "style": "捲"},
+        {"no": "6", "mark": "無", "style": "追"},
+    ]
+    lines = "17 625 43"
+    out = generate_combination(lines, riders)
+    print(out)
+
 
 # === ここまで ===
 
