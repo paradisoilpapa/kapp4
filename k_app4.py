@@ -3219,106 +3219,75 @@ note_sections.append("\n")  # 空行
 # -*- coding: utf-8 -*-
 """
 軸の概念と3車選定ロジック（Velobi基幹思想）
----------------------------------------------------
-1. 軸は「展開を支配する者」
-    - ◎が先行/捲り型なら ◎軸
-    - ◎が追込/自在型なら ○軸
-    - 展開が読めない/混戦なら ○軸
-
-2. 相手の3車構成（ワイド・3連複共通）
-    A = ◎ラインの2番手
-    B = 対抗ラインの2番手
-    C = 無所属（どちらのラインでもない）の1番手
-    → 軸＋A,B,C で構成（軸を含む場合は3〜4点）
+1) 軸は「展開を支配する者」
+   - ◎が先行/捲り型→◎軸
+   - ◎が追込/自在型→○軸
+   - 読みにくい/混戦→○軸
+2) 相手の3車構成（ワイド・三連複共通）
+   A=◎ライン2番手 / B=対抗ライン2番手 / C=無所属ライン1番手
+   → 三連複は「◎＋A,B,C」の組合せ（最大4点）
 """
 
 from typing import Dict, List, Optional
 
 def choose_axis(riders: List[Dict[str, str]]) -> Optional[str]:
-    """
-    軸を決定する。
-    riders: [{"no":"4","mark":"◎","style":"逃"}, {"no":"3","mark":"〇","style":"追"} ...]
-    戻り値: 軸となる選手番号（str）
-    """
+    """軸を決定（脚質＋印で判断）"""
     axis = None
     # 1. ◎が自力（逃・捲）なら◎軸
     for r in riders:
-        if r["mark"] == "◎" and r["style"] in ("逃", "捲"):
-            axis = r["no"]
-            break
-    # 2. ◎が追・自在なら○軸
+        if r.get("mark") == "◎" and r.get("style") in ("逃", "捲"):
+            axis = r.get("no"); break
+    # 2. ◎が追/自在なら○軸
     if not axis:
         for r in riders:
-            if r["mark"] == "◎" and r["style"] in ("追","自","自在"):
-                # ◎が他力型 → ○軸
+            if r.get("mark") == "◎" and r.get("style") in ("追", "自", "自在"):
                 for s in riders:
-                    if s["mark"] == "〇":
-                        axis = s["no"]
-                        break
-    # 3. 展開不明なら○軸優先
+                    if s.get("mark") == "〇":
+                        axis = s.get("no"); break
+                break
+    # 3. 展開不明なら○優先
     if not axis:
         for r in riders:
-            if r["mark"] == "〇":
-                axis = r["no"]
-                break
+            if r.get("mark") == "〇":
+                axis = r.get("no"); break
     return axis
-
 
 def select_3cars(lines_str: str, riders: List[Dict[str, str]]) -> List[str]:
     """
-    3車を自動選定する（◎ライン2番手、対抗ライン2番手、無所属1番手）
-    lines_str: "17 625 43" のような文字列
-    riders: [{"no":"4","mark":"◎"}, {"no":"3","mark":"〇"}, {"no":"2","mark":"▲"}, ...]
+    3車を自動選定（A:◎ライン2番手 / B:対抗ライン2番手 / C:無所属1番手）
+    ※ライン表記は例: "17 625 43"（各グループは文字列として扱う）
     """
     groups = lines_str.split()
-    mark_map = {r["no"]: r["mark"] for r in riders}
-    # ◎と〇が属するラインを抽出
+    mark_map = {r.get("no"): r.get("mark") for r in riders}
+
     axis_line, rival_line = None, None
     for g in groups:
-        if any(ch for ch in g if mark_map.get(ch) == "◎"):
+        if any((mark_map.get(ch) == "◎") for ch in g):
             axis_line = g
-        if any(ch for ch in g if mark_map.get(ch) == "〇"):
+        if any((mark_map.get(ch) == "〇") for ch in g):
             rival_line = g
 
-    A = None  # ◎ラインの2番手
-    B = None  # 対抗ラインの2番手
-    C = None  # 無所属ラインの1番手
-
-    if axis_line and len(axis_line) >= 2:
-        A = axis_line[1]  # 2番手
-    if rival_line and len(rival_line) >= 2:
-        B = rival_line[1]
-    # 無所属ライン＝◎ライン・対抗ライン以外のグループ
+    A = axis_line[1] if (axis_line and len(axis_line) >= 2) else None
+    B = rival_line[1] if (rival_line and len(rival_line) >= 2) else None
     others = [g for g in groups if g not in (axis_line, rival_line)]
-    if others:
-        C = others[0][0]  # そのラインの1番手
+    C = others[0][0] if others else None
 
-    out = [x for x in (A, B, C) if x]
-    return out
+    return [x for x in (A, B, C) if x]
 
-
-def generate_combination(lines_str: str, riders: List[Dict[str, str]]) -> Dict[str, List[tuple]]:
-    """
-    軸＋3車構成に基づくフォーメーションを生成
-    """
+def generate_combination(lines_str: str, riders: List[Dict[str, str]]):
+    """軸＋3車に基づく三連複候補を返す（辞書形式）"""
     axis = choose_axis(riders)
     selected = select_3cars(lines_str, riders)
 
     if not axis or len(selected) < 2:
-        return {"error": "軸または3車構成が不十分"}
+        return {"axis": axis, "selected": selected, "trio": [], "error": "軸または3車構成が不十分"}
 
-    # 3連複（◎含む4点構成）
     from itertools import combinations
     base = [axis] + selected
-    combs = list(combinations(base, 3))
-    return {
-        "axis": axis,
-        "selected": selected,
-        "trio": combs
-    }
+    combs = list(combinations(base, 3))  # 最大4通り（◎含む3通り＋A-B-C保険1通り）
+    return {"axis": axis, "selected": selected, "trio": combs, "error": ""}
 
-
-# ==== 使用例 ====
+# ==== 使用例（ここは任意で差し替え）====
 if __name__ == "__main__":
     riders = [
         {"no": "4", "mark": "◎", "style": "逃"},
@@ -3331,70 +3300,34 @@ if __name__ == "__main__":
     ]
     lines = "17 625 43"
     out = generate_combination(lines, riders)
-    print(out)
 
-# --- note出力（自動でフォーマットを構築） ---
-try:
-    note_sections.append("【フォーメーション（自動選定）】")
+    # ここで明示的に“受け取り”を行う（NameError対策）
+    axis    = out.get("axis")
+    selected= out.get("selected", [])
+    combs   = out.get("trio", [])
 
-    # 軸と選出車の表示
-    note_sections.append(f"軸：{axis}")
-    note_sections.append(f"選出：{'・'.join(selected)}")
+    # --- note出力（append配管があれば使う／無ければ直出し） ---
+    def _fmt_trios(trios):
+        return " / ".join("-".join(map(str, t)) for t in trios) if trios else "（組み合わせ未生成）"
 
-    # 買目（三連複4点構成）
-    lines_str = " / ".join(["-".join(c) for c in combs])
-    note_sections.append(f"買目（三連複4点）: {lines_str}")
-
-except NameError:
-    # note_sectionsが定義されていない場合はStreamlit直出し
     try:
-        import streamlit as st
-        st.markdown("### 【フォーメーション（自動選定）】")
-        st.write(f"軸：{axis}")
-        st.write(f"選出：{'・'.join(selected)}")
-        st.write(f"買目（三連複4点）: {lines_str}")
-    except Exception:
-        # === 安全出力ブロック（note_sections があればそちらへ） ===
-try:
-    # 変数が無い時でも落とさない（プレースホルダ表示）
-    axis_str = str(axis) if 'axis' in locals() and axis else "（軸未設定）"
-    sel_list = selected if 'selected' in locals() and selected else []
-    sel_str  = "・".join(map(str, sel_list)) if sel_list else "（選出なし）"
-
-    trio_list = []
-    if 'combs' in locals() and combs:
-        trio_list = combs
-    elif 'trio' in locals() and trio:   # 変数名が違う場合の救済
-        trio_list = trio
-
-    kaime_str = " / ".join("-".join(map(str, t)) for t in trio_list) if trio_list else "（組み合わせ未生成）"
-
-    if 'note_sections' in globals():
         note_sections.append("【フォーメーション（自動選定）】")
-        note_sections.append(f"軸：{axis_str}")
-        note_sections.append(f"選出：{sel_str}")
-        note_sections.append(f"買目（三連複）: {kaime_str}")
-    else:
+        note_sections.append(f"軸：{axis if axis else '（軸未設定）'}")
+        note_sections.append(f"選出：{'・'.join(selected) if selected else '（選出なし）'}")
+        note_sections.append(f"買目（三連複）: {_fmt_trios(combs)}")
+    except NameError:
+        # note_sections が無い環境 → Streamlit or CLI に安全出力
         try:
             import streamlit as st
             st.markdown("### 【フォーメーション（自動選定）】")
-            st.write(f"軸：{axis_str}")
-            st.write(f"選出：{sel_str}")
-            st.write(f"買目（三連複）: {kaime_str}")
+            st.write(f"軸：{axis if axis else '（軸未設定）'}")
+            st.write(f"選出：{'・'.join(selected) if selected else '（選出なし）'}")
+            st.write(f"買目（三連複）: {_fmt_trios(combs)}")
         except Exception:
             print("【フォーメーション（自動選定）】")
-            print(f"軸：{axis_str}")
-            print(f"選出：{sel_str}")
-            print(f"買目（三連複）: {kaime_str}")
-except Exception as e:
-    try:
-        import streamlit as st
-        st.error(f"出力ブロックで例外: {e!s}")
-    except Exception:
-        print("出力ブロックで例外:", e)
-# === ここまで ===
-
-
+            print(f"軸：{axis if axis else '（軸未設定）'}")
+            print(f"選出：{'・'.join(selected) if selected else '（選出なし）'}")
+            print(f"買目（三連複）: {_fmt_trios(combs)}")
 
 # === ここまで ===
 
