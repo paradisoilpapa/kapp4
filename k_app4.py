@@ -3285,7 +3285,8 @@ def select_columns(line_inputs, result_marks, tenkai="優位"):
         AXIS_HEAD  = axis_line[0]  if axis_line  else None
         RIVAL_HEAD = rival_line[0] if rival_line else None
         if tenkai == "優位":
-            ban_heads = {AXIS_H EAD, RIVAL_HEAD}
+            ban_heads = {AXIS_HEAD, RIVAL_HEAD}
+
             # ただし“例外”：A2が無い or 対抗単騎なら 〇頭(B1)許容
             if (A2 is None) or (rival_line and len(rival_line) == 1):
                 ban_heads = {AXIS_HEAD}
