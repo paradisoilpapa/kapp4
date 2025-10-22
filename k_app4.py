@@ -3215,51 +3215,64 @@ note_sections.append("\n偏差値（風・ライン込み）")
 note_sections.append(_fmt_hen_lines(race_t, USED_IDS))
 note_sections.append("\n")  # 空行
 
-# =========================
-# フォーメーション全面改善版（貼り替え用・Streamlit想定）
-# =========================
+# ===== Context Provider（入力集約＆検証：貼るだけ） =====
+import streamlit as st
 import re
-from typing import Dict, List, Tuple, Set
 
-# ---------- 0) 共通：テキスト→構造化パーサ ----------
-def _zen2han_space(s: str) -> str:
-    return s.replace("　", " ").strip()
+def _norm_space(s: str) -> str:
+    return (s or "").replace("　", " ").strip()
 
-def parse_block_to_struct(block: str) -> Dict[str, object]:
+def get_context_for_fixed24():
     """
-    note画面のブロック（日本語説明＋数値）から
-    lines_str, marks(dict), scores(dict) を抽出。
-    どれか無い場合は空で返す（上位で補完）。
+    1) st.session_state から marks / lines_str / scores を取得
+    2) 足りなければ raw_block（noteコピエリアなど）から補完
+    3) なお足りなければ赤エラーを出し None を返す（無音失敗を禁止）
     """
-    if not block:
-        return {"lines_str": "", "marks": {}, "scores": {}}
+    ss = st.session_state
 
-    text = _zen2han_space(block)
+    marks     = ss.get("marks")
+    lines_str = _norm_space(ss.get("lines_str", ""))
+    scores    = ss.get("scores")
+    raw       = ss.get("raw_block") or ss.get("note_block") or ""
 
-    # ライン行抽出（例：ライン　641　3　257 / ライン 16 524 37）
-    m_lines = re.search(r"ライン[:：]\s*([0-9\s]+)", text)
-    lines_str = _zen2han_space(m_lines.group(1)) if m_lines else ""
+    # rawテキストからの補完（不足がある場合のみ）
+    if raw and (not marks or not lines_str or not scores):
+        text = _norm_space(raw)
+        # ライン
+        m = re.search(r"ライン[:：]\s*([0-9\s]+)", text)
+        if m and not lines_str:
+            lines_str = _norm_space(m.group(1))
+        # 印
+        if not marks:
+            md = {}
+            for sym in ["◎","〇","○","▲","△","×","α","無"]:
+                for mm in re.finditer(fr"{sym}\s*([0-9])", text):
+                    key = "〇" if sym in ("○","〇") else sym
+                    md[key] = int(mm.group(1))
+            marks = md or None
+        # 偏差値
+        if not scores:
+            sd = {}
+            for mm in re.finditer(r"(\d)\s*[:：]\s*(-?\d+(?:\.\d+)?)", text):
+                sd[int(mm.group(1))] = float(mm.group(2))
+            scores = sd or None
 
-    # 印行（例：◎3 〇1 ▲7 △2 ×6 α5 無4）
-    marks: Dict[str, int] = {}
-    m_marks = re.search(r"(◎\s*\d)(?:.*)", text)
-    if m_marks:
-        # 全行から拾う
-        for sym in ["◎","〇","○","▲","△","×","α","無"]:
-            for mm in re.finditer(fr"{re.escape(sym)}\s*([0-9])", text):
-                val = int(mm.group(1))
-                # 「○」を「〇」に正規化
-                key = "〇" if sym in ("○","〇") else sym
-                marks[key] = val
+    # 最終チェック
+    missing = []
+    if not marks or "◎" not in marks: missing.append("marks（◎が未設定）")
+    if not lines_str:                  missing.append("lines_str（ライン）")
+    if not scores:                     missing.append("scores（偏差値）")
 
-    # 偏差値ブロック（例：1: 60.8 の羅列）
-    # 1: 60.8 / 改行 / 2: 47.7 ... のような形式を全て拾う
-    scores: Dict[int, float] = {}
-    for mm in re.finditer(r"(\d)\s*[:：]\s*(-?\d+(?:\.\d+)?)", text):
-        no = int(mm.group(1)); sc = float(mm.group(2))
-        scores[no] = sc
+    if missing:
+        st.error("固定2-4の入力が不足です → " + ", ".join(missing))
+        with st.expander("デバッグ（現在の入力値）", expanded=False):
+            st.code(f"marks={marks}\nlines_str={lines_str}\nscores={scores}\nraw_block_preview={(raw or '')[:200]}", language="python")
+        return None
 
-    return {"lines_str": lines_str, "marks": marks, "scores": scores}
+    # 正規化
+    scores = {int(k): float(v) for k, v in scores.items()}
+    return {"marks": marks, "lines_str": lines_str, "scores": scores}
+
 
 # ---------- 1) ライン構造 → フォメ生成 ----------
 def generate_fixed24(marks: Dict[str, int],
@@ -3441,13 +3454,29 @@ except Exception:
     # パースに失敗しても既存変数で続行
     pass
 
-# ---------- 3) Streamlit表示（無音失敗を防止） ----------
-try:
-    res = generate_fixed24(marks=marks, lines_str=lines_str, scores=scores, adaptive=True)
+# ===== 固定2-4 出力セクション（配線ハブ経由で確実に描画） =====
+ctx = get_context_for_fixed24()
+if ctx is not None:
+    res = generate_fixed24(
+        marks=ctx["marks"],
+        lines_str=ctx["lines_str"],
+        scores=ctx["scores"],
+        adaptive=True
+    )
 
-    # 画面に本文
-    import streamlit as st
     st.text(res["note"])
+
+    # 表は使わず列挙
+    if res.get("trios"):
+        triostr = ", ".join(f"{a}-{b}-{c}" for a,b,c in res["trios"])
+        st.caption("三連複（ユニーク実点）: " + triostr)
+
+    # 入力デバッグ（必要時のみ）
+    if st.toggle("入力デバッグを表示", value=False, key="show_dbg_fixed24"):
+        st.code(
+            f"marks={ctx['marks']}\nlines_str={ctx['lines_str']}\nscores={ctx['scores']}",
+            language="python"
+        )
 
     # 実点を補足表示（表NG方針なので列挙のみ）
     triostr = ", ".join(f"{a}-{b}-{c}" for a, b, c in res["trios"])
