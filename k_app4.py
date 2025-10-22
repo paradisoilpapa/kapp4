@@ -3215,35 +3215,44 @@ note_sections.append("\n偏差値（風・ライン込み）")
 note_sections.append(_fmt_hen_lines(race_t, USED_IDS))
 note_sections.append("\n")  # 空行
 
-# ===== 固定2-4/2-3：単騎軸対応・展開厚み自動調整（全面貼り換え版） =====
-# 使用例：
-# result = generate_fixed24(
-#     marks={"◎": 3},
-#     lines_str="641 3 257",
-#     scores={1:33.1,2:50.5,3:72.6,4:55.3,5:58.9,6:53.5,7:47.2}
-# )
-# print(result["note"])
-# print(result["trios"])  # 三連複ユニーク実点
-
+# ===== 固定2-4/2-3：単騎軸対応・展開厚み自動調整（堅牢化） =====
 from typing import Dict, List, Tuple, Set
 
 def generate_fixed24(marks: Dict[str, int],
                      lines_str: str,
                      scores: Dict[int, float],
                      adaptive: bool = True) -> Dict[str, object]:
-    """単騎軸でも相手に単騎を選べる固定2-4/2-3フォーメーション。
-    展開厚みに応じて第3列を3または4車に自動調整。
-    """
+    """単騎軸でも相手に単騎を選べる固定2-4/2-3フォーメーション。展開厚みに応じて第3列を3/4に自動調整。"""
+
+    # --- 入力の型を強制整形（ここが抜けるとKey型不一致で無音落ちのことがある） ---
+    try:
+        scores = {int(k): float(v) for k, v in scores.items()}
+    except Exception:
+        # scores が None や list でも最小限動くように
+        if isinstance(scores, list):
+            scores = {int(i+1): float(x) for i, x in enumerate(scores)}
+        else:
+            scores = {}
 
     # -------------------------
     # ヘルパ関数群
     # -------------------------
     def _parse_lines(s: str) -> List[List[int]]:
-        s = s.replace("　", " ").strip()
-        return [[int(x) for x in part] for part in s.split() if part]
+        s = (s or "").replace("　", " ").strip()
+        parts = [p for p in s.split() if p]
+        lines: List[List[int]] = []
+        for part in parts:
+            try:
+                line = [int(x) for x in part]
+            except Exception:
+                # 万一「1-23|45」など紛れが来たら数字だけ抽出
+                line = [int(x) for x in list(part) if x.isdigit()]
+            if line:
+                lines.append(line)
+        return lines
 
     def _line_id_map(lines: List[List[int]]) -> Dict[int, str]:
-        m = {}
+        m: Dict[int, str] = {}
         lid = 0
         for ln in lines:
             if len(ln) == 1:
@@ -3261,7 +3270,8 @@ def generate_fixed24(marks: Dict[str, int],
         )
 
     def _distinct_pick(cands: List[int], need: int, already: List[int]) -> List[int]:
-        picked, used_b = [], {buckets.get(a) for a in already}
+        picked: List[int] = []
+        used_b: Set[str | None] = {buckets.get(a) for a in already}
         # 未使用ライン優先
         for n in cands:
             if len(picked) >= need:
@@ -3270,9 +3280,8 @@ def generate_fixed24(marks: Dict[str, int],
                 continue
             b = buckets.get(n)
             if b not in used_b:
-                picked.append(n)
-                used_b.add(b)
-        # 足りなければ重複許可
+                picked.append(n); used_b.add(b)
+        # 足りなければ重複許容
         for n in cands:
             if len(picked) >= need:
                 break
@@ -3286,43 +3295,51 @@ def generate_fixed24(marks: Dict[str, int],
             return 4
         line_cnt = sum(len(ln) >= 2 for ln in lines)
         sing_cnt = sum(len(ln) == 1 for ln in lines)
+        # 7車想定：2本+単騎≤1 → 3、その他 → 4
         return 3 if (line_cnt <= 2 and sing_cnt <= 1) else 4
 
     def _unique_trios(anchor_no: int, second: List[int], third: List[int]) -> List[Tuple[int,int,int]]:
         seen, out = set(), []
         for a in second:
             for b in third:
-                if a == b:
+                if a == b:  # 同番は除外
                     continue
                 tri = tuple(sorted((anchor_no, a, b)))
                 if tri not in seen:
-                    seen.add(tri)
-                    out.append(tri)
-        out.sort(key=lambda t: (
-            -(scores.get(t[0], 0)+scores.get(t[1], 0)+scores.get(t[2], 0)), t))
+                    seen.add(tri); out.append(tri)
+        out.sort(key=lambda t: (-(scores.get(t[0],0)+scores.get(t[1],0)+scores.get(t[2],0)), t))
         return out
 
     def _fmt(nums: List[int]) -> str:
-        return "・".join(str(n) for n in nums)
+        return "・".join(str(n) for n in nums) if nums else "—"
 
     def _cmp(nums: List[int]) -> str:
-        return "".join(str(n) for n in nums)
+        return "".join(str(n) for n in nums) if nums else ""
 
     # -------------------------
     # 入力正規化
     # -------------------------
     lines = _parse_lines(lines_str)
+    if not lines:
+        # ラインが空でも全番号が scores から拾えるようにする（緊急フェールセーフ）
+        all_numbers = sorted(list(scores.keys()) or [marks.get("◎", 1)])
+        lines = [[n] for n in all_numbers]  # 全員単騎とみなす
     buckets = _line_id_map(lines)
     all_numbers = sorted({n for ln in lines for n in ln})
+
     if not all_numbers:
-        return {"note": "—"}
+        return {"note": "—", "pairs_nf": [], "pairs_w": [], "trios": [], "pattern": "", "second": [], "third": []}
 
     anchor_no = int(marks.get("◎", all_numbers[0]))
+    if anchor_no not in all_numbers:
+        # ◎が欠番なら最上位スコアで代用
+        anchor_no = max(all_numbers, key=lambda n: scores.get(n, 0.0))
+
     cands_sorted = _sorted_candidates(anchor_no)
     anchor_bucket = buckets.get(anchor_no, None)
 
     # -------------------------
-    # 第2列
+    # 第2列（2車）
     # -------------------------
     second: List[int] = []
     if anchor_bucket and anchor_bucket.startswith("L"):
@@ -3335,54 +3352,79 @@ def generate_fixed24(marks: Dict[str, int],
             if n in second:
                 continue
             if buckets.get(n) != anchor_bucket:
-                second.append(n)
-                break
+                second.append(n); break
         if len(second) < 2:
             second += _distinct_pick(cands_sorted, 2 - len(second), [anchor_no]+second)
     else:
-        # 単騎軸：スコア順でバランス抽出
+        # 単騎軸：スコア順＋ライン重複回避
         second = _distinct_pick(cands_sorted, 2, [anchor_no])
+
+    if len(second) < 2:
+        second += _distinct_pick(cands_sorted, 2 - len(second), [anchor_no]+second)
     second = second[:2]
 
     # -------------------------
-    # 第3列
+    # 第3列（3〜4車）…第2列を内包
     # -------------------------
     third_target = _target_third_size()
     third = list(second)
-    third += _distinct_pick(cands_sorted, third_target - len(third), [anchor_no]+third)
+    third += _distinct_pick(cands_sorted, max(0, third_target - len(third)), [anchor_no]+third)
     third = third[:third_target]
 
     # -------------------------
     # 実チケット生成
     # -------------------------
-    pairs = [(anchor_no, x) for x in second]
-    trios = _unique_trios(anchor_no, second, third)
+    pairs_nf = [(anchor_no, x) for x in second]
+    pairs_w  = [(anchor_no, x) for x in second]
+    trios    = _unique_trios(anchor_no, second, third)
 
     # -------------------------
-    # 表示フォーマット
+    # 画面貼付け用
     # -------------------------
     pattern = f"{anchor_no}-{_cmp(second)}-{_cmp(third)}"
-    lines_out = [
-        "【フォーメーション（固定2-4）】" if third_target == 4 else "【フォーメーション（固定2-3）】",
-        f"ライン：{lines_str}",
+    title = "【フォーメーション（固定2-4）】" if third_target == 4 else "【フォーメーション（固定2-3）】"
+    note = "\n".join([
+        title,
+        f"ライン：{lines_str or '—'}",
         f"軸：{anchor_no}",
         f"第2列（2車）：{_fmt(second)}",
         f"第3列（{third_target}車）：{_fmt(third)}",
-        f"ワイド＆２車複：{pairs[0][0]}-{pairs[0][1]} / {pairs[1][0]}-{pairs[1][1]}",
-        f"三連複（展開）：{pattern}"
-    ]
+        (f"ワイド＆２車複：{pairs_nf[0][0]}-{pairs_nf[0][1]} / {pairs_nf[1][0]}-{pairs_nf[1][1]}"
+         if len(pairs_nf) >= 2 else "ワイド＆２車複：—"),
+        f"三連複（展開）：{pattern if pattern else '—'}",
+    ])
 
     return {
-        "pairs_w": pairs,
-        "pairs_nf": pairs,
-        "trios": trios,
-        "pattern": pattern,
-        "note": "\n".join(lines_out),
-        "second": second,
-        "third": third
+        "pairs_nf": pairs_nf, "pairs_w": pairs_w, "trios": trios,
+        "pattern": pattern, "note": note, "second": second, "third": third
     }
+# ===== 固定2-4 出力セクション（貼るだけ｜例外は画面に出す） =====
+try:
+    # ここはあなたの既存変数に合わせてそのまま使える想定：
+    # - marks: {"◎": 3} のような dict
+    # - lines_str: "641 3 257" など（全角スペースOK）
+    # - scores: {1: 33.1, 2: 50.5, ...}（キーは int、値は float）
+    res = generate_fixed24(marks=marks, lines_str=lines_str, scores=scores, adaptive=True)
 
+    # 本文
+    st.text(res["note"])
 
+    # 必要なら実チケットも（非表形式で）
+    triostr = ", ".join(f"{a}-{b}-{c}" for a, b, c in res["trios"])
+    if triostr:
+        st.caption("三連複（ユニーク実点）: " + triostr)
+
+except Exception as e:
+    import traceback
+    st.error("固定2-4の描画でエラーが発生しました。入力を下に出します。")
+    st.exception(e)
+    try:
+        st.code(
+            f"marks={marks}\nlines_str={repr(lines_str)}\nscores={scores}",
+            language="python"
+        )
+    except Exception:
+        pass
 
 # === ここまで ===
 
