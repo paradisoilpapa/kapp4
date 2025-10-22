@@ -3234,7 +3234,6 @@ from typing import Dict, List, Optional, Tuple
 from itertools import combinations
 
 def _split_group(g: str) -> List[str]:
-    # "625" -> ["6","2","5"]、"10 11" など多桁にも対応
     out, i = [], 0
     while i < len(g):
         if not g[i].isdigit():
@@ -3243,9 +3242,81 @@ def _split_group(g: str) -> List[str]:
         while j <= len(g) and g[i:j].isdigit():
             j += 1
         j -= 1
-        out.append(g[i:j])
-        i = j
+        out.append(g[i:j]); i = j
     return out
+
+def choose_axis(riders: List[Dict[str,str]]) -> Optional[str]:
+    # ①◎が自力→◎軸、②◎が他力→〇軸、③不明→〇軸
+    for r in riders:
+        if r.get("mark")=="◎" and r.get("style") in ("逃","捲"):
+            return r.get("no")
+    for r in riders:
+        if r.get("mark")=="◎" and r.get("style") in ("追","自","自在"):
+            for s in riders:
+                if s.get("mark")=="〇": return s.get("no")
+    for r in riders:
+        if r.get("mark")=="〇": return r.get("no")
+    return None
+
+def select_pool(lines_str: str, riders: List[Dict[str,str]]) -> Tuple[Optional[str], List[str]]:
+    """
+    相手プール = {A2(◎2番手), A3(◎3番手), B2(対抗2番手≒無ければB1), C1(第三極1番手)} を返す
+    重複/Noneは除去。番号の重なりも弾く。
+    """
+    groups = [_split_group(g) for g in lines_str.split()]
+    mark = {r["no"]: r.get("mark","") for r in riders}
+
+    # ライン特定（対抗は必ず別ライン）
+    axis_line = next((ids for ids in groups if any(mark.get(x)=="◎" for x in ids)), None)
+    rival_line = next((ids for ids in groups if any(mark.get(x)=="〇" for x in ids) and ids is not axis_line), None)
+    if rival_line is None:
+        others_tmp = [ids for ids in groups if ids is not axis_line]
+        rival_line = max(others_tmp, key=len) if others_tmp else None
+    others = [ids for ids in groups if ids not in (axis_line, rival_line)]
+
+    # A2/A3/B2(orB1)/C1
+    A2 = axis_line[1] if (axis_line and len(axis_line)>=2) else None
+    A3 = axis_line[2] if (axis_line and len(axis_line)>=3) else None
+    B2 = (rival_line[1] if (rival_line and len(rival_line)>=2) else (rival_line[0] if rival_line else None))
+    C1 = (others[0][0] if (others and len(others[0])>=1) else None)
+
+    # プール作成（順序保持でユニーク化）
+    pool: List[str] = []
+    for x in (A2, A3, B2, C1):
+        if x and x not in pool:
+            pool.append(x)
+
+    axis = None
+    # 軸番号（choose_axisに任せても良いが、ここでは別途返す用）
+    for r in riders:
+        if r.get("mark")=="◎" and r.get("style") in ("逃","捲"):
+            axis = r.get("no"); break
+    if not axis:
+        for r in riders:
+            if r.get("mark")=="◎" and r.get("style") in ("追","自","自在"):
+                for s in riders:
+                    if s.get("mark")=="〇": axis = s.get("no"); break
+                break
+    if not axis:
+        for r in riders:
+            if r.get("mark")=="〇": axis = r.get("no"); break
+
+    return axis, pool
+
+def make_trio(axis: Optional[str], pool: List[str]) -> List[tuple]:
+    """
+    三連複 = 軸 + プールから任意2枚（重複排除）。軸が無い/プール不足なら自動縮退。
+    """
+    base = ([axis] if axis else []) + pool
+    base = [x for x in base if x]
+    base = list(dict.fromkeys(base))  # ユニーク
+    out = []
+    if len(base) >= 3:
+        for a,b,c in combinations(base, 3):
+            if axis and axis in (a,b,c) and len({a,b,c})==3:
+                out.append((a,b,c))
+    return out
+
 
 def choose_axis(riders: List[Dict[str, str]]) -> Optional[str]:
     axis = None
