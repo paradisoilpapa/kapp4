@@ -3251,7 +3251,8 @@ def select_columns(line_inputs, result_marks, tenkai="優位"):
     no_lines = (len(groups) == 0) or all(len(g) == 0 for g in groups)
 
     # ---- ライン有りルート ----
-    if not no lines:
+    if not no_lines:
+
         # 軸/対抗ライン検出（◎優先、対抗は▲>〇）
         axis_line  = next((g for g in groups if "◎" in [marks.get(x, "") for x in g]), None)
         rival_line = next((g for g in groups if "▲" in [marks.get(x, "") for x in g] and g is not axis_line), None)
