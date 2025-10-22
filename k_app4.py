@@ -3333,6 +3333,29 @@ if __name__ == "__main__":
     out = generate_combination(lines, riders)
     print(out)
 
+# --- note出力（自動でフォーマットを構築） ---
+try:
+    note_sections.append("【フォーメーション（自動選定）】")
+
+    # 軸と選出車の表示
+    note_sections.append(f"軸：{axis}")
+    note_sections.append(f"選出：{'・'.join(selected)}")
+
+    # 買目（三連複4点構成）
+    lines_str = " / ".join(["-".join(c) for c in combs])
+    note_sections.append(f"買目（三連複4点）: {lines_str}")
+
+except NameError:
+    # note_sectionsが定義されていない場合はStreamlit直出し
+    try:
+        import streamlit as st
+        st.markdown("### 【フォーメーション（自動選定）】")
+        st.write(f"軸：{axis}")
+        st.write(f"選出：{'・'.join(selected)}")
+        st.write(f"買目（三連複4点）: {lines_str}")
+    except Exception:
+        print(f"軸:{axis}, 選出:{selected}, 買目:{lines_str}")
+
 
 # === ここまで ===
 
