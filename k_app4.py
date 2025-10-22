@@ -3215,94 +3215,38 @@ note_sections.append("\n偏差値（風・ライン込み）")
 note_sections.append(_fmt_hen_lines(race_t, USED_IDS))
 note_sections.append("\n")  # 空行
 
-# ===== Context Provider（入力集約＆検証：貼るだけ） =====
-import streamlit as st
+# -*- coding: utf-8 -*-
+# ===== ヴェロビ｜固定2-4/2-3 完成版（貼るだけ・外部依存なし） =====
 import re
+from typing import Dict, List, Tuple, Set
+import streamlit as st
 
-def _norm_space(s: str) -> str:
-    return (s or "").replace("　", " ").strip()
-
-def get_context_for_fixed24():
-    """
-    1) st.session_state から marks / lines_str / scores を取得
-    2) 足りなければ raw_block（noteコピエリアなど）から補完
-    3) なお足りなければ赤エラーを出し None を返す（無音失敗を禁止）
-    """
-    ss = st.session_state
-
-    marks     = ss.get("marks")
-    lines_str = _norm_space(ss.get("lines_str", ""))
-    scores    = ss.get("scores")
-    raw       = ss.get("raw_block") or ss.get("note_block") or ""
-
-    # rawテキストからの補完（不足がある場合のみ）
-    if raw and (not marks or not lines_str or not scores):
-        text = _norm_space(raw)
-        # ライン
-        m = re.search(r"ライン[:：]\s*([0-9\s]+)", text)
-        if m and not lines_str:
-            lines_str = _norm_space(m.group(1))
-        # 印
-        if not marks:
-            md = {}
-            for sym in ["◎","〇","○","▲","△","×","α","無"]:
-                for mm in re.finditer(fr"{sym}\s*([0-9])", text):
-                    key = "〇" if sym in ("○","〇") else sym
-                    md[key] = int(mm.group(1))
-            marks = md or None
-        # 偏差値
-        if not scores:
-            sd = {}
-            for mm in re.finditer(r"(\d)\s*[:：]\s*(-?\d+(?:\.\d+)?)", text):
-                sd[int(mm.group(1))] = float(mm.group(2))
-            scores = sd or None
-
-    # 最終チェック
-    missing = []
-    if not marks or "◎" not in marks: missing.append("marks（◎が未設定）")
-    if not lines_str:                  missing.append("lines_str（ライン）")
-    if not scores:                     missing.append("scores（偏差値）")
-
-    if missing:
-        st.error("固定2-4の入力が不足です → " + ", ".join(missing))
-        with st.expander("デバッグ（現在の入力値）", expanded=False):
-            st.code(f"marks={marks}\nlines_str={lines_str}\nscores={scores}\nraw_block_preview={(raw or '')[:200]}", language="python")
-        return None
-
-    # 正規化
-    scores = {int(k): float(v) for k, v in scores.items()}
-    return {"marks": marks, "lines_str": lines_str, "scores": scores}
-
-
-# ---------- 1) ライン構造 → フォメ生成 ----------
+# ---------- 生成本体 ----------
 def generate_fixed24(marks: Dict[str, int],
                      lines_str: str,
                      scores: Dict[int, float],
                      adaptive: bool = True) -> Dict[str, object]:
-    """単騎軸OK・展開厚みで2-3/2-4自動切替・重複ライン抑制・欠番安全化"""
-    # 型強制（安全化）
-    try:
-        scores = {int(k): float(v) for k, v in (scores or {}).items()}
-    except Exception:
-        if isinstance(scores, list):
-            scores = {int(i+1): float(x) for i, x in enumerate(scores)}
-        else:
-            scores = {}
+    """単騎軸OK／展開厚みで2-3 or 2-4自動切替／重複ライン抑制／欠番安全化"""
+
+    # 型正規化
+    scores = {int(k): float(v) for k, v in (scores or {}).items()}
+
+    def _norm(s: str) -> str:
+        return (s or "").replace("　", " ").strip()
 
     def _parse_lines(s: str) -> List[List[int]]:
-        s = _zen2han_space(s or "")
-        parts = [p for p in s.split() if p]
-        lines: List[List[int]] = []
+        parts = [p for p in _norm(s).split() if p]
+        out: List[List[int]] = []
         for p in parts:
             try:
                 line = [int(x) for x in p]
             except Exception:
-                line = [int(x) for x in list(p) if x.isdigit()]
+                line = [int(x) for x in p if x.isdigit()]
             if line:
-                lines.append(line)
-        return lines
+                out.append(line)
+        return out
 
-    def _line_id_map(lines: List[List[int]]) -> Dict[int, str]:
+    def _line_bucket(lines: List[List[int]]) -> Dict[int, str]:
         m: Dict[int, str] = {}
         lid = 0
         for ln in lines:
@@ -3314,44 +3258,39 @@ def generate_fixed24(marks: Dict[str, int],
                     m[n] = f"L{lid}"
         return m
 
-    def _sorted_candidates(anchor_no: int) -> List[int]:
-        return sorted(
-            [n for n in all_numbers if n != anchor_no],
-            key=lambda n: (-scores.get(n, 0.0), n)
-        )
+    def _sorted_cands(anchor_no: int) -> List[int]:
+        return sorted([n for n in all_nums if n != anchor_no],
+                      key=lambda n: (-scores.get(n, 0.0), n))
 
     def _distinct_pick(cands: List[int], need: int, already: List[int]) -> List[int]:
         picked: List[int] = []
         used_b: Set[str | None] = {buckets.get(a) for a in already}
-        # 未使用ライン優先
         for n in cands:
             if len(picked) >= need: break
             if n in already or n in picked: continue
             b = buckets.get(n)
             if b not in used_b:
                 picked.append(n); used_b.add(b)
-        # 足りなければ重複許容
         for n in cands:
             if len(picked) >= need: break
             if n in already or n in picked: continue
             picked.append(n)
         return picked
 
-    def _target_third_size() -> int:
+    def _third_size() -> int:
         if not adaptive: return 4
-        line_cnt = sum(len(ln) >= 2 for ln in lines)
-        sing_cnt = sum(len(ln) == 1 for ln in lines)
-        # 7車想定経験則：2本+単騎<=1 → 3、その他→4
-        return 3 if (line_cnt <= 2 and sing_cnt <= 1) else 4
+        lc = sum(len(ln) >= 2 for ln in lines)
+        sc = sum(len(ln) == 1 for ln in lines)
+        return 3 if (lc <= 2 and sc <= 1) else 4
 
-    def _unique_trios(anchor_no: int, second: List[int], third: List[int]) -> List[Tuple[int,int,int]]:
+    def _unique_trios(a0: int, second: List[int], third: List[int]) -> List[Tuple[int,int,int]]:
         seen, out = set(), []
         for a in second:
             for b in third:
                 if a == b: continue
-                tri = tuple(sorted((anchor_no, a, b)))
-                if tri not in seen:
-                    seen.add(tri); out.append(tri)
+                t = tuple(sorted((a0, a, b)))
+                if t not in seen:
+                    seen.add(t); out.append(t)
         out.sort(key=lambda t: (-(scores.get(t[0],0)+scores.get(t[1],0)+scores.get(t[2],0)), t))
         return out
 
@@ -3361,133 +3300,120 @@ def generate_fixed24(marks: Dict[str, int],
     def _cmp(nums: List[int]) -> str:
         return "".join(str(n) for n in nums) if nums else ""
 
-    # 入力正規化
+    # ライン正規化（空なら全員単騎救済）
     lines = _parse_lines(lines_str)
-    # ライン未入力でもscores等から救済
     if not lines:
-        base_nums = sorted(scores.keys() or [marks.get("◎", 1)])
-        lines = [[n] for n in base_nums]   # 全員単騎とみなす
-    buckets = _line_id_map(lines)
-    all_numbers = sorted({n for ln in lines for n in ln})
-    if not all_numbers:
+        base = sorted(scores.keys() or [marks.get("◎", 1)])
+        lines = [[n] for n in base]
+    buckets = _line_bucket(lines)
+    all_nums = sorted({n for ln in lines for n in ln})
+    if not all_nums:
         return {"note": "—", "pairs_nf": [], "pairs_w": [], "trios": [], "pattern": "", "second": [], "third": []}
 
-    anchor_no = int((marks or {}).get("◎", all_numbers[0]))
-    if anchor_no not in all_numbers:
-        anchor_no = max(all_numbers, key=lambda n: scores.get(n, 0.0))
+    # 軸
+    anchor = int((marks or {}).get("◎", all_nums[0]))
+    if anchor not in all_nums:
+        anchor = max(all_nums, key=lambda n: scores.get(n, 0.0))
 
-    cands_sorted = _sorted_candidates(anchor_no)
-    anchor_bucket = buckets.get(anchor_no, None)
+    cands = _sorted_cands(anchor)
+    ab = buckets.get(anchor, None)
 
-    # 第2列（2）
+    # 第2列
     second: List[int] = []
-    if anchor_bucket and anchor_bucket.startswith("L"):
-        same_line = [n for n in next((ln for ln in lines if anchor_no in ln), []) if n != anchor_no]
-        if same_line:
-            second.append(sorted(same_line, key=lambda n: (-scores.get(n,0), n))[0])
-        # 他ライン最良
-        for n in cands_sorted:
+    if ab and ab.startswith("L"):
+        same = [n for n in next((ln for ln in lines if anchor in ln), []) if n != anchor]
+        if same:
+            second.append(sorted(same, key=lambda n: (-scores.get(n,0), n))[0])
+        for n in cands:
             if n in second: continue
-            if buckets.get(n) != anchor_bucket:
+            if buckets.get(n) != ab:
                 second.append(n); break
         if len(second) < 2:
-            second += _distinct_pick(cands_sorted, 2 - len(second), [anchor_no]+second)
+            second += _distinct_pick(cands, 2 - len(second), [anchor]+second)
     else:
-        # 単騎軸：スコア順＋ライン重複回避
-        second = _distinct_pick(cands_sorted, 2, [anchor_no])
-
+        second = _distinct_pick(cands, 2, [anchor])
     if len(second) < 2:
-        second += _distinct_pick(cands_sorted, 2 - len(second), [anchor_no]+second)
+        second += _distinct_pick(cands, 2 - len(second), [anchor]+second)
     second = second[:2]
 
-    # 第3列（3〜4／第2列内包）
-    third_target = _target_third_size()
-    third: List[int] = list(second)
-    third += _distinct_pick(cands_sorted, max(0, third_target - len(third)), [anchor_no]+third)
-    third = third[:third_target]
+    # 第3列（第2列を内包）
+    tsz = _third_size()
+    third = list(second)
+    third += _distinct_pick(cands, max(0, tsz - len(third)), [anchor]+third)
+    third = third[:tsz]
 
     # 実チケット
-    pairs_nf = [(anchor_no, x) for x in second]
-    pairs_w  = [(anchor_no, x) for x in second]
-    trios    = _unique_trios(anchor_no, second, third)
+    pairs = [(anchor, x) for x in second]
+    trios = _unique_trios(anchor, second, third)
 
     # 文面
-    pattern = f"{anchor_no}-{_cmp(second)}-{_cmp(third)}"
-    title = "【フォーメーション（固定2-4）】" if third_target == 4 else "【フォーメーション（固定2-3）】"
+    title = "【フォーメーション（固定2-4）】" if tsz == 4 else "【フォーメーション（固定2-3）】"
+    pattern = f"{anchor}-{_cmp(second)}-{_cmp(third)}"
     note = "\n".join([
         title,
         f"ライン：{lines_str or '—'}",
-        f"軸：{anchor_no}",
+        f"軸：{anchor}",
         f"第2列（2車）：{_fmt(second)}",
-        f"第3列（{third_target}車）：{_fmt(third)}",
-        (f"ワイド＆２車複：{pairs_nf[0][0]}-{pairs_nf[0][1]} / {pairs_nf[1][0]}-{pairs_nf[1][1]}"
-         if len(pairs_nf) >= 2 else "ワイド＆２車複：—"),
+        f"第3列（{tsz}車）：{_fmt(third)}",
+        (f"ワイド＆２車複：{pairs[0][0]}-{pairs[0][1]} / {pairs[1][0]}-{pairs[1][1]}" if len(pairs) >= 2 else "ワイド＆２車複：—"),
         f"三連複（展開）：{pattern if pattern else '—'}",
     ])
+    return {"pairs_nf": pairs, "pairs_w": pairs, "trios": trios, "pattern": pattern, "note": note,
+            "second": second, "third": third}
 
-    return {
-        "pairs_nf": pairs_nf, "pairs_w": pairs_w, "trios": trios,
-        "pattern": pattern, "note": note, "second": second, "third": third
-    }
+# ---------- 入力UI（貼るだけで運用可） ----------
+st.title("固定2-4／固定2-3｜完成版（貼るだけ）")
 
-# ---------- 2) 安全初期化＋自動パース（ここから下は“貼るだけで表示”） ----------
-def _safe_get(var_name: str, default):
-    # globalsに無ければdefaultを置く
-    g = globals()
-    if var_name not in g or g[var_name] is None:
-        g[var_name] = default
-    return g[var_name]
+# 1) noteブロックを貼るだけでOK（自動パース）
+raw = st.text_area("noteブロックをそのまま貼ってください（例：弥彦3Rの出力）", height=180, value="")
+lines_str, marks, scores = "", {}, {}
 
-# 既存変数が無い環境でも動くように最低限定義
-marks      = _safe_get("marks", {"◎": 1})
-lines_str  = _safe_get("lines_str", "")
-scores     = _safe_get("scores", {})
-raw_block  = _safe_get("raw_block", "")  # ← ここに記事用の生テキストを入れてもOK（任意）
+if raw.strip():
+    txt = raw.replace("　", " ").strip()
+    m = re.search(r"ライン[:：]\s*([0-9\s]+)", txt)
+    if m: lines_str = m.group(1).strip()
+    # 印
+    for sym in ["◎","〇","○","▲","△","×","α","無"]:
+        for mm in re.finditer(fr"{re.escape(sym)}\s*([0-9])", txt):
+            key = "〇" if sym in ("○","〇") else sym
+            marks[key] = int(mm.group(1))
+    # 偏差値
+    for mm in re.finditer(r"(\d)\s*[:：]\s*(-?\d+(?:\.\d+)?)", txt):
+        scores[int(mm.group(1))] = float(mm.group(2))
 
-# raw_block優先で自動上書き（記事テキストからの一発生成にも対応）
-try:
-    parsed = parse_block_to_struct(raw_block)
-    if parsed.get("marks"):     marks = parsed["marks"]
-    if parsed.get("lines_str"): lines_str = parsed["lines_str"]
-    if parsed.get("scores"):    scores = parsed["scores"]
-except Exception:
-    # パースに失敗しても既存変数で続行
-    pass
+# 2) 不足分だけ最小入力で補完
+col1, col2 = st.columns(2)
+with col1:
+    if not lines_str:
+        lines_str = st.text_input("ライン（例: 641 3 257）", value=lines_str)
+with col2:
+    if "◎" not in marks:
+        marks_txt = st.text_input("印（例: ◎3 〇1 ▲7 △2 ×6 α5 無4）", value="")
+        if marks_txt.strip():
+            for sym in ["◎","〇","○","▲","△","×","α","無"]:
+                rr = re.search(fr"{re.escape(sym)}\s*([0-9])", marks_txt)
+                if rr:
+                    key = "〇" if sym in ("○","〇") else sym
+                    marks[key] = int(rr.group(1))
+if not scores:
+    scores_txt = st.text_area("偏差値（例）\n1: 60.8\n2: 47.7\n…", height=120, value="")
+    for mm in re.finditer(r"(\d)\s*[:：]\s*(-?\d+(?:\.\d+)?)", scores_txt):
+        scores[int(mm.group(1))] = float(mm.group(2))
 
-# ===== 固定2-4 出力セクション（配線ハブ経由で確実に描画） =====
-ctx = get_context_for_fixed24()
-if ctx is not None:
-    res = generate_fixed24(
-        marks=ctx["marks"],
-        lines_str=ctx["lines_str"],
-        scores=ctx["scores"],
-        adaptive=True
-    )
+# 3) 生成＆表示（不足ならエラー明示）
+missing = []
+if "◎" not in marks: missing.append("marks（◎が未設定）")
+if not lines_str:    missing.append("lines_str（ライン）")
+if not scores:       missing.append("scores（偏差値）")
 
+if missing:
+    st.error("固定フォーメーションの入力が不足です → " + ", ".join(missing))
+else:
+    res = generate_fixed24(marks=marks, lines_str=lines_str, scores=scores, adaptive=True)
     st.text(res["note"])
-
-    # 表は使わず列挙
     if res.get("trios"):
         triostr = ", ".join(f"{a}-{b}-{c}" for a,b,c in res["trios"])
         st.caption("三連複（ユニーク実点）: " + triostr)
-
-    # 入力デバッグ（必要時のみ）
-    if st.toggle("入力デバッグを表示", value=False, key="show_dbg_fixed24"):
-        st.code(
-            f"marks={ctx['marks']}\nlines_str={ctx['lines_str']}\nscores={ctx['scores']}",
-            language="python"
-        )
-
-    # 実点を補足表示（表NG方針なので列挙のみ）
-    triostr = ", ".join(f"{a}-{b}-{c}" for a, b, c in res["trios"])
-    if triostr:
-        st.caption("三連複（ユニーク実点）: " + triostr)
-
-except Exception as e:
-    import streamlit as st, traceback
-    st.error("固定2-4の描画でエラーが発生しました。下に入力とスタックを出します。")
-    st.code(f"marks={marks}\nlines_str={lines_str}\nscores={scores}\nraw_block={raw_block}", language="python")
-    st.exception(e)
 
 # === ここまで ===
 
