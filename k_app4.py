@@ -3310,21 +3310,21 @@ def make_trio(axis: Optional[str], pool: List[str]) -> List[tuple]:
                 out.append((a,b,c))
     return out
 
-# ==== 使用例（差し替え可）====
-if __name__ == "__main__":
-    riders = [
-        {"no": "4", "mark": "◎", "style": "逃"},
-        {"no": "3", "mark": "〇", "style": "追"},
-        {"no": "2", "mark": "▲", "style": "自在"},
-        {"no": "1", "mark": "△", "style": "追"},
-        {"no": "7", "mark": "×", "style": "追"},
-        {"no": "5", "mark": "α", "style": "捲"},
-        {"no": "6", "mark": "無", "style": "追"},
-    ]
-    lines = "17 625 43"  # 例
+# ← ここがズレの元。必ずレースの行を入れる
+lines = "123 45 67"
 
-    axis, pool, groups = select_pool(lines, riders)
-    trios = make_trio(axis, pool)
+riders = [
+    {"no":"1","mark":"◎","style":"逃"},   # style不明なら入れなくてもOK（◎軸になる）
+    {"no":"2","mark":"〇"},
+    {"no":"3","mark":"△"},
+    {"no":"4","mark":"▲"},
+    {"no":"5","mark":"α"},
+    {"no":"6","mark":"×"},
+    {"no":"7","mark":"無"},
+]
+axis, pool, groups = select_pool(lines, riders)
+trios = make_trio(axis, pool)
+
 
     # --- note出力（append配管があれば使う／無ければ直出し） ---
     def _fmt_trios(trios):
