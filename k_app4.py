@@ -3237,57 +3237,64 @@ def _split_group(g: str) -> List[str]:
     return [ch for ch in g if ch.isdigit()]
 
 # --- 軸決定（脚質＋印） ---
-def choose_axis(riders: List[Dict[str,str]]) -> Optional[str]:
-    # ①◎が自力→◎軸
+# 置き換え①：軸の既定ルール（styleが無い/曖昧なら◎優先）
+def choose_axis(riders):
+    # 1) ◎が自力 → ◎軸
     for r in riders:
         if r.get("mark")=="◎" and r.get("style") in ("逃","捲"):
-            return r.get("no")
-    # ②◎が他力→○軸
+            return r["no"]
+    # 2) ◎が他力 → ○軸
     for r in riders:
         if r.get("mark")=="◎" and r.get("style") in ("追","自","自在"):
             for s in riders:
                 if s.get("mark")=="〇":
-                    return s.get("no")
+                    return s["no"]
             break
-    # ③不明→○軸
+    # 3) style情報が無い/曖昧 → ◎を既定軸（最後の砦）
+    for r in riders:
+        if r.get("mark")=="◎":
+            return r["no"]
+    # 4) それでも無ければ ○
     for r in riders:
         if r.get("mark")=="〇":
-            return r.get("no")
+            return r["no"]
     return None
 
+
 # --- 相手プール作成：A2, A3, B2(or B1), C1 ---
-def select_pool(lines_str: str, riders: List[Dict[str,str]]) -> Tuple[Optional[str], List[str], List[List[str]]]:
-    """
-    returns: (axis_no, pool_list, groups_debug)
-      pool_list: [A2, A3, B2(orB1), C1] から重複/None除去・順序保持
-      groups_debug: 分解後の各ライン（デバッグ/表示用）
-    """
-    groups_raw = lines_str.split()             # 例: ["123","45","67"]
-    groups = [_split_group(g) for g in groups_raw]  # 例: [["1","2","3"],["4","5"],["6","7"]]
+# 置き換え②：相手プール選定（▲ラインを“対抗”として最優先で拾う）
+def select_pool(lines_str: str, riders):
+    groups_raw = lines_str.split()                         # 例: ["123","45","67"]
+    groups = [[ch for ch in g if ch.isdigit()] for g in groups_raw]
     mark = {r["no"]: r.get("mark","") for r in riders}
 
-    def has_mark(ids: List[str], sym: str) -> bool:
-        return any(mark.get(x)==sym for x in ids)
+    def has(ids, sym): return any(mark.get(x)==sym for x in ids)
 
-    axis_line = next((ids for ids in groups if has_mark(ids,"◎")), None)
-    rival_line = next((ids for ids in groups if has_mark(ids,"〇") and ids is not axis_line), None)
+    axis_line = next((ids for ids in groups if has(ids,"◎")), None)
+
+    # 対抗ラインの決め方：▲を含む行 > （〇を含む別行） > 残りのうち最長
+    rival_line = next((ids for ids in groups if has(ids,"▲") and ids is not axis_line), None)
+    if rival_line is None:
+        rival_line = next((ids for ids in groups if has(ids,"〇") and ids is not axis_line), None)
     if rival_line is None:
         others_tmp = [ids for ids in groups if ids is not axis_line]
-        rival_line = max(others_tmp, key=len) if others_tmp else None
+        rival_line = others_tmp[0] if others_tmp else None  # 最長でも良いが順序優先に変更
+
     others = [ids for ids in groups if ids not in (axis_line, rival_line)]
 
-    # A2/A3/B2(orB1)/C1 抽出
+    # A2/A3/B2(orB1)/C1
     A2 = axis_line[1] if (axis_line and len(axis_line)>=2) else None
     A3 = axis_line[2] if (axis_line and len(axis_line)>=3) else None
-    B2 = (rival_line[1] if (rival_line and len(rival_line)>=2) else (rival_line[0] if rival_line else None))
+    B2 = (rival_line[1] if (rival_line and len(rival_line)>=2)
+          else (rival_line[0] if rival_line else None))
     C1 = (others[0][0] if (others and len(others[0])>=1) else None)
 
-    pool: List[str] = []
+    # プール（順序保持ユニーク）
+    pool = []
     for x in (A2, A3, B2, C1):
         if x and x not in pool:
             pool.append(x)
 
-    # 軸（上で定義したロジックに合わせて決定）
     axis = choose_axis(riders)
     return axis, pool, groups
 
