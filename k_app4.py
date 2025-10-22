@@ -3215,99 +3215,202 @@ note_sections.append("\n偏差値（風・ライン込み）")
 note_sections.append(_fmt_hen_lines(race_t, USED_IDS))
 note_sections.append("\n")  # 空行
 
-# =============================
-# 追加ブロック：フォーメーション生成（固定2-4・上流連動版）
-# =============================
+# ===== 固定2-4/2-3：単騎軸対応 & 展開厚みで自動縮小（全面貼り換え版） =====
+# 使い方例：
+# result = generate_fixed24(marks={"◎": 3}, lines_str="641 3 257",
+#                           scores={1:33.1,2:50.5,3:72.6,4:55.3,5:58.9,6:53.5,7:47.2})
+# print(result["note"])   # 画面出力へ貼り付け
+# result["trios"]         # 三連複の実点（順不同ユニーク）
 
-# --- ユーティリティ ---
-def _split_ids(g):
-    return [ch for ch in str(g) if ch.isdigit()]
+from typing import Dict, List, Tuple, Set
 
-def _fmt_groups(gs):
-    return "　".join("".join(x) for x in gs)
+def generate_fixed24(marks: Dict[str, int],
+                     lines_str: str,
+                     scores: Dict[int, float],
+                     adaptive: bool = True) -> Dict[str, object]:
+    """
+    単騎が軸のときも“相手に単騎を選べる”改良版。
+    - 軸=単騎 → スコア（偏差値）順ベースで第2列を抽出、ライン重複は極力回避
+    - 軸=ライン所属 → 同ライン最良+他ライン最良を優先、足りない分はスコア順補完
+    - 展開の厚み（ライン本数×密度）に応じて第3列を 3 or 4 に自動調整（adaptive=True）
+    返り値：貼り付け用テキストnote、ワイド/2車複ペア、三連複の実点など
+    """
 
-def _fmt_pairs(ps):
-    return " / ".join(f"{a}-{b}" for a, b in ps) if ps else "—"
+    # -------------------------
+    # ヘルパ
+    # -------------------------
+    def _parse_lines(s: str) -> List[List[int]]:
+        # 例: "641 3 257" -> [[6,4,1],[3],[2,5,7]]
+        chunks = [c for c in s.replace("　", " ").split() if c]
+        lines = []
+        for c in chunks:
+            line = [int(ch) for ch in c]
+            if line:
+                lines.append(line)
+        return lines
 
-def _fmt_trio(axis, col2, col3):
-    return f"{axis}-" + "".join(col2) + "-" + "".join(col3) if axis and col2 and col3 else "—"
+    def _line_id_map(lines: List[List[int]]) -> Dict[int, str]:
+        # 各選手 -> 所属ID（ラインは Li、単騎は Si）
+        m: Dict[int, str] = {}
+        lid = 0
+        for ln in lines:
+            if len(ln) == 1:
+                m[ln[0]] = f"S{ln[0]}"
+            else:
+                lid += 1
+                for n in ln:
+                    m[n] = f"L{lid}"
+        return m
 
+    def _sorted_candidates(anchor_no: int) -> List[int]:
+        cands = [n for n in all_numbers if n != anchor_no]
+        return sorted(cands, key=lambda n: (-scores.get(n, 0.0), n))  # 安定ソート
 
-# --- 軸決定 ---
-def choose_axis(result_marks):
-    if "◎" in result_marks:
-        return str(result_marks["◎"])
-    if "〇" in result_marks:
-        return str(result_marks["〇"])
-    return None
+    def _first_not_bucket(cands: List[int], not_bucket: str, exclude: Set[int]) -> int | None:
+        for n in cands:
+            if n in exclude:
+                continue
+            if buckets.get(n) != not_bucket:
+                return n
+        return None
 
+    def _distinct_pick(cands: List[int], need: int, already: List[int]) -> List[int]:
+        """可能な範囲でバケット重複を避けて need 件拾う（足りなければ重複許容で埋める）"""
+        picked: List[int] = []
+        used_b: Set[str | None] = {buckets.get(x) for x in already}
+        # 1周目：未使用バケット優先
+        for n in cands:
+            if len(picked) >= need:
+                break
+            if n in already or n in picked:
+                continue
+            b = buckets.get(n)
+            if b not in used_b:
+                picked.append(n)
+                used_b.add(b)
+        # 2周目：足りなければバケット重複許容
+        if len(picked) < need:
+            for n in cands:
+                if len(picked) >= need:
+                    break
+                if n in already or n in picked:
+                    continue
+                picked.append(n)
+        return picked
 
-# --- 列構成 ---
-def select_columns(line_inputs, result_marks, tenkai="優位"):
-    """ライン構成・印に連動して col2(2車)/col3(4車) を自動生成"""
-    groups = [_split_ids(g) for g in line_inputs if str(g).strip()]
-    marks = {str(v): k for k, v in result_marks.items()}
-    axis = choose_axis(result_marks)
-    axis_line = next((g for g in groups if "◎" in [marks.get(x, "") for x in g]), None)
-    rival_line = next((g for g in groups if "▲" in [marks.get(x, "") for x in g] and g is not axis_line), None)
-    if rival_line is None:
-        rival_line = next((g for g in groups if "〇" in [marks.get(x, "") for x in g] and g is not axis_line), None)
-    others = [g for g in groups if g not in (axis_line, rival_line)]
+    def _target_third_size() -> int:
+        if not adaptive:
+            return 4
+        line_cnt = sum(1 for ln in lines if len(ln) >= 2)
+        sing_cnt = sum(1 for ln in lines if len(ln) == 1)
+        # 7車前提の経験則：2本+単騎<=1 → 3で十分、それ以外は4
+        if line_cnt <= 2 and sing_cnt <= 1:
+            return 3
+        return 4
 
-    # 軸ラインの番手
-    A2 = axis_line[1] if (axis_line and len(axis_line) >= 2) else None
-    A3 = axis_line[2] if (axis_line and len(axis_line) >= 3) else None
-    # 対抗ライン
-    B2 = (rival_line[1] if rival_line and len(rival_line) >= 2 else rival_line[0] if rival_line else None)
-    B1 = rival_line[0] if rival_line else None
-    # 第三ライン
-    C1 = others[0][0] if (others and others[0]) else None
+    def _format_join(nums: List[int]) -> str:
+        return "・".join(str(n) for n in nums)
 
-    pref2 = {
-        "優位": [A2, B2, A3, C1],
-        "混戦": [A2, C1, B2, A3],
-        "逆流": [A3, C1, B2, A2],
-    }.get(tenkai, [A2, B2, A3, C1])
+    def _compress(nums: List[int]) -> str:
+        return "".join(str(n) for n in nums)
 
-    col2 = []
-    for x in pref2:
-        if x and x != axis and x not in col2:
-            col2.append(x)
-        if len(col2) == 2:
-            break
+    def _unique_trios(anchor_no: int, second: List[int], third: List[int]) -> List[Tuple[int, int, int]]:
+        seen: Set[Tuple[int, int, int]] = set()
+        out: List[Tuple[int, int, int]] = []
+        for a in second:
+            for b in third:
+                if a == b:
+                    continue
+                tri = tuple(sorted((anchor_no, a, b)))
+                if tri not in seen:
+                    seen.add(tri)
+                    out.append(tri)
+        # 表示安定化：合計スコア降順→番号順
+        def keyf(t: Tuple[int, int, int]):
+            ssum = scores.get(t[0], 0.0) + scores.get(t[1], 0.0) + scores.get(t[2], 0.0)
+            return (-ssum, t)
+        out.sort(key=keyf)
+        return out
 
-    pref3 = [A3, C1, B2, A2, B1]
-    col3 = col2[:]
-    for x in pref3:
-        if x and x != axis and x not in col3:
-            col3.append(x)
-        if len(col3) == 4:
-            break
+    # -------------------------
+    # 入力正規化
+    # -------------------------
+    lines = _parse_lines(lines_str)
+    buckets = _line_id_map(lines)
+    all_numbers = sorted({n for ln in lines for n in ln})
+    if not all_numbers:
+        # 何も来ない場合の安全策
+        return {"pairs_nf": [], "pairs_w": [], "trios": [], "pattern": "", "note": "", "second": [], "third": []}
 
-    return axis, col2[:2], col3[:4], groups
+    anchor_no = int(marks.get("◎", all_numbers[0]))
+    cands_sorted = _sorted_candidates(anchor_no)
+    anchor_bucket = buckets.get(anchor_no, None)
 
+    # -------------------------
+    # 第2列（2車）
+    # -------------------------
+    second: List[int] = []
+    if anchor_bucket and anchor_bucket.startswith("L"):
+        # 軸がライン所属：同ライン最良 + 他ライン最良
+        same_line = [n for n in next((ln for ln in lines if anchor_no in ln), []) if n != anchor_no]
+        if same_line:
+            best_same = sorted(same_line, key=lambda n: (-scores.get(n, 0.0), n))[0]
+            second.append(best_same)
+        rival = _first_not_bucket(cands_sorted, anchor_bucket, exclude=set([anchor_no] + second))
+        if rival is not None:
+            second.append(rival)
+        if len(second) < 2:
+            second.extend(_distinct_pick(cands_sorted, 2 - len(second), already=[anchor_no] + second))
+    else:
+        # 軸が単騎：スコア順＋バケット重複回避で2名
+        second = _distinct_pick(cands_sorted, need=2, already=[anchor_no])
 
-# --- 券種展開 ---
-def build_bets(axis, col2, col3):
-    if not axis or not col2 or not col3:
-        return [], [], "—"
-    wide = [(axis, col2[0]), (axis, col2[1])] if len(col2) >= 2 else []
-    nisha = wide[:]
-    trio = _fmt_trio(axis, col2, col3)
-    return wide, nisha, trio
+    second = second[:2]  # 念のためクリップ
 
+    # -------------------------
+    # 第3列（3〜4車）…第2列を内包
+    # -------------------------
+    third_target = _target_third_size()
+    third: List[int] = list(second)
+    fill3 = _distinct_pick(cands_sorted, need=max(0, third_target - len(third)), already=[anchor_no] + third)
+    third.extend(fill3)
+    third = third[:third_target]
 
-# --- 出力ブロック ---
-axis, col2, col3, groups = select_columns(line_inputs, result_marks, tenkai=_eval)
-wide, nisha, trio = build_bets(axis, col2, col3)
+    # -------------------------
+    # 実チケット生成
+    # -------------------------
+    pairs_nf = [(anchor_no, x) for x in second]  # 2車複/単の候補にも流用可
+    pairs_w  = [(anchor_no, x) for x in second]  # ワイド同一
+    trios    = _unique_trios(anchor_no, second, third)
 
-note_sections.append("【フォーメーション（固定2-4）】")
-note_sections.append(f"ライン：{_fmt_groups(groups)}")
-note_sections.append(f"軸：{axis if axis else '（軸未設定）'}")
-note_sections.append(f"第2列（2車）：{'・'.join(col2) if col2 else '—'}")
-note_sections.append(f"第3列（4車）：{'・'.join(col3) if col3 else '—'}")
-note_sections.append(f"ワイド＆２車複：{_fmt_pairs(wide)}")
-note_sections.append(f"三連複（展開）：{trio}")
+    # -------------------------
+    # 画面貼り付け用
+    # -------------------------
+    pattern = f"{anchor_no}-{_compress(second)}-{_compress(third)}"
+    note_lines = []
+    note_lines.append("【フォーメーション（固定2-4）】" if third_target == 4 else "【フォーメーション（固定2-3）】")
+    note_lines.append(f"ライン：{lines_str}")
+    note_lines.append(f"軸：{anchor_no}")
+    note_lines.append(f"第2列（2車）：{_format_join(second)}")
+    note_lines.append(f"第3列（{third_target}車）：{_format_join(third)}")
+    if len(pairs_nf) >= 2:
+        note_lines.append(f"ワイド＆２車複：{pairs_nf[0][0]}-{pairs_nf[0][1]} / {pairs_nf[1][0]}-{pairs_nf[1][1]}")
+    elif len(pairs_nf) == 1:
+        note_lines.append(f"ワイド＆２車複：{pairs_nf[0][0]}-{pairs_nf[0][1]}")
+    else:
+        note_lines.append("ワイド＆２車複：—")
+    note_lines.append(f"三連複（展開）：{pattern}")
+
+    return {
+        "pairs_nf": pairs_nf,   # 2車複（ワイドと同一でOK）
+        "pairs_w":  pairs_w,    # ワイド
+        "trios":    trios,      # 三連複の実点（順不同ユニーク）
+        "pattern":  pattern,    # 圧縮表記（a-bc-bcde）
+        "note":     "\n".join(note_lines),
+        "second":   second,
+        "third":    third,
+    }
+
 
 # === ここまで ===
 
