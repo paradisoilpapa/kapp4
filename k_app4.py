@@ -3218,142 +3218,218 @@ note_sections.append("\n")  # 空行
 # --- note用出力（ラインと印を対応） ---
 # -*- coding: utf-8 -*-
 """
-軸の概念と3車選定ロジック（Velobi基幹思想）
-1) 軸は「展開を支配する者」
-   - ◎が先行/捲り型→◎軸
-   - ◎が追込/自在型→○軸
-   - 読みにくい/混戦→○軸
-2) 相手プール（ワイド・三連複共通）
-   A2=◎ライン2番手 / A3=◎ライン3番手 / B2=対抗ライン2番手(無ければB1) / C1=第三極1番手
-   → 三連複は「軸＋プールから任意2枚」（最大4点、重複は除外）
+Velobi：フォーメーション生成（固定仕様）
+要件：
+  - 軸 1車
+  - 相手（第2列） 2車
+  - 第3列 = 第2列 + 追加2車（計4車）
+出力：
+  - ワイド 2点（軸-相手2）
+  - 二車複 2点（軸=相手2）
+  - 三連複：フォーメーション（第1=軸 / 第2=2車 / 第3=4車）
+             展開時は “軸-第2-第3” の組合せから重複（同一車重なり）を除外
 """
 
 from typing import Dict, List, Optional, Tuple
 from itertools import combinations
 
-# --- ユーティリティ：ライン文字列を各車番へ分解（7車立て前提で1桁ずつ） ---
-def _split_group(g: str) -> List[str]:
-    # "123" -> ["1","2","3"] / "67" -> ["6","7"]
-    return [ch for ch in g if ch.isdigit()]
+# ---------------- 基本ユーティリティ ----------------
+def _split_ids(group: str) -> List[str]:
+    """'123' -> ['1','2','3'] （7車立て想定。2桁対応が必要なら正規表現に差し替え）"""
+    return [ch for ch in group if ch.isdigit()]
 
-# --- 軸決定（脚質＋印） ---
-# 置き換え①：軸の既定ルール（styleが無い/曖昧なら◎優先）
-def choose_axis(riders):
-    # 1) ◎が自力 → ◎軸
+def _fmt_groups(gs: List[List[str]]) -> str:
+    return "　".join("".join(ids) for ids in gs)
+
+def _fmt_pairs(ps: List[Tuple[str, str]]) -> str:
+    return " / ".join(f"{a}-{b}" for a,b in ps) if ps else "—"
+
+def _fmt_trios(ts: List[Tuple[str, str, str]]) -> str:
+    return " / ".join("-".join(t) for t in ts) if ts else "—"
+
+# ---------------- 軸決定 ----------------
+def choose_axis(riders: List[Dict[str, str]]) -> Optional[str]:
+    """
+    軸は「展開の支配者」ルール：
+      1) ◎が自力（逃/捲）→ ◎
+      2) ◎が他力（追/自/自在）→ 〇
+      3) それでも無ければ ◎ → 〇 の順にフォールバック
+    """
     for r in riders:
-        if r.get("mark")=="◎" and r.get("style") in ("逃","捲"):
+        if r.get("mark") == "◎" and r.get("style") in ("逃", "捲"):
             return r["no"]
-    # 2) ◎が他力 → ○軸
     for r in riders:
-        if r.get("mark")=="◎" and r.get("style") in ("追","自","自在"):
+        if r.get("mark") == "◎" and r.get("style") in ("追", "自", "自在"):
             for s in riders:
-                if s.get("mark")=="〇":
+                if s.get("mark") == "〇":
                     return s["no"]
             break
-    # 3) style情報が無い/曖昧 → ◎を既定軸（最後の砦）
     for r in riders:
-        if r.get("mark")=="◎":
+        if r.get("mark") == "◎":
             return r["no"]
-    # 4) それでも無ければ ○
     for r in riders:
-        if r.get("mark")=="〇":
+        if r.get("mark") == "〇":
             return r["no"]
     return None
 
+# ---------------- 列の決定（ここが要件の中核） ----------------
+def select_columns(
+    lines_str: str,
+    riders: List[Dict[str, str]],
+    tenkai: str = "優位"    # "優位"(順流) / "混戦" / "逆流"
+) -> Tuple[Optional[str], List[str], List[str], List[List[str]]]:
+    """
+    返り値: (axis, col2(list2), col3(list4), groups)
+      - col2 は常に2車、col3 は col2 + 追加2車 = 4車（重複なし・軸なし）
+    優先順位（候補）は以下を基本に展開で並び替え：
+      A2=◎ライン2番手, A3=◎ライン3番手,
+      B2=対抗ライン2番手(無ければB1), C1=第三極1番手
+    """
+    # 1) ライン分解
+    groups_raw = lines_str.split()                       # 例: ["123","45","67"]
+    groups = [_split_ids(g) for g in groups_raw]         # 例: [["1","2","3"],["4","5"],["6","7"]]
+    mark = {r["no"]: r.get("mark", "") for r in riders}
 
-# --- 相手プール作成：A2, A3, B2(or B1), C1 ---
-# 置き換え②：相手プール選定（▲ラインを“対抗”として最優先で拾う）
-def select_pool(lines_str: str, riders):
-    groups_raw = lines_str.split()                         # 例: ["123","45","67"]
-    groups = [[ch for ch in g if ch.isdigit()] for g in groups_raw]
-    mark = {r["no"]: r.get("mark","") for r in riders}
+    def has_mark(ids: List[str], sym: str) -> bool:
+        return any(mark.get(x) == sym for x in ids)
 
-    def has(ids, sym): return any(mark.get(x)==sym for x in ids)
+    axis = choose_axis(riders)
+    axis_line = next((ids for ids in groups if has_mark(ids, "◎")), None)
 
-    axis_line = next((ids for ids in groups if has(ids,"◎")), None)
-
-    # 対抗ラインの決め方：▲を含む行 > （〇を含む別行） > 残りのうち最長
-    rival_line = next((ids for ids in groups if has(ids,"▲") and ids is not axis_line), None)
+    # 対抗ラインの決め方：▲を含む行 > 〇を含む別行 > その他（先頭から）
+    rival_line = next((ids for ids in groups if has_mark(ids, "▲") and ids is not axis_line), None)
     if rival_line is None:
-        rival_line = next((ids for ids in groups if has(ids,"〇") and ids is not axis_line), None)
+        rival_line = next((ids for ids in groups if has_mark(ids, "〇") and ids is not axis_line), None)
     if rival_line is None:
         others_tmp = [ids for ids in groups if ids is not axis_line]
-        rival_line = others_tmp[0] if others_tmp else None  # 最長でも良いが順序優先に変更
+        rival_line = others_tmp[0] if others_tmp else None
 
     others = [ids for ids in groups if ids not in (axis_line, rival_line)]
 
-    # A2/A3/B2(orB1)/C1
-    A2 = axis_line[1] if (axis_line and len(axis_line)>=2) else None
-    A3 = axis_line[2] if (axis_line and len(axis_line)>=3) else None
-    B2 = (rival_line[1] if (rival_line and len(rival_line)>=2)
+    # 2) 候補抽出
+    A2 = axis_line[1] if (axis_line and len(axis_line) >= 2) else None
+    A3 = axis_line[2] if (axis_line and len(axis_line) >= 3) else None
+    B2 = (rival_line[1] if (rival_line and len(rival_line) >= 2)
           else (rival_line[0] if rival_line else None))
-    C1 = (others[0][0] if (others and len(others[0])>=1) else None)
+    C1 = (others[0][0] if (others and len(others[0]) >= 1) else None)
 
-    # プール（順序保持ユニーク）
-    pool = []
-    for x in (A2, A3, B2, C1):
-        if x and x not in pool:
-            pool.append(x)
+    # 3) 展開別の優先リスト
+    pref2 = {
+        "優位": [A2, B2, A3, C1],   # 順流：番手優先＋対抗2番手
+        "混戦": [A2, C1, B2, A3],   # 混戦：◎番手＋第三極
+        "逆流": [A3, C1, B2, A2],   # 逆流：◎3番手＋第三極
+    }.get(tenkai, [A2, B2, A3, C1])
 
-    axis = choose_axis(riders)
-    return axis, pool, groups
+    # 4) 第2列：上の優先順位で2車ピック（軸・重複・None除外）
+    col2: List[str] = []
+    for x in pref2:
+        if x and x != axis and x not in col2:
+            col2.append(x)
+        if len(col2) == 2:
+            break
 
-# --- 三連複生成（軸＋プールから2枚） ---
-def make_trio(axis: Optional[str], pool: List[str]) -> List[tuple]:
-    base = ([axis] if axis else []) + pool
-    base = [x for x in base if x]
-    base = list(dict.fromkeys(base))  # ユニーク（順序保持）
-    out: List[tuple] = []
-    if len(base) >= 3 and axis:
-        for a,b,c in combinations(base, 3):
-            if axis in (a,b,c) and len({a,b,c})==3:
-                out.append((a,b,c))
-    return out
+    # 5) 第3列：col2 + 追加2車（優先候補：残りの pref2 → 逆順補完）
+    pref3 = [x for x in pref2 if x not in col2] + [A3, C1, B2, A2]
+    col3: List[str] = col2[:]  # まず第2列を入れる
+    for x in pref3:
+        if x and x != axis and x not in col3:
+            col3.append(x)
+        if len(col3) == 4:
+            break
 
-# ← ここがズレの元。必ずレースの行を入れる
-lines = "123 45 67"
+    # 6) それでも足りない場合は、全ラインから順に補完（軸・既出除外）
+    if len(col2) < 2 or len(col3) < 4:
+        flat = [n for ids in groups for n in ids]
+        for x in flat:
+            if x and x != axis:
+                if len(col2) < 2 and x not in col2:
+                    col2.append(x)
+                if len(col3) < 4 and x not in col3:
+                    col3.append(x)
+            if len(col2) >= 2 and len(col3) >= 4:
+                break
 
-riders = [
-    {"no":"1","mark":"◎","style":"逃"},   # style不明なら入れなくてもOK（◎軸になる）
-    {"no":"2","mark":"〇"},
-    {"no":"3","mark":"△"},
-    {"no":"4","mark":"▲"},
-    {"no":"5","mark":"α"},
-    {"no":"6","mark":"×"},
-    {"no":"7","mark":"無"},
-]
-axis, pool, groups = select_pool(lines, riders)
-trios = make_trio(axis, pool)
+    # 安全：切り詰め
+    col2 = col2[:2]
+    col3 = col3[:4]
 
+    return axis, col2, col3, groups
 
-   # --- note出力（append配管があれば使う／無ければ直出し） ---
-def _fmt_trios(trios):
-    return " / ".join("-".join(map(str, t)) for t in trios) if trios else "（組み合わせ未生成）"
+# ---------------- 券種生成 ----------------
+def build_bets(axis: Optional[str], col2: List[str], col3: List[str]) -> Tuple[List[Tuple[str,str]], List[Tuple[str,str]], List[Tuple[str,str,str]]]:
+    """
+    ワイド2点 / 二車複2点 / 三連複（フォーメーション展開）
+    三連複は “軸-第2-第3” から、同一車が被る組み合わせを除外して生成。
+    """
+    wide: List[Tuple[str,str]] = []
+    nishafuku: List[Tuple[str,str]] = []
+    sanrenpuku: List[Tuple[str,str,str]] = []
 
-def _fmt_groups(gs):
-    return "　".join("".join(ids) for ids in gs)
+    if axis and len(col2) >= 2 and len(col3) >= 2:
+        a, b = col2[0], col2[1]
+        wide = [(axis, a), (axis, b)]
+        nishafuku = [(axis, a), (axis, b)]
+        # 三連複フォーメーション展開
+        seen = set()
+        for x in col2:
+            for y in col3:
+                if x == y:              # 同一車は不可
+                    continue
+                trio = tuple(sorted((axis, x, y), key=lambda z: int(z) if z.isdigit() else z))
+                if len(set(trio)) == 3 and trio not in seen:
+                    sanrenpuku.append(trio)
+                    seen.add(trio)
+    return wide, nishafuku, sanrenpuku
 
-try:
-    note_sections.append("【フォーメーション（自動選定）】")
-    note_sections.append(f"ライン：{_fmt_groups(groups)}")
-    note_sections.append(f"軸：{axis if axis else '（軸未設定）'}")
-    note_sections.append(f"相手プール：{'・'.join(pool) if pool else '（空）'}")
-    note_sections.append(f"買目（三連複）: {_fmt_trios(trios)}")
+# ---------------- ここから下：使用例（差し替え可） ----------------
+if __name__ == "__main__":
+    # 例：川崎1R
+    lines = "123 45 67"
+    riders = [
+        {"no": "1", "mark": "◎", "style": "逃"},
+        {"no": "2", "mark": "〇", "style": "追"},
+        {"no": "4", "mark": "▲", "style": "自在"},
+        {"no": "3", "mark": "△", "style": "追"},
+        {"no": "6", "mark": "×", "style": "追"},
+        {"no": "5", "mark": "α", "style": "捲"},
+        {"no": "7", "mark": "無", "style": "追"},
+    ]
+    tenkai = "優位"  # ← 展開評価に合わせて "優位" / "混戦" / "逆流"
 
-except NameError:
+    axis, col2, col3, groups = select_columns(lines, riders, tenkai=tenkai)
+    wide, nisha, trio = build_bets(axis, col2, col3)
+
+    # --- note出力（append配管があれば使う／無ければ直出し） ---
     try:
-        import streamlit as st
-        st.markdown("### 【フォーメーション（自動選定）】")
-        st.write(f"ライン：{_fmt_groups(groups)}")
-        st.write(f"軸：{axis if axis else '（軸未設定）'}")
-        st.write(f"相手プール：{'・'.join(pool) if pool else '（空）'}")
-        st.write(f"買目（三連複）: {_fmt_trios(trios)}")
-    except Exception:
-        print("【フォーメーション（自動選定）】")
-        print("ライン：", _fmt_groups(groups))
-        print("軸：", axis if axis else "（軸未設定）")
-        print("相手プール：", "・".join(pool) if pool else "（空）")
-        print("買目（三連複）：", _fmt_trios(trios))
+        note_sections.append("【フォーメーション（固定2-4）】")
+        note_sections.append(f"ライン：{_fmt_groups(groups)}")
+        note_sections.append(f"軸：{axis if axis else '（軸未設定）'}")
+        note_sections.append(f"第2列（2車）：{'・'.join(col2) if col2 else '—'}")
+        note_sections.append(f"第3列（4車）：{'・'.join(col3) if col3 else '—'}")
+        note_sections.append(f"ワイド：{_fmt_pairs(wide)}")
+        note_sections.append(f"二車複：{_fmt_pairs(nisha)}")
+        note_sections.append(f"三連複（展開）：{_fmt_trios(trio)}")
+    except NameError:
+        try:
+            import streamlit as st
+            st.markdown("### 【フォーメーション（固定2-4）】")
+            st.write(f"ライン：{_fmt_groups(groups)}")
+            st.write(f"軸：{axis if axis else '（軸未設定）'}")
+            st.write(f"第2列（2車）：{'・'.join(col2) if col2 else '—'}")
+            st.write(f"第3列（4車）：{'・'.join(col3) if col3 else '—'}")
+            st.write(f"ワイド：{_fmt_pairs(wide)}")
+            st.write(f"二車複：{_fmt_pairs(nisha)}")
+            st.write(f"三連複（展開）：{_fmt_trios(trio)}")
+        except Exception:
+            print("【フォーメーション（固定2-4）】")
+            print("ライン：", _fmt_groups(groups))
+            print("軸：", axis if axis else "（軸未設定）")
+            print("第2列（2車）：", "・".join(col2) if col2 else "—")
+            print("第3列（4車）：", "・".join(col3) if col3 else "—")
+            print("ワイド：", _fmt_pairs(wide))
+            print("二車複：", _fmt_pairs(nisha))
+            print("三連複（展開）：", _fmt_trios(trio))
+
 
 # === ここまで ===
 
