@@ -3342,9 +3342,21 @@ def select_columns(lines_str: str, riders: List[Dict[str, str]], tenkai: str) ->
     # 候補
     A2 = axis_line[1] if (axis_line and len(axis_line) >= 2) else None
     A3 = axis_line[2] if (axis_line and len(axis_line) >= 3) else None
-    B2 = (rival_line[1] if (rival_line and len(rival_line) >= 2) else (rival_line[0] if rival_line else None))
-    C1 = (others[0][0] if (others and len(others[0]) >= 1) else None)
+    B2 = (
+        rival_line[1]
+        if (rival_line and len(rival_line) >= 2)
+        else (rival_line[0] if rival_line else None)
+    )
 
+    # C1: 第三極1番手（or 〇の所属ライン1番手を含める）
+    C1 = None
+    if others and len(others[0]) >= 1:
+        C1 = others[0][0]
+    elif rival_line and len(rival_line) >= 1:
+        # 〇ラインの1番手を加える
+        C1 = rival_line[0]
+
+    
     pref2 = {
         "優位": [A2, B2, A3, C1],
         "混戦": [A2, C1, B2, A3],
