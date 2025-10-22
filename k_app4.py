@@ -3287,9 +3287,15 @@ def parse_note_text(text: str) -> Tuple[str, List[Dict[str, str]], str]:
 # =========================
 # 3) ユーティリティ
 # =========================
+# 置き換え：行"41" → ["4","1"], 行"256" → ["2","5","6"]
 def _split_ids(grp: str) -> List[str]:
-    """'734' -> ['7','3','4'] / 2桁番は '10 11' のように空白で来る想定（\d+で対応）"""
-    return re.findall(r"\d+", grp)
+    grp = grp.strip()
+    # 半角スペースで区切られているならそのトークンを採用（10,11,12対応の時用）
+    if " " in grp:
+        return [tok for tok in grp.split() if tok.isdigit()]
+    # それ以外は 1文字ずつ（7車/9車の通常ケース）
+    return [ch for ch in grp if ch.isdigit()]
+
 
 def _fmt_groups(gs: List[List[str]]) -> str:
     return "　".join("".join(ids) for ids in gs)
