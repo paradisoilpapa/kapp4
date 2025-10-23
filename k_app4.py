@@ -3528,6 +3528,8 @@ except Exception as _e:
 
 # ===== /Tesla369｜完全統合・自己完結版 =====
 
+note_sections.append("\n")  # 空行
+
 # ===== note出力直後に貼るだけ（完全統合版） =====
 # ここから追記（note_sections への固定2-4/2-3 出力・完全版）
 
