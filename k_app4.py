@@ -3446,14 +3446,16 @@ try:
             mem = bucket_to_members.get(bid, [])
             return "".join(map(str, mem)) if mem else "—"
 
-        # 「点灯」表現の整合性（U>0 の時だけ点灯と書く）
         _tag = "点灯" if (VTX_high > 0 and FR_high > 0) else "判定基準内"
 
         note = "\n".join([
             f"【順流】◎ライン {label(b_star)}：失速危険 {'高' if FR>=0.15 else ('中' if FR>=0.05 else '低')}",
             f"【渦】候補ライン：{label(VTX_bid)}（VTX={VTX:.2f}）",
-            f"【逆流】無：U={U:.2f}（※{_tag}）",
+            # ↓ここを「無ライン XXX」と明示表示に
+            f"【逆流】無ライン {label(b_none)}：U={U:.2f}（※{_tag}）",
         ])
+
+
         return {"VTX": VTX, "FR": FR, "U": U, "note": note, "waves": waves, "vtx_bid": VTX_bid}
 
     def generate_tesla_bets(flow_res: Dict[str, float], lines_str: str, marks: Dict[str, int], scores: Dict[int, float]):
