@@ -3216,6 +3216,96 @@ note_sections.append(_fmt_hen_lines(race_t, USED_IDS))
 note_sections.append("\n")  # 空行
 
 # ===== note出力直後に貼るだけ（完全統合版） =====
+# ===== Tesla369 実行ランナー（偏差値の直後に貼る／最小パッチ） =====
+
+# 1) ヘルパ（念のため未定義なら定義）
+if '_t369_norm' not in globals():
+    import re, math
+    def _t369_norm(s): return (str(s) if s is not None else "").replace("　"," ").strip()
+    def _t369_safe_mean(xs, default=0.0): 
+        try: return sum(xs)/len(xs) if xs else default
+        except Exception: return default
+
+# 2) ライン・印・スコアを直前の文脈から再構成
+def _t369_parse_lines_from_context():
+    try:
+        if "_groups" in globals() and _groups:
+            out=[]
+            for g in _groups:
+                ln=[int(x) for x in g if str(x).strip()]
+                if ln: out.append(ln)
+            if out: return out
+    except Exception:
+        pass
+    try:
+        arr=[_t369_norm(x) for x in (globals().get("line_inputs") or []) if _t369_norm(x)]
+        out=[]
+        for s in arr:
+            nums=[int(ch) for ch in s if ch.isdigit()]
+            if nums: out.append(nums)
+        return out
+    except Exception:
+        return []
+
+_lines_list = _t369_parse_lines_from_context()
+lines_str   = " ".join("".join(str(n) for n in ln) for ln in _lines_list)
+
+# 印（“7※”など混在でも数字抽出）
+import re
+result_marks = (globals().get("result_marks", {}) or {})
+marks = {}
+for k,v in result_marks.items():
+    m = re.search(r'\d+', str(v))
+    if m:
+        try: marks[str(k)] = int(m.group(0))
+        except Exception: pass
+
+# スコア（USED_IDS 優先→なければライン全員）
+race_t   = dict(globals().get("race_t", {}) or {})
+USED_IDS = list(globals().get("USED_IDS", []) or [])
+def _t369_num(v):
+    try: return float(v)
+    except Exception:
+        try: return float(str(v).replace("%","").strip())
+        except Exception: return 0.0
+def _t369_get_score_from_entry(e):
+    if isinstance(e,(int,float)): return float(e)
+    if isinstance(e,dict):
+        for k in ("偏差値","hensachi","dev","score","sc","S","s","val","value"):
+            if k in e: return _t369_num(e[k])
+    return 0.0
+scores = {}
+ids_source = USED_IDS[:] or [n for ln in _lines_list for n in ln]
+for n in ids_source:
+    e = race_t.get(n, race_t.get(int(n), race_t.get(str(n), {})))
+    scores[int(n)] = _t369_get_score_from_entry(e)
+for n in [x for ln in _lines_list for x in ln]:
+    scores.setdefault(int(n), 0.0)
+
+# 3) 実行（ここで必ず note_sections に追記される）
+if "note_sections" not in globals():
+    note_sections = []
+
+try:
+    if not _lines_list:
+        note_sections.append("【流れ未循環】ライン不明 → ケン")
+    else:
+        if 'compute_flow_indicators' not in globals():
+            note_sections.append("⚠ Tesla369 未定義：compute_flow_indicators が見つかりません。")
+        else:
+            _flow = compute_flow_indicators(lines_str, marks, scores)
+            note_sections.append(_flow.get("note","【流れ】出力なし"))
+        if 'generate_tesla_bets' not in globals():
+            note_sections.append("⚠ Tesla369 未定義：generate_tesla_bets が見つかりません。")
+        else:
+            _bets = generate_tesla_bets(_flow, lines_str, marks, scores)
+            note_sections.append(_bets.get("note","【買い目】出力なし"))
+except Exception as _e:
+    note_sections.append(f"⚠ Tesla369ランナーエラー: {type(_e).__name__}: {str(_e)}")
+
+# ===== /Tesla369 実行ランナー ここまで =====
+
+
 # ===== Tesla369-LineBind｜完全統合（b_none自動補完・定義順修正版） =====
 try:
     import math, re
