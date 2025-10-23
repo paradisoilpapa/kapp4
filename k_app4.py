@@ -3390,16 +3390,23 @@ try:
         rev_sum = sum(max(0.0, w["S"]) for bid,w in waves.items() if bid!=b_star and w["d"]<0)
         FR = max(0.0, -S_star) * max(0.0, rev_sum)
 
-        # U：VTX高 & FR高 & 位相同調 σ(I(無,◎))
-        vtx_all=[v for v,_ in vtx_list] or [0.0]
-        vtx_mu=_t369_safe_mean(vtx_all,0.0)
-        vtx_sd=(_t369_safe_mean([(x-vtx_mu)**2 for x in vtx_all],0.0))**0.5
-        vtx_hi = max(0.6, vtx_mu + 0.5*vtx_sd)
-        VTX_high = 1.0 if VTX >= vtx_hi else 0.0
-        FR_high  = 1.0 if FR  >= 0.05 else 0.0
-        U = VTX_high * FR_high * _t369_sigmoid(I(b_none,b_star))
+        # --- 緩和版 U算出ブロック -------------------------------------
+        vtx_all = [v for v, _ in vtx_list] or [0.0]
+        vtx_mu  = _t369_safe_mean(vtx_all, 0.0)
+        vtx_sd  = (_t369_safe_mean([(x - vtx_mu)**2 for x in vtx_all], 0.0))**0.5
 
-       # ノート（3行）
+        # VTXの高基準をやや緩め（0.6 → 0.55）
+        vtx_hi = max(0.55, vtx_mu + 0.4 * vtx_sd)
+        VTX_high = 1.0 if VTX >= vtx_hi else 0.0
+
+        # FRの高基準も少し緩め（0.05 → 0.03）
+        FR_high = 1.0 if FR >= 0.03 else 0.0
+
+        # U算出：条件成立率が緩くなるので“荒れ気配”も拾う
+        U = VTX_high * FR_high * _t369_sigmoid(I(b_none, b_star))
+
+        # --- ノート（3行） ---------------------------------------------
+
         def label(bid):
             mem = bucket_to_members.get(bid, [])
             return "".join(map(str,mem)) if mem else "—"
@@ -3486,135 +3493,6 @@ except Exception as _e:
     except Exception:
         pass
 # ===== /Tesla369 完全統合ワンブロック ここまで =====
-# ==== Tesla369：ファジー判定パッチ（下に貼るだけ） ============================
-# 使い方: TESLA_MODE = "fuzzy" にするとファジー、"strict" なら従来判定
-TESLA_MODE = globals().get("TESLA_MODE", "fuzzy")  # ← 好みで "strict" に戻せる
-
-# --- メンバーシップ関数 ---
-def _mf_tri(x,a,b,c):
-    if x<=a or x>=c: return 0.0
-    if x==b: return 1.0
-    return (x-a)/(b-a) if x<b else (c-x)/(c-b)
-
-def _mf_trap(x,a,b,c,d):
-    if x<=a or x>=d: return 0.0
-    if b<=x<=c: return 1.0
-    return (x-a)/(b-a) if x<b else (d-x)/(d-c)
-
-# --- ファジー評価（FR, VTX, U → BuyScore/Chaos/ラベル） ---
-def tesla_fuzzy_decision(FR: float, VTX: float, U: float):
-    # 1) メンバーシップ（低・中・高）
-    FR_low  = _mf_trap(FR, 0.00, 0.00, 0.03, 0.05)
-    FR_mid  = _mf_trap(FR, 0.03, 0.05, 0.08, 0.12)
-    FR_high = _mf_trap(FR, 0.08, 0.12, 0.30, 0.30)
-
-    VTX_low  = _mf_trap(VTX, 0.00, 0.00, 0.50, 0.55)
-    VTX_mid  = _mf_trap(VTX, 0.53, 0.58, 0.68, 0.75)
-    VTX_high = _mf_trap(VTX, 0.68, 0.75, 1.00, 1.00)
-
-    U_low  = _mf_trap(U, 0.00, 0.00, 0.22, 0.28)
-    U_mid  = _mf_trap(U, 0.25, 0.30, 0.42, 0.55)
-    U_high = _mf_trap(U, 0.42, 0.55, 1.00, 1.00)
-
-    # 2) ルール（minで活性度、maxで集約）
-    # 強：整った循環
-    r_strong = min(FR_mid + FR_high, VTX_high, max(U_mid, U_high))
-    # 標準：準循環
-    r_std = max(
-        min(FR_mid, VTX_high, U_mid),
-        min(FR_high, VTX_mid, U_mid),
-        min(FR_mid, VTX_mid, U_high)
-    )
-    # 軽：二要素同調
-    r_light = max(
-        min(FR_mid, VTX_mid),
-        min(FR_mid, U_mid),
-        min(VTX_mid, U_mid)
-    )
-    # カオス：非整合の爆発（買いは弱気）
-    r_chaos = min(FR_high, VTX_high, U_low)
-
-    # 3) BuyScore（重心法：強=0.85, 標準=0.65, 軽=0.45）
-    num = 0.85*r_strong + 0.65*r_std + 0.45*r_light
-    den = max(1e-9, (r_strong + r_std + r_light))
-    buy_score = num/den if den>0 else 0.0
-
-    # 4) ラベル決定
-    if buy_score >= 0.75: label = "強"
-    elif buy_score >= 0.60: label = "標準"
-    elif buy_score >= 0.45: label = "軽"
-    else: label = "ケン"
-
-    return {
-        "buy_score": round(buy_score, 3),
-        "label": label,
-        "chaos": round(r_chaos, 3),
-        "fr_tag": "静流（ガチガチ）" if FR_low>max(FR_mid,FR_high)
-                  else ("荒れ気配（要注意）" if FR_mid>=FR_high else "荒れる可能性アリ（買い候補）")
-    }
-
-# --- 既存の generate_tesla_bets を“上書き拡張”（ファジー対応） ---------------
-# 既存同名関数を定義し直す（Pythonは後勝ち）
-_prev_generate_tesla_bets = globals().get("generate_tesla_bets")
-
-def generate_tesla_bets(flow_res, lines_str, marks, scores):
-    # strict と fuzzy をトグル
-    if TESLA_MODE == "strict":
-        return _prev_generate_tesla_bets(flow_res, lines_str, marks, scores)
-
-    # fuzzy：BuyScore でゲート
-    fuzz = tesla_fuzzy_decision(flow_res["FR"], flow_res["VTX"], flow_res["U"])
-    # 既存の strict 関数を流用して bets を作るため、しきい値を緩和して呼ぶ
-    # → strict版がない環境でも動くよう、簡易生成を内包
-    def _cheap_bets():
-        # （元の生成ロジックの簡易版：FRライン×VTXライン×Uライン）
-        parts = [p for p in lines_str.split() if p.strip()]
-        lines = [[int(ch) for ch in p if ch.isdigit()] for p in parts]
-        if not lines:
-            return [], [], []
-        import statistics as _st
-        line_score = {tuple(ln): _st.mean([scores.get(n,50.0) for n in ln]) for ln in lines}
-        star_ln = next((tuple(ln) for ln in lines if marks.get("◎",-1) in ln), None)
-        FR_line = star_ln if star_ln else max(line_score, key=lambda ln: line_score[ln])
-        VTX_line = sorted(lines, key=lambda ln: abs(len(ln)-2))[0]
-        U_line = min(line_score, key=lambda ln: line_score[ln])
-        FR_lst, VTX_lst, U_lst = list(FR_line), list(VTX_line), list(U_line)
-        trios = []
-        for a in FR_lst:
-            for b in VTX_lst:
-                for c in U_lst:
-                    if len({a,b,c})==3:
-                        trios.append(f"{a}-{b}-{c}")
-        trios = trios[:6]
-        def _top(lst): return max(lst, key=lambda n: scores.get(n,0)) if lst else None
-        pairs_nf=[]; pairs_w=[]
-        if FR_lst and VTX_lst: pairs_nf.append(f"{_top(FR_lst)}-{_top(VTX_lst)}")
-        if FR_lst and U_lst:   pairs_w.append(f"{_top(FR_lst)}-{_top(U_lst)}")
-        if VTX_lst and U_lst:  pairs_w.append(f"{_top(VTX_lst)}-{_top(U_lst)}")
-        return pairs_nf, pairs_w, trios
-
-    # BuyScore ゲート
-    if fuzz["buy_score"] < 0.45:  # ← ケン
-        return {"pairs_nf":[], "pairs_w":[], "trios":[],
-                "note": f"【テスラ判定(ファジー)】BuyScore={fuzz['buy_score']:.3f} / Chaos={fuzz['chaos']:.3f} → ケン（{fuzz['fr_tag']}）"}
-
-    # 軽以上なら出力（強さを注記）
-    pairs_nf, pairs_w, trios = _cheap_bets() if _prev_generate_tesla_bets is None \
-        else _prev_generate_tesla_bets({"FR":0.06,"VTX":0.70,"U":0.35}, lines_str, marks, scores).values()  # type: ignore
-
-    # 既存の戻り値形式に合わせて整形
-    def _mk_note(pnf, pw, tri):
-        return "\n".join([
-            f"【テスラ判定(ファジー)】BuyScore={fuzz['buy_score']:.3f} / Chaos={fuzz['chaos']:.3f} → {fuzz['label']}",
-            f"（FR={flow_res['FR']:.3f}, VTX={flow_res['VTX']:.3f}, U={flow_res['U']:.3f} / {fuzz['fr_tag']}）",
-            f"二車複：{' / '.join(pnf) if pnf else '—'}",
-            f"ワイド：{' / '.join(pw) if pw else '—'}",
-            ("三連複（最大6点）： " + (', '.join(tri) if tri else '—')),
-        ])
-    return {"pairs_nf": pairs_nf or [], "pairs_w": pairs_w or [], "trios": trios or [],
-            "note": _mk_note(pairs_nf or [], pairs_w or [], trios or [])}
-# ==== /ファジー判定パッチ ここまで ==============================================
-
 
 # === ここまで ===
 
