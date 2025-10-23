@@ -3216,7 +3216,6 @@ note_sections.append(_fmt_hen_lines(race_t, USED_IDS))
 note_sections.append("\n")  # 空行
 
 # ===== note出力直後に貼るだけ（完全統合版） =====
-
 # ===== Tesla369｜完全統合ワンブロック（note出力直後に貼るだけ） =====
 # 直前に生成済みの line_inputs / _groups / result_marks / race_t / USED_IDS を自動利用
 try:
@@ -3240,15 +3239,20 @@ try:
             return 0.0 if x < 0 else 1.0
 
     def _t369_parse_lines_from_context() -> List[List[int]]:
-        # 1) _groups: [[1,5],[7,2,6],[3,4]] など優先
+        # 1) _groups: [[1,5],[7,2,6],[3,4]] など優先（文字型も数値抽出）
         try:
             if "_groups" in globals() and _groups:
                 out = []
                 for g in _groups:
-                    try:
-                        ln = [int(x) for x in g if str(x).strip()]
-                    except Exception:
-                        ln = []
+                    ln = []
+                    for x in g:
+                        try:
+                            ln.append(int(x))
+                        except Exception:
+                            sx = str(x)
+                            nums = [ch for ch in sx if ch.isdigit()]
+                            if nums:
+                                ln.append(int("".join(nums)))
                     if ln:
                         out.append(ln)
                 if out:
@@ -3286,15 +3290,17 @@ try:
     _lines_list = _t369_parse_lines_from_context()
     lines_str   = _t369_lines_str(_lines_list)  # 例: "15 726 34"
 
-    # 印：必ず int 化して型ズレを防止（'7' → 7）
+    # 印：必ず int 化して型ズレを防止（' 7 ' → 7 まで吸収）
     result_marks = (globals().get("result_marks", {}) or {})
     marks: Dict[str, int] = {}
     for k, v in result_marks.items():
         try:
             marks[str(k)] = int(v)
         except Exception:
-            # キャスト不能なら無視（◎/無 など主要印は数字で来る前提）
-            pass
+            try:
+                marks[str(k)] = int(str(v).strip())
+            except Exception:
+                pass
 
     # 偏差値ソース
     USED_IDS = list(globals().get("USED_IDS", []) or [])
@@ -3343,10 +3349,7 @@ try:
                     "waves": {}, "vtx_bid": ""}
 
         buckets = _t369_buckets(lines)  # {選手番号:int -> バケツID:str}
-        bucket_to_members = {}
-        for ln in lines:
-            bid = buckets[ln[0]]
-            bucket_to_members[bid] = ln
+        bucket_to_members = {buckets[ln[0]]: ln for ln in lines}
 
         # 環境（任意）：race_env があれば使う
         env = globals().get("race_env", {}) or {}
@@ -3404,8 +3407,7 @@ try:
                 return 0.0
             return math.cos(waves[bi]["phi"] - waves[bj]["phi"])
 
-        # VTX：中立ラインの |I(k,◎)| + |I(k,無)| を最大
-        # ※ 微減速までは候補に残す（S >= -0.02）← 厳しすぎた閾値を緩和
+        # VTX：中立ラインの |I(k,◎)| + |I(k,無)| を最大（S >= -0.02 を許容）
         vtx_list = []
         for bid, mem in bucket_to_members.items():
             if bid in (b_star, b_none):
@@ -3418,7 +3420,7 @@ try:
         VTX = vtx_list[0][0] if vtx_list else 0.0
         VTX_bid = vtx_list[0][1] if vtx_list else ""
 
-        # FR：-S_◎ × 逆流側の S+（微マイナスは0扱い）← 緩和
+        # FR：-S_◎ × 逆流側の S+（微マイナスは0扱い）
         S_star = waves.get(b_star, {}).get("S", 0.0)
         rev_sum = 0.0
         for bid, w in waves.items():
@@ -3442,19 +3444,21 @@ try:
         U = VTX_high * FR_high * _t369_sigmoid(I(b_none, b_star))
 
         # --- ノート（3行） ---------------------------------------------
-        def label(bid):
-            mem = bucket_to_members.get(bid, [])
-            return "".join(map(str, mem)) if mem else "—"
+        def label(bid: str) -> str:
+            mem = bucket_to_members.get(bid)
+            if mem:
+                return "".join(map(str, mem))
+            # バケツに無い場合でも逆引きで拾う（保険）
+            rev = [k for k, v in buckets.items() if v == bid]
+            return "".join(map(str, rev)) if rev else "—"
 
         _tag = "点灯" if (VTX_high > 0 and FR_high > 0) else "判定基準内"
 
         note = "\n".join([
             f"【順流】◎ライン {label(b_star)}：失速危険 {'高' if FR>=0.15 else ('中' if FR>=0.05 else '低')}",
             f"【渦】候補ライン：{label(VTX_bid)}（VTX={VTX:.2f}）",
-            # ↓ここを「無ライン XXX」と明示表示に
             f"【逆流】無ライン {label(b_none)}：U={U:.2f}（※{_tag}）",
         ])
-
 
         return {"VTX": VTX, "FR": FR, "U": U, "note": note, "waves": waves, "vtx_bid": VTX_bid}
 
@@ -3544,6 +3548,7 @@ except Exception as _e:
     except Exception:
         pass
 # ===== /Tesla369 完全統合ワンブロック ここまで =====
+
 
 
 # === ここまで ===
