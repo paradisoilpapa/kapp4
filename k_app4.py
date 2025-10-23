@@ -3399,18 +3399,16 @@ try:
         FR_high  = 1.0 if FR  >= 0.05 else 0.0
         U = VTX_high * FR_high * _t369_sigmoid(I(b_none,b_star))
 
-        # ノート（3行）
+       # ノート（3行）
         def label(bid):
             mem = bucket_to_members.get(bid, [])
             return "".join(map(str,mem)) if mem else "—"
         note = "\n".join([
-            # 元：
-f"【順流】◎ライン {star_line if star_line!='' else '—'}：失速危険 {'高' if FR>=0.15 else ('中' if FR>=0.05 else '低')}",
+            f"【順流】◎ライン {label(b_star)}：失速危険 {'高' if FR>=0.15 else ('中' if FR>=0.05 else '低')}",
             f"【渦】候補ライン：{label(VTX_bid)}（VTX={VTX:.2f}）",
             f"【逆流】無：U={U:.2f}（※VTX&FRで点灯）",
         ])
         return {"VTX":VTX,"FR":FR,"U":U,"note":note,"waves":waves,"vtx_bid":VTX_bid}
-
     def generate_tesla_bets(flow_res: Dict[str,float], lines_str: str, marks: Dict[str,int], scores: Dict[int,float]):
         # 369に“ささる”最低条件（Uは潜伏許容で0.30）
         if flow_res["FR"] < 0.05 or flow_res["VTX"] < 0.6 or flow_res["U"] < 0.30:
