@@ -3406,18 +3406,6 @@ try:
         note = "\n".join([
             # 元：
 f"【順流】◎ライン {star_line if star_line!='' else '—'}：失速危険 {'高' if FR>=0.15 else ('中' if FR>=0.05 else '低')}",
-
-# 改良版：
-def _fr_label(fr):
-    if fr < 0.05:
-        return "静流（ガチガチ）"
-    elif fr < 0.10:
-        return "荒れ気配（要注意）"
-    else:
-        return "荒れる可能性アリ（買い候補）"
-
-f"【順流】◎ライン {star_line if star_line!='' else '—'}：{_fr_label(FR)}",
-
             f"【渦】候補ライン：{label(VTX_bid)}（VTX={VTX:.2f}）",
             f"【逆流】無：U={U:.2f}（※VTX&FRで点灯）",
         ])
