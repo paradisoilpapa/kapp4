@@ -3216,6 +3216,68 @@ note_sections.append(_fmt_hen_lines(race_t, USED_IDS))
 note_sections.append("\n")  # 空行
 
 # ===== note出力直後に貼るだけ（完全統合版） =====
+# ==== Tesla369 ブリッジ：直前の文脈から自動取得して実行 ======================
+# 目的：lines_str / marks / scores を再入力せず、直前に生成済みの値から合成する
+try:
+    # 1) ライン（line_inputs か _groups から復元）
+    def _lines_from_context():
+        # _groups が [[1,5],[7,2,6],[3,4]] のように入っている想定
+        try:
+            if '_groups' in globals() and _groups:
+                return [list(map(int, g)) for g in _groups if g]
+        except Exception:
+            pass
+        # フォールバック：line_inputs（"15","726","34" 等）から復元
+        try:
+            arr = [str(x).replace("　"," ").strip() for x in (line_inputs or []) if str(x).strip()]
+            out = []
+            for s in arr:
+                nums = [int(ch) for ch in s if ch.isdigit()]
+                if nums: out.append(nums)
+            return out
+        except Exception:
+            return []
+    _lines_list = _lines_from_context()
+    lines_str = " ".join("".join(str(n) for n in ln) for ln in _lines_list)  # 例: "15 726 34"
+
+    # 2) 印
+    marks = result_marks if isinstance(result_marks, dict) else {}
+
+    # 3) 偏差値スコア（race_t → USED_IDS から柔軟に抽出）
+    def _num(v):
+        try: return float(v)
+        except Exception:
+            try: return float(str(v).replace("%","").strip())
+            except Exception: return 0.0
+    def _get_score_from_entry(e):
+        if isinstance(e, (int,float)): return float(e)
+        if isinstance(e, dict):
+            for k in ("偏差値","hensachi","dev","score","sc","S","s","val","value"):
+                if k in e: return _num(e[k])
+        return 0.0
+    scores = {}
+    try:
+        for n in USED_IDS:
+            e = race_t.get(n, race_t.get(int(n), race_t.get(str(n), {})))
+            scores[int(n)] = _get_score_from_entry(e)
+    except Exception:
+        scores = {int(n): 0.0 for n in USED_IDS}
+
+    # 4) Tesla369 実行（既に定義済みの関数をそのまま使用）
+    # compute_flow_indicators / generate_tesla_bets が未定義ならスキップしてメッセージ
+    if 'compute_flow_indicators' in globals() and callable(globals()['compute_flow_indicators']) \
+       and 'generate_tesla_bets' in globals() and callable(globals()['generate_tesla_bets']):
+        _flow = compute_flow_indicators(lines_str, marks, scores)
+        note_sections.append(_flow["note"])
+        _bets = generate_tesla_bets(_flow, lines_str, marks, scores)
+        note_sections.append(_bets["note"])
+    else:
+        note_sections.append("⚠ Tesla369未ロード：compute_flow_indicators / generate_tesla_bets が見つかりません。先に貼付してください。")
+
+except Exception as _e:
+    note_sections.append(f"⚠ Tesla369ブリッジエラー: {type(_e).__name__}: {str(_e)}")
+
+
 # ==== Velobi × Tesla369：流れ→買い目（2車複・ワイド・三連複 最大6点） ==================
 # 依存：lines_str, marks, scores, note_sections が既に存在していること
 import math, statistics
