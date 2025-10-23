@@ -3528,159 +3528,27 @@ except Exception as _e:
 
 # ===== /Tesla369｜完全統合・自己完結版 =====
 
-note_sections.append("\n")  # 空行
-
-# ===== note出力直後に貼るだけ（完全統合版） =====
-# ここから追記（note_sections への固定2-4/2-3 出力・完全版）
-
-# --- 入力整形 ---
+# === Tesla369 診断ミニ（統合版の末尾に追記）==============================
 try:
-    # ライン表記（全角スペース対応）
-    lines_str = " ".join([str(x).replace("　", " ").strip() for x in (line_inputs or []) if str(x).strip()])
-except Exception:
-    lines_str = ""
+    dbg_lines = _lines_list
+    dbg_marks = marks
+    dbg_scores_keys = sorted(scores.keys())
+    _flow_diag = compute_flow_indicators(lines_str, marks, scores)
 
-# 印（◎ など）
-marks = result_marks if isinstance(result_marks, dict) else {}
-
-# 偏差値スコアの抽出（race_t から柔軟に拾う）
-def _num(v):
-    try:
-        return float(v)
-    except Exception:
-        try:
-            return float(str(v).replace("%","").strip())
-        except Exception:
-            return 0.0
-
-def _get_score_from_entry(e):
-    if isinstance(e, (int, float)): return float(e)
-    if isinstance(e, dict):
-        for k in ("偏差値","hensachi","dev","score","sc","S","s","val","value"):
-            if k in e: return _num(e[k])
-    return 0.0
-
-scores = {}
-try:
-    for n in USED_IDS:
-        e = race_t.get(n, race_t.get(int(n), race_t.get(str(n), {})))
-        scores[int(n)] = _get_score_from_entry(e)
-except Exception:
-    # フォールバック：全員0
-    scores = {int(n): 0.0 for n in USED_IDS}
-
-# --- フォーメーション生成（既存があれば使用、無ければ内蔵版） ---
-if "generate_fixed24" in globals() and callable(globals()["generate_fixed24"]):
-    _gen_fixed = globals()["generate_fixed24"]
-else:
-    # 最小・堅牢な内蔵版（単騎軸対応／2-3 or 2-4）
-    from typing import Dict, List, Tuple, Set
-    def generate_fixed24(marks: Dict[str, int], lines_str: str, scores: Dict[int, float], adaptive: bool = True) -> Dict[str, object]:
-        scores = {int(k): float(v) for k, v in (scores or {}).items()}
-        def _norm(s): return (s or "").replace("　", " ").strip()
-        def _parse_lines_local(s: str) -> List[List[int]]:
-            parts = [p for p in _norm(s).split() if p]
-            out: List[List[int]] = []
-            for p in parts:
-                nums = [int(ch) for ch in p if ch.isdigit()]
-                if nums: out.append(nums)
-            return out
-        def _buckets(lines: List[List[int]]) -> Dict[int, str]:
-            m: Dict[int,str] = {}; lid = 0
-            for ln in lines:
-                if len(ln) == 1:
-                    m[ln[0]] = f"S{ln[0]}"
-                else:
-                    lid += 1
-                    for n in ln: m[n] = f"L{lid}"
-            return m
-        lines = _parse_lines_local(lines_str)
-        if not lines:
-            base = sorted(scores.keys() or [marks.get("◎", 1)])
-            lines = [[n] for n in base]
-        buckets = _buckets(lines)
-        all_nums = sorted({n for ln in lines for n in ln})
-        if not all_nums:
-            return {"note":"—","pairs_nf":[],"pairs_w":[],"trios":[],"pattern":"","second":[],"third":[]}
-        anchor = int((marks or {}).get("◎", all_nums[0]))
-        if anchor not in all_nums:
-            anchor = max(all_nums, key=lambda n: scores.get(n, 0.0))
-        cands = sorted([n for n in all_nums if n != anchor], key=lambda n: (-scores.get(n,0.0), n))
-        ab = buckets.get(anchor, None)
-
-        # 第2列
-        second: List[int] = []
-        if ab and ab.startswith("L"):
-            same = [n for n in next((ln for ln in lines if anchor in ln), []) if n != anchor]
-            if same:
-                second.append(sorted(same, key=lambda n: (-scores.get(n,0.0), n))[0])
-            for n in cands:
-                if n in second: continue
-                if buckets.get(n) != ab:
-                    second.append(n); break
-            for n in cands:
-                if len(second) >= 2: break
-                if n not in second: second.append(n)
-        else:
-            # 単騎軸：スコア順 2名（ライン重複は軽回避）
-            used: Set[int] = {anchor}
-            for n in cands:
-                if len(second) >= 2: break
-                if n in used: continue
-                second.append(n); used.add(n)
-        second = second[:2]
-
-        # 第3列サイズ（展開厚み）
-        line_cnt = sum(1 for ln in lines if len(ln) >= 2)
-        sing_cnt = sum(1 for ln in lines if len(ln) == 1)
-        tsz = 3 if (adaptive and line_cnt <= 2 and sing_cnt <= 1) else 4
-
-        # 第3列（第2列内包）
-        third = list(second)
-        for n in cands:
-            if len(third) >= tsz: break
-            if n not in third: third.append(n)
-        third = third[:tsz]
-
-        # 実点
-        pairs = [(anchor, x) for x in second]
-        seen: Set[Tuple[int,int,int]] = set()
-        trios: List[Tuple[int,int,int]] = []
-        for a in second:
-            for b in third:
-                if a == b: continue
-                t = tuple(sorted((anchor, a, b)))
-                if t not in seen:
-                    seen.add(t); trios.append(t)
-
-        def _fmt(nums): return "・".join(str(x) for x in nums) if nums else "—"
-        def _cmp(nums): return "".join(str(x) for x in nums) if nums else ""
-        title = "【フォーメーション（固定2-4）】" if tsz == 4 else "【フォーメーション（固定2-3）】"
-        pattern = f"{anchor}-{_cmp(second)}-{_cmp(third)}"
-        note = "\n".join([
-            title,
-            f"ライン：{lines_str or '—'}",
-            f"軸：{anchor}",
-            f"第2列（2車）：{_fmt(second)}",
-            f"第3列（{tsz}車）：{_fmt(third)}",
-            (f"ワイド＆２車複：{pairs[0][0]}-{pairs[0][1]} / {pairs[1][0]}-{pairs[1][1]}" if len(pairs) >= 2 else "ワイド＆２車複：—"),
-            f"三連複（展開）：{pattern if pattern else '—'}",
-        ])
-        return {"pairs_nf": pairs, "pairs_w": pairs, "trios": trios, "pattern": pattern, "note": note,
-                "second": second, "third": third}
-    _gen_fixed = generate_fixed24
-
-# --- 生成して note_sections に追記 ---
-try:
-    res__ = _gen_fixed(marks=marks, lines_str=lines_str, scores=scores, adaptive=True)
-    note_sections.append(res__["note"])
-    # 実点の列挙（表は使わない）
-    if res__.get("trios"):
-        _triostr = ", ".join(f"{a}-{b}-{c}" for a,b,c in res__["trios"])
-       
+    note_sections.append(
+        "【Tesla369診断】"
+        f"\nlines_str={lines_str or '—'}"
+        f"\nlines_list={dbg_lines or '—'}"
+        f"\nmarks={dbg_marks or '—'}"
+        f"\nscores.keys={dbg_scores_keys or '—'}"
+        f"\nFR={_flow_diag.get('FR',0.0):.3f}  "
+        f"VTX={_flow_diag.get('VTX',0.0):.3f}  "
+        f"U={_flow_diag.get('U',0.0):.3f}"
+        f"\n※どれかが '—' なら入力が読めていません。"
+    )
 except Exception as _e:
-    note_sections.append(f"⚠ フォーメーション生成エラー: {type(_e).__name__}: {str(_e)}")
-
+    note_sections.append(f"⚠ Tesla369診断エラー: {type(_e).__name__}: {str(_e)}")
+# =======================================================================
 
 
 # === ここまで ===
