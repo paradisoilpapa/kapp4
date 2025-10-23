@@ -3449,6 +3449,7 @@ except Exception as _e:
 
 
 
+
 note_text = "\n".join(note_sections)
 st.markdown("### 📋 note用（コピーエリア）")
 st.text_area("ここを選択してコピー", note_text, height=560)
