@@ -3216,103 +3216,93 @@ note_sections.append(_fmt_hen_lines(race_t, USED_IDS))
 note_sections.append("\n")  # 空行
 
 # ===== note出力直後に貼るだけ（完全統合版） =====
-# ===== Tesla369-LineBind｜完全統合版（note出力直後に貼るだけ） =====
+# ===== Tesla369-LineBind｜完全統合（b_none自動補完・定義順修正版） =====
 try:
     import math, re
     from typing import Dict, List
 
-    # ---------- ユーティリティ ----------
     def _t369_norm(s): return (str(s) if s is not None else "").replace("　", " ").strip()
     def _t369_safe_mean(xs, default=0.0): return sum(xs)/len(xs) if xs else default
     def _t369_sigmoid(x: float) -> float:
         try: return 1.0 / (1.0 + math.exp(-2.0 * x))
         except OverflowError: return 0.0 if x < 0 else 1.0
 
-    # ---------- ライン構成取得 ----------
     def _t369_parse_lines_from_context() -> List[List[int]]:
-        # 1) _groups優先
         try:
             if "_groups" in globals() and _groups:
-                out = []
+                out=[]
                 for g in _groups:
-                    ln = [int(x) for x in g if str(x).strip()]
+                    ln=[int(x) for x in g if str(x).strip()]
                     if ln: out.append(ln)
                 if out: return out
-        except Exception:
-            pass
-        # 2) line_inputsフォールバック
+        except Exception: pass
         try:
-            arr = [_t369_norm(x) for x in (globals().get("line_inputs") or []) if _t369_norm(x)]
-            out = []
+            arr=[_t369_norm(x) for x in (globals().get("line_inputs") or []) if _t369_norm(x)]
+            out=[]
             for s in arr:
-                nums = [int(ch) for ch in s if ch.isdigit()]
+                nums=[int(ch) for ch in s if ch.isdigit()]
                 if nums: out.append(nums)
             return out
-        except Exception:
-            return []
+        except Exception: return []
 
-    def _t369_lines_str(lines: List[List[int]]) -> str:
-        return " ".join("".join(str(n) for n in ln) for ln in lines)
-
-    def _t369_buckets(lines: List[List[int]]) -> Dict[int, str]:
-        m = {}; lid = 0
+    def _t369_lines_str(lines): return " ".join("".join(str(n) for n in ln) for ln in lines)
+    def _t369_buckets(lines):
+        m={}; lid=0
         for ln in lines:
-            if len(ln) == 1: m[ln[0]] = f"S{ln[0]}"
+            if len(ln)==1: m[ln[0]]=f"S{ln[0]}"
             else:
-                lid += 1
-                for n in ln: m[n] = f"L{lid}"
+                lid+=1
+                for n in ln: m[n]=f"L{lid}"
         return m
 
-    # ---------- コンテキスト自動取得 ----------
-    _lines_list = _t369_parse_lines_from_context()
-    lines_str   = _t369_lines_str(_lines_list)
-    result_marks = (globals().get("result_marks", {}) or {})
-    marks: Dict[str, int] = {}
-    for k, v in result_marks.items():
-        s = str(v); m = re.search(r'\d+', s)
+    _lines_list=_t369_parse_lines_from_context()
+    lines_str=_t369_lines_str(_lines_list)
+    result_marks=(globals().get("result_marks",{}) or {})
+    marks={}
+    for k,v in result_marks.items():
+        s=str(v); m=re.search(r'\d+',s)
         if m:
-            try: marks[str(k)] = int(m.group(0))
+            try: marks[str(k)]=int(m.group(0))
             except Exception: pass
 
-    USED_IDS = list(globals().get("USED_IDS", []) or [])
-    race_t   = dict(globals().get("race_t", {}) or {})
+    USED_IDS=list(globals().get("USED_IDS",[]) or [])
+    race_t=dict(globals().get("race_t",{}) or {})
 
     def _t369_num(v):
         try: return float(v)
         except Exception:
-            try: return float(str(v).replace("%", "").strip())
+            try: return float(str(v).replace("%","").strip())
             except Exception: return 0.0
 
     def _t369_get_score_from_entry(e):
-        if isinstance(e, (int, float)): return float(e)
-        if isinstance(e, dict):
+        if isinstance(e,(int,float)): return float(e)
+        if isinstance(e,dict):
             for k in ("偏差値","hensachi","dev","score","sc","S","s","val","value"):
                 if k in e: return _t369_num(e[k])
         return 0.0
 
-    scores: Dict[int, float] = {}
-    ids_source = USED_IDS[:] or [n for ln in _lines_list for n in ln]
+    scores={}
+    ids_source=USED_IDS[:] or [n for ln in _lines_list for n in ln]
     for n in ids_source:
-        e = race_t.get(n, race_t.get(int(n), race_t.get(str(n), {})))
-        scores[int(n)] = _t369_get_score_from_entry(e)
+        e=race_t.get(n,race_t.get(int(n),race_t.get(str(n),{})))
+        scores[int(n)]=_t369_get_score_from_entry(e)
     for n in [x for ln in _lines_list for x in ln]:
-        scores.setdefault(int(n), 0.0)
+        scores.setdefault(int(n),0.0)
 
-    # ---------- 本体 ----------
-    def compute_flow_indicators(lines_str: str, marks: Dict[str, int], scores: Dict[int, float]):
-        parts = [_t369_norm(p) for p in lines_str.split() if _t369_norm(p)]
-        lines = [[int(ch) for ch in p if ch.isdigit()] for p in parts if any(ch.isdigit() for ch in p)]
+    def compute_flow_indicators(lines_str,marks,scores):
+        parts=[_t369_norm(p) for p in lines_str.split() if _t369_norm(p)]
+        lines=[[int(ch) for ch in p if ch.isdigit()] for p in parts if any(ch.isdigit() for ch in p)]
         if not lines:
             return {"VTX":0.0,"FR":0.0,"U":0.0,"note":"【流れ未循環】ラインなし → ケン","waves":{}}
 
-        buckets = _t369_buckets(lines)
-        bucket_to_members = {buckets[ln[0]]: ln for ln in lines}
+        buckets=_t369_buckets(lines)
+        bucket_to_members={buckets[ln[0]]:ln for ln in lines}
 
-        env = globals().get("race_env", {}) or {}
+        env=globals().get("race_env",{}) or {}
         wind=float(env.get("wind_head",0.0)); pull=float(env.get("pull_len",0.0))
         jam=float(env.get("jam",0.0)); pace=float(env.get("pace_var",0.3)); kick=float(env.get("kick_freq",1.0))
 
-        def est(mem: List[int]):
+        def est(mem):
             baseA=_t369_safe_mean([scores.get(n,50.0) for n in mem],50.0)
             A=max(10.0,min(baseA,90.0))/100.0
             gamma=max(0.02,0.02+0.02*wind+0.6*pull+0.3*jam)*(0.95 if len(mem)==1 else 1.0)
@@ -3329,28 +3319,26 @@ try:
 
         waves={bid:dict(zip(["A","gamma","f","phi","d","S"],[*est(mem),S_end(*est(mem))])) for bid,mem in bucket_to_members.items()}
 
-               # バケツ取得：marksの値が str でも安全に対応
-        def _bucket_of(num) -> str:
-            try:
-                n = int(num)
-            except Exception:
-                return ""
-            return buckets.get(n, "")
+        def _bucket_of(num):
+            try: n=int(num)
+            except Exception: return ""
+            return buckets.get(n,"")
 
-        # --- ◎ラインと無ラインの自動補完 ---
-        b_star = _bucket_of(marks.get("◎", -999))
-        b_none = _bucket_of(marks.get("無", -999))
+        def I(bi,bj):
+            if not bi or not bj or bi not in waves or bj not in waves: return 0.0
+            return math.cos(waves[bi]["phi"]-waves[bj]["phi"])
 
-        # 「無」が未定義またはライン外なら、最下位スコアラインを代用
+        b_star=_bucket_of(marks.get("◎",-999))
+        b_none=_bucket_of(marks.get("無",-999))
+
+        # --- 無ライン自動補完 ---
         if not b_none:
             try:
-                lowest_ln = min(lines, key=lambda ln: _t369_safe_mean([scores.get(n, 50.0) for n in ln], 50.0))
-                b_none = _bucket_of(lowest_ln[0])
+                lowest_ln=min(lines,key=lambda ln:_t369_safe_mean([scores.get(n,50.0) for n in ln],50.0))
+                b_none=_bucket_of(lowest_ln[0])
             except Exception:
-                b_none = ""
+                b_none=""
 
-
-        # --- 各波計算 ---
         vtx_list=[]
         for bid,mem in bucket_to_members.items():
             if bid in (b_star,b_none): continue
@@ -3383,14 +3371,13 @@ try:
         ])
         return {"VTX":VTX,"FR":FR,"U":U,"note":note,"waves":waves,"vtx_bid":VTX_bid,"lines":lines}
 
-    def generate_tesla_bets(flow_res: Dict[str,float], lines_str: str, marks: Dict[str,int], scores: Dict[int,float]):
+    def generate_tesla_bets(flow_res,lines_str,marks,scores):
         if flow_res["FR"]<0.03 or flow_res["VTX"]<0.55 or flow_res["U"]<0.20:
             return {"note":"【流れ未循環】369にささらず → ケン"}
 
         lines=flow_res.get("lines",[])
         if not lines: return {"note":"【流れ未循環】ラインなし → ケン"}
 
-        # --- 中心波・順流波・逆流波 ---
         line_score={tuple(ln):_t369_safe_mean([scores.get(n,50.0) for n in ln],50.0) for ln in lines}
         star_ln=next((tuple(ln) for ln in lines if marks.get("◎",-1) in ln),None)
         FR_line=star_ln if star_ln else max(line_score,key=line_score.get)
@@ -3398,8 +3385,6 @@ try:
         U_line=min(line_score,key=line_score.get)
 
         FR_lst,VTX_lst,U_lst=list(FR_line),list(VTX_line),list(U_line)
-
-        # --- LineBind判定：3波が同一ラインに含まれていればライン完結に統合 ---
         linebind_mode=False
         for ln in lines:
             if set(ln)&set(FR_lst) and set(ln)&set(VTX_lst) and set(ln)&set(U_lst):
@@ -3407,14 +3392,12 @@ try:
                 linebind_mode=True
                 break
 
-        # --- 買い目生成 ---
         trios=[f"{a}-{b}-{c}" for a in FR_lst for b in VTX_lst for c in U_lst if len({a,b,c})==3][:6]
         def top(lst): return max(lst,key=lambda n:scores.get(n,0)) if lst else None
         pairs_nf=[]; pairs_w=[]
         if FR_lst and VTX_lst: pairs_nf.append(f"{top(FR_lst)}-{top(VTX_lst)}")
         if FR_lst and U_lst: pairs_w.append(f"{top(FR_lst)}-{top(U_lst)}")
         if VTX_lst and U_lst: pairs_w.append(f"{top(VTX_lst)}-{top(U_lst)}")
-
         def j(nums): return "".join(map(str,nums))
         note="\n".join([
             "【Tesla369-LineBindフォーメーション】",
@@ -3428,7 +3411,6 @@ try:
         ])
         return {"note":note}
 
-    # ---------- 実行 ----------
     if "note_sections" not in globals(): note_sections=[]
     if not _lines_list: note_sections.append("【流れ未循環】ライン不明 → ケン")
     else:
@@ -3440,7 +3422,8 @@ try:
 except Exception as _e:
     try: note_sections.append(f"⚠ Tesla369-LineBindエラー: {type(_e).__name__}: {str(_e)}")
     except Exception: pass
-# ===== /Tesla369-LineBind 完全統合ここまで =====
+# ===== /Tesla369-LineBind 完全統合（修正版v2）ここまで =====
+
 
 
 # === ここまで ===
