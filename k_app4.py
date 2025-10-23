@@ -3441,32 +3441,47 @@ def compute_flow_indicators(lines_str: str, marks: Dict[str, int], scores: Dict[
 # -------------------------------------
 # 3) 買い目生成（三連複 最大6点／2車複／ワイド）
 # -------------------------------------
-def generate_tesla_bets(flow_res: Dict[str, Any], lines_str: str, marks: Dict[str, int], scores: Dict[int, float]) -> Dict[str, Any]:
+# --- 差し替え版：generate_tesla_bets（VTX先導モード付き） ---
+def generate_tesla_bets(flow_res, lines_str, marks, scores):
     try:
-        # 369に“ささる”最低ゲート（ゆるめ）
-        if flow_res.get("FR", 0.0) < 0.02 or flow_res.get("VTX", 0.0) < 0.50 or flow_res.get("U", 0.0) < 0.10:
+        FR  = float(flow_res.get("FR", 0.0))
+        VTX = float(flow_res.get("VTX", 0.0))
+        U   = float(flow_res.get("U", 0.0))
+
+        # 既存ゲート（従来の“369が揃った”本線）
+        gate_main = (FR >= 0.02 and VTX >= 0.50 and U >= 0.10)
+        # 追加ゲート：VTXが十分に強いときの救済（あなたのケース：FR=0, VTX=1.54, U=0.05 を通す）
+        gate_vtx  = (not gate_main) and (VTX >= 1.20) and (U >= 0.05)
+
+        if not (gate_main or gate_vtx):
             return {"note": "【流れ未循環】369にささらず → ケン"}
 
-        lines: List[List[int]] = flow_res.get("lines", [])
+        lines = flow_res.get("lines", [])
         if not lines:
             return {"note": "【流れ未循環】ラインなし → ケン"}
 
         # ライン別スコア
-        line_score = {tuple(ln): _t369_safe_mean([scores.get(n, 50.0) for n in ln], 50.0) for ln in lines}
+        line_score = {tuple(ln): (_t369_safe_mean([scores.get(n, 50.0) for n in ln], 50.0)) for ln in lines}
 
-        # FR：◎ラインがあればそれ、なければスコア最大ライン
+        # ◎ライン（あれば優先）
         star_ln = next((tuple(ln) for ln in lines if marks.get("◎", -1) in ln), None)
+        # FR波：本線は◎ライン、無ければ最強ライン。VTX先導では後で上書きの可能性あり
         FR_line = star_ln if star_ln else max(line_score, key=line_score.get)
-
-        # VTX：2車に最も近い長さのライン
+        # VTX波：2車に最も近い長さのライン（2車=最優先、次点=差の小さい順）
         VTX_line = sorted(lines, key=lambda ln: abs(len(ln) - 2))[0]
-
-        # U：スコア最小ライン
+        # U波：最弱ライン
         U_line = min(line_score, key=line_score.get)
 
+        # --- VTX先導モードでは “渦” を明示的に主軸（1列目）に据える ---
+        mode_tag = ""
+        if gate_vtx and not gate_main:
+            FR_line = tuple(VTX_line)  # 1列目を渦のラインに
+            mode_tag = "（※VTX先導）"
+
+        # 各波のメンバー
         FR_lst, VTX_lst, U_lst = list(FR_line), list(VTX_line), list(U_line)
 
-        # 3波が同一ラインに重なる場合は“ライン整合”モード
+        # 3波が同一ラインに重なってしまう場合の“ライン整合”処理（既存仕様）
         linebind_mode = False
         for ln in lines:
             s = set(ln)
@@ -3475,14 +3490,11 @@ def generate_tesla_bets(flow_res: Dict[str, Any], lines_str: str, marks: Dict[st
                 linebind_mode = True
                 break
 
-        # 三連複（最大6点、重複なし）
-        trios = [f"{a}-{b}-{c}" for a in FR_lst for b in VTX_lst for c in U_lst if len({a, b, c}) == 3]
-        trios = trios[:6]
+        # 三連複（最大6点、同一番号は除外）
+        trios = [f"{a}-{b}-{c}" for a in FR_lst for b in VTX_lst for c in U_lst if len({a, b, c}) == 3][:6]
 
-        # 2車複 / ワイド（各波のトップスコア同士）
-        def _top(lst): 
-            return max(lst, key=lambda n: scores.get(n, 0.0)) if lst else None
-
+        # 2車複 / ワイド：各波のトップスコア同士
+        def _top(lst): return max(lst, key=lambda n: scores.get(n, 0.0)) if lst else None
         pairs_nf, pairs_w = [], []
         if FR_lst and VTX_lst:
             pairs_nf.append(f"{_top(FR_lst)}-{_top(VTX_lst)}")
@@ -3494,7 +3506,7 @@ def generate_tesla_bets(flow_res: Dict[str, Any], lines_str: str, marks: Dict[st
         def j(nums): return "".join(map(str, nums)) if nums else "—"
 
         note = "\n".join([
-            "【Tesla369-LineBindフォーメーション】",
+            "【Tesla369-LineBindフォーメーション】" + mode_tag,
             f"発生波（FR）＝{j(FR_lst)}",
             f"展開波（VTX）＝{j(VTX_lst)}",
             f"帰還波（U）＝{j(U_lst)}",
