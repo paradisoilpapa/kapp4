@@ -3290,17 +3290,18 @@ try:
     _lines_list = _t369_parse_lines_from_context()
     lines_str   = _t369_lines_str(_lines_list)  # 例: "15 726 34"
 
-    # 印：必ず int 化して型ズレを防止（' 7 ' → 7 まで吸収）
-    result_marks = (globals().get("result_marks", {}) or {})
-    marks: Dict[str, int] = {}
-    for k, v in result_marks.items():
+    # 印：必ず数値化（" 7※ " なども 7 に）
+import re
+result_marks = (globals().get("result_marks", {}) or {})
+marks: Dict[str, int] = {}
+for k, v in result_marks.items():
+    s = str(v)
+    m = re.search(r'\d+', s)
+    if m:
         try:
-            marks[str(k)] = int(v)
+            marks[str(k)] = int(m.group(0))
         except Exception:
-            try:
-                marks[str(k)] = int(str(v).strip())
-            except Exception:
-                pass
+            pass
 
     # 偏差値ソース
     USED_IDS = list(globals().get("USED_IDS", []) or [])
@@ -3452,13 +3453,27 @@ try:
             rev = [k for k, v in buckets.items() if v == bid]
             return "".join(map(str, rev)) if rev else "—"
 
+        # 無の“番号”から直接ラインを引く（バケツに依存しない最終保険）
+        none_line_str = "—"
+        try:
+            none_no = marks.get("無", None)
+            if none_no is not None:
+                # bucket_to_members（=ライン集合）から番号所属ラインを直接探す
+                for mem in bucket_to_members.values():
+                    if int(none_no) in mem:
+                        none_line_str = "".join(map(str, mem))
+                        break
+        except Exception:
+            pass
+
         _tag = "点灯" if (VTX_high > 0 and FR_high > 0) else "判定基準内"
 
         note = "\n".join([
             f"【順流】◎ライン {label(b_star)}：失速危険 {'高' if FR>=0.15 else ('中' if FR>=0.05 else '低')}",
             f"【渦】候補ライン：{label(VTX_bid)}（VTX={VTX:.2f}）",
-            f"【逆流】無ライン {label(b_none)}：U={U:.2f}（※{_tag}）",
+            f"【逆流】無ライン {none_line_str}：U={U:.2f}（※{_tag}）",
         ])
+
 
         return {"VTX": VTX, "FR": FR, "U": U, "note": note, "waves": waves, "vtx_bid": VTX_bid}
 
