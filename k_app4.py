@@ -3216,6 +3216,10 @@ note_sections.append(_fmt_hen_lines(race_t, USED_IDS))
 note_sections.append("\n")  # 空行
 
 # ===== note出力直後に貼るだけ（完全統合版） =====
+
+# ==== Tesla369 本体（compute_flow_indicators / generate_tesla_bets） ====
+# ← ここに前回渡した大きい Tesla369 コード（関数群）を丸ごと貼る
+
 # ==== Tesla369 ブリッジ：直前の文脈から自動取得して実行 ======================
 # 目的：lines_str / marks / scores を再入力せず、直前に生成済みの値から合成する
 try:
