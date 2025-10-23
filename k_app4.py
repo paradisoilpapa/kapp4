@@ -3377,7 +3377,6 @@ try:
         if flow_res["FR"] < 0.02 or flow_res["VTX"] < 0.50 or flow_res["U"] < 0.10:
             return {"note": "【流れ未循環】369にささらず → ケン"}
 
-        # ここに後続の買い目生成処理が入ります
         lines = flow_res.get("lines", [])
         if not lines:
             return {"note": "【流れ未循環】ラインなし → ケン"}
@@ -3443,8 +3442,7 @@ except Exception as _e:
     except Exception:
         pass
 
-# ===== /Tesla369-LineBind 完全統合（修正版v2）ここまで =====
-
+# ===== /Tesla369-LineBind 完全統合（修正版v3）ここまで =====
 
 
 
