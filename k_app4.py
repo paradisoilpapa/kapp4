@@ -3329,17 +3329,26 @@ try:
 
         waves={bid:dict(zip(["A","gamma","f","phi","d","S"],[*est(mem),S_end(*est(mem))])) for bid,mem in bucket_to_members.items()}
 
-        def _bucket_of(num): 
-            try: n=int(num)
-            except Exception: return ""
-            return buckets.get(n,"")
+               # バケツ取得：marksの値が str でも安全に対応
+        def _bucket_of(num) -> str:
+            try:
+                n = int(num)
+            except Exception:
+                return ""
+            return buckets.get(n, "")
 
-        b_star=_bucket_of(marks.get("◎",-999))
-        b_none=_bucket_of(marks.get("無",-999))
+        # --- ◎ラインと無ラインの自動補完 ---
+        b_star = _bucket_of(marks.get("◎", -999))
+        b_none = _bucket_of(marks.get("無", -999))
 
-        def I(bi,bj): 
-            if not bi or not bj or bi not in waves or bj not in waves: return 0.0
-            return math.cos(waves[bi]["phi"]-waves[bj]["phi"])
+        # 「無」が未定義またはライン外なら、最下位スコアラインを代用
+        if not b_none:
+            try:
+                lowest_ln = min(lines, key=lambda ln: _t369_safe_mean([scores.get(n, 50.0) for n in ln], 50.0))
+                b_none = _bucket_of(lowest_ln[0])
+            except Exception:
+                b_none = ""
+
 
         # --- 各波計算 ---
         vtx_list=[]
