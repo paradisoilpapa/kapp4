@@ -3426,58 +3426,7 @@ def generate_tesla_bets(flow_res, lines_str, marks, scores):
     ])
     return {"note": note}
 
-def generate_tesla_bets(flow_res, lines_str, marks, scores):
-    try:
-        # 369に“ささる”最低条件（緩和版ゲート）
-        if flow_res["FR"] < 0.02 or flow_res["VTX"] < 0.50 or flow_res["U"] < 0.10:
-            return {"note": "【流れ未循環】369にささらず → ケン"}
 
-        lines = flow_res.get("lines", [])
-        if not lines:
-            return {"note": "【流れ未循環】ラインなし → ケン"}
-
-        line_score = {tuple(ln): _t369_safe_mean([scores.get(n, 50.0) for n in ln], 50.0) for ln in lines}
-        star_ln = next((tuple(ln) for ln in lines if marks.get("◎", -1) in ln), None)
-        FR_line = star_ln if star_ln else max(line_score, key=line_score.get)
-        VTX_line = sorted(lines, key=lambda ln: abs(len(ln) - 2))[0]
-        U_line = min(line_score, key=line_score.get)
-
-        FR_lst, VTX_lst, U_lst = list(FR_line), list(VTX_line), list(U_line)
-        linebind_mode = False
-        for ln in lines:
-            if set(ln) & set(FR_lst) and set(ln) & set(VTX_lst) and set(ln) & set(U_lst):
-                FR_lst = VTX_lst = U_lst = list(ln)
-                linebind_mode = True
-                break
-
-        trios = [f"{a}-{b}-{c}" for a in FR_lst for b in VTX_lst for c in U_lst if len({a, b, c}) == 3][:6]
-
-        def top(lst):
-            return max(lst, key=lambda n: scores.get(n, 0)) if lst else None
-
-        pairs_nf = []
-        pairs_w = []
-        if FR_lst and VTX_lst:
-            pairs_nf.append(f"{top(FR_lst)}-{top(VTX_lst)}")
-        if FR_lst and U_lst:
-            pairs_w.append(f"{top(FR_lst)}-{top(U_lst)}")
-        if VTX_lst and U_lst:
-            pairs_w.append(f"{top(VTX_lst)}-{top(U_lst)}")
-
-        def j(nums):
-            return "".join(map(str, nums))
-
-        note = "\n".join([
-            "【Tesla369-LineBindフォーメーション】",
-            f"発生波（FR）＝{j(FR_lst)}",
-            f"展開波（VTX）＝{j(VTX_lst)}",
-            f"帰還波（U）＝{j(U_lst)}",
-            ("（※ライン整合）" if linebind_mode else ""),
-            f"二車複：{' / '.join(pairs_nf) if pairs_nf else '—'}",
-            f"ワイド：{' / '.join(pairs_w) if pairs_w else '—'}",
-            "三連複（最大6点）： " + (", ".join(trios) if trios else "—"),
-        ])
-        return {"note": note}
 
     except Exception as _e:
         return {"note": f"⚠ Tesla369-LineBindエラー: {type(_e).__name__}: {str(_e)}"}
