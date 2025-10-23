@@ -3291,17 +3291,18 @@ try:
     lines_str   = _t369_lines_str(_lines_list)  # 例: "15 726 34"
 
     # 印：必ず数値化（" 7※ " なども 7 に）
-import re
-result_marks = (globals().get("result_marks", {}) or {})
-marks: Dict[str, int] = {}
-for k, v in result_marks.items():
-    s = str(v)
-    m = re.search(r'\d+', s)
-    if m:
-        try:
-            marks[str(k)] = int(m.group(0))
-        except Exception:
-            pass
+    import re
+    result_marks = (globals().get("result_marks", {}) or {})
+    marks: Dict[str, int] = {}
+    for k, v in result_marks.items():
+        s = str(v)
+        m = re.search(r'\d+', s)
+        if m:
+            try:
+                marks[str(k)] = int(m.group(0))
+            except Exception:
+                pass
+
 
     # 偏差値ソース
     USED_IDS = list(globals().get("USED_IDS", []) or [])
