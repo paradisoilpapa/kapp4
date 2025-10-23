@@ -3372,10 +3372,16 @@ try:
         ])
         return {"VTX":VTX,"FR":FR,"U":U,"note":note,"waves":waves,"vtx_bid":VTX_bid,"lines":lines}
 
-        def generate_tesla_bets(flow_res, lines_str, marks, scores):
+            def generate_tesla_bets(flow_res, lines_str, marks, scores):
         # 369に“ささる”最低条件（緩和版ゲート）
         if flow_res["FR"] < 0.02 or flow_res["VTX"] < 0.50 or flow_res["U"] < 0.10:
             return {"note": "【流れ未循環】369にささらず → ケン"}
+
+        # ← ここから下に本来の買い目生成ロジックが続きます
+        # 例：
+        # lines = flow_res.get("lines", [])
+        # if not lines:
+        #     return {"note": "【流れ未循環】ラインなし → ケン"}
 
 
 
