@@ -3371,8 +3371,8 @@ try:
             f"【逆流】無ライン {label(b_none)}：U={U:.2f}（※{_tag}）",
         ])
         return {"VTX":VTX,"FR":FR,"U":U,"note":note,"waves":waves,"vtx_bid":VTX_bid,"lines":lines}
-try:
-    def generate_tesla_bets(flow_res, lines_str, marks, scores):
+def generate_tesla_bets(flow_res, lines_str, marks, scores):
+    try:
         # 369に“ささる”最低条件（緩和版ゲート）
         if flow_res["FR"] < 0.02 or flow_res["VTX"] < 0.50 or flow_res["U"] < 0.10:
             return {"note": "【流れ未循環】369にささらず → ケン"}
@@ -3424,25 +3424,9 @@ try:
         ])
         return {"note": note}
 
-    # 実行ブロック
-    if "note_sections" not in globals():
-        note_sections = []
+    except Exception as _e:
+        return {"note": f"⚠ Tesla369-LineBindエラー: {type(_e).__name__}: {str(_e)}"}
 
-    if not _lines_list:
-        note_sections.append("【流れ未循環】ライン不明 → ケン")
-    else:
-        _flow = compute_flow_indicators(lines_str, marks, scores)
-        note_sections.append(_flow["note"])
-        _bets = generate_tesla_bets(_flow, lines_str, marks, scores)
-        note_sections.append(_bets["note"])
-
-except Exception as _e:
-    try:
-        note_sections.append(f"⚠ Tesla369-LineBindエラー: {type(_e).__name__}: {str(_e)}")
-    except Exception:
-        pass
-
-# ===== /Tesla369-LineBind 完全統合（修正版v3）ここまで =====
 
 
 
