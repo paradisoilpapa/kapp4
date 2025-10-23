@@ -3372,7 +3372,7 @@ try:
         ])
         return {"VTX":VTX,"FR":FR,"U":U,"note":note,"waves":waves,"vtx_bid":VTX_bid,"lines":lines}
 
-    def generate_tesla_bets(flow_res, lines_str, marks, scores):
+    def gedef generate_tesla_bets(flow_res, lines_str, marks, scores):
     # 369に“ささる”最低条件（緩和版ゲート）
     if flow_res["FR"] < 0.02 or flow_res["VTX"] < 0.50 or flow_res["U"] < 0.10:
         return {"note": "【流れ未循環】369にささらず → ケン"}
@@ -3445,6 +3445,7 @@ except Exception as _e:
         pass
 
 # ===== /Tesla369-LineBind 完全統合（修正版v2）ここまで =====
+
 
 
 
