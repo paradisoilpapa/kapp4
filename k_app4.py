@@ -3494,7 +3494,6 @@ def generate_tesla_bets(flow_res, lines_str, marks, scores):
                 lines,
                 key=lambda ln: (abs(len(ln) - 2), -_t369_safe_mean([scores.get(n, 0.0) for n in ln], 0.0))
             )
-            # vtx_bid 指定があれば先頭に持ってくる
             by_bid = _t369_pick_line_by_bid(lines, vtx_bid)
             if by_bid and by_bid in base:
                 base.remove(by_bid)
@@ -3503,7 +3502,6 @@ def generate_tesla_bets(flow_res, lines_str, marks, scores):
 
         vtx_cands = _vtx_sorted_candidates()
         VTX_line = vtx_cands[0]
-        # FRと同じになったら次点を採用（可能なら）
         if tuple(VTX_line) == tuple(FR_line) and len(vtx_cands) > 1:
             VTX_line = vtx_cands[1]
 
@@ -3515,14 +3513,13 @@ def generate_tesla_bets(flow_res, lines_str, marks, scores):
                 U_line = cand
                 break
         if U_line is None:
-            U_line = u_cands[0]  # どうしても被るなら最小ライン
+            U_line = u_cands[0]
 
-        # VTX先導モードの注釈（組み立て上の主軸はVTXだが、表示FRは◎/最強を維持）
         mode_tag = "（※VTX先導：組み立て主軸=VTX）" if (gate_vtx and not gate_main) else ""
 
         FR_lst, VTX_lst, U_lst = list(FR_line), list(VTX_line), list(U_line)
 
-        # ライン整合（3波が同一ラインに重なる場合はそのラインに統一）
+        # ライン整合
         linebind_mode = False
         for ln in lines:
             s = set(ln)
@@ -3539,23 +3536,39 @@ def generate_tesla_bets(flow_res, lines_str, marks, scores):
                     S = {a, b, c}
                     if len(S) == 3:
                         trio_set.add(tuple(sorted(S)))
+
         def _tri_score(tri):
             return scores.get(tri[0], 0.0) + scores.get(tri[1], 0.0) + scores.get(tri[2], 0.0)
+
         trios = [f"{x[0]}-{x[1]}-{x[2]}" for x in sorted(trio_set, key=_tri_score, reverse=True)[:6]]
 
-        # --- 2車複/ワイド：自己対向と重複排除
-        def _top(lst): return max(lst, key=lambda n: scores.get(n, 0.0)) if lst else None
+        # --- 2車複/ワイド：自己対向と重複排除（←ここを改行で修正）
+        def _top(lst): 
+            return max(lst, key=lambda n: scores.get(n, 0.0)) if lst else None
+
         def _canon(a, b):
-            if a is None or b is None or a == b: return None
-            x, y = (a, b) if a < b else (b, a); return f"{x}-{y}"
+            if a is None or b is None or a == b:
+                return None
+            x, y = (a, b) if a < b else (b, a)
+            return f"{x}-{y}"
 
         nf_set, w_set = set(), set()
         a, b, c = _top(FR_lst), _top(VTX_lst), _top(U_lst)
-        p = _canon(a, b);  if p: nf_set.add(p)
-        p = _canon(a, c);  if p: w_set.add(p)
-        p = _canon(b, c);  if p: w_set.add(p)
+
+        p = _canon(a, b)
+        if p:
+            nf_set.add(p)
+
+        p = _canon(a, c)
+        if p:
+            w_set.add(p)
+
+        p = _canon(b, c)
+        if p:
+            w_set.add(p)
 
         def j(nums): return "".join(map(str, nums)) if nums else "—"
+
         note = "\n".join([
             "【Tesla369-LineBindフォーメーション】" + mode_tag,
             f"発生波（FR）＝{j(FR_lst)}",
@@ -3570,6 +3583,7 @@ def generate_tesla_bets(flow_res, lines_str, marks, scores):
 
     except Exception as _e:
         return {"note": f"⚠ Tesla369-LineBindエラー: {type(_e).__name__}: {str(_e)}"}
+
 
 
 # -------------------------------------
