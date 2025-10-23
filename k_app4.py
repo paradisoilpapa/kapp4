@@ -3469,50 +3469,60 @@ def _t369_canon_pair(a, b):
 # === 差し替え版：generate_tesla_bets（VTX先導モード＆重複排除） ===
 def generate_tesla_bets(flow_res, lines_str, marks, scores):
     try:
-        FR  = float(flow_res.get("FR", 0.0))
-        VTX = float(flow_res.get("VTX", 0.0))
-        U   = float(flow_res.get("U", 0.0))
+        FRv  = float(flow_res.get("FR", 0.0))
+        VTXv = float(flow_res.get("VTX", 0.0))
+        Uv   = float(flow_res.get("U", 0.0))
         vtx_bid = flow_res.get("vtx_bid", "")
-
-        # 既存ゲート + VTX先導ゲート
-        gate_main = (FR >= 0.02 and VTX >= 0.50 and U >= 0.10)
-        gate_vtx  = (not gate_main) and (VTX >= 1.20) and (U >= 0.05)
-        if not (gate_main or gate_vtx):
-            return {"note": "【流れ未循環】369にささらず → ケン"}
-
         lines = flow_res.get("lines", [])
-        if not lines:
-            return {"note": "【流れ未循環】ラインなし → ケン"}
+
+        # ゲート：本線 or VTX先導
+        gate_main = (FRv >= 0.02 and VTXv >= 0.50 and Uv >= 0.10)
+        gate_vtx  = (not gate_main) and (VTXv >= 1.20) and (Uv >= 0.05)
+        if not (gate_main or gate_vtx) or not lines:
+            return {"note": "【流れ未循環】369にささらず → ケン"}
 
         # ライン別スコア
         line_score = {tuple(ln): _t369_safe_mean([scores.get(n, 50.0) for n in ln], 50.0) for ln in lines}
 
-        # FR：◎ラインがあれば最優先、なければスコア最大
+        # --- 発生波（FR）：◎ラインがあれば最優先、無ければスコア最大（VTX先導でも表示はこれを維持）
         star_ln = next((tuple(ln) for ln in lines if marks.get("◎", -1) in ln), None)
         FR_line = star_ln if star_ln else max(line_score, key=line_score.get)
 
-        # VTX：まず vtx_bid を優先。無ければ（長さ2に近い → スコア高い）順
-        vtx_by_bid = _t369_pick_line_by_bid(lines, vtx_bid)
-        if vtx_by_bid is not None:
-            VTX_line = vtx_by_bid
-        else:
-            VTX_line = sorted(
+        # --- 展開波（VTX）：vtx_bid優先 → 近さ(2車)→スコア の順で選ぶ
+        def _vtx_sorted_candidates():
+            base = sorted(
                 lines,
                 key=lambda ln: (abs(len(ln) - 2), -_t369_safe_mean([scores.get(n, 0.0) for n in ln], 0.0))
-            )[0]
+            )
+            # vtx_bid 指定があれば先頭に持ってくる
+            by_bid = _t369_pick_line_by_bid(lines, vtx_bid)
+            if by_bid and by_bid in base:
+                base.remove(by_bid)
+                base.insert(0, by_bid)
+            return base
 
-        # U：スコア最小ライン
-        U_line = min(line_score, key=line_score.get)
+        vtx_cands = _vtx_sorted_candidates()
+        VTX_line = vtx_cands[0]
+        # FRと同じになったら次点を採用（可能なら）
+        if tuple(VTX_line) == tuple(FR_line) and len(vtx_cands) > 1:
+            VTX_line = vtx_cands[1]
 
-        # VTX先導時は 1列目＝VTXライン
-        mode_tag = ""
-        if gate_vtx and not gate_main:
-            FR_line = tuple(VTX_line)
-            mode_tag = "（※VTX先導）"
+        # --- 帰還波（U）：スコア最小。ただしFR/VTXと被ったら次点を採用
+        u_cands = sorted(lines, key=lambda ln: _t369_safe_mean([scores.get(n, 50.0) for n in ln], 50.0))
+        U_line = None
+        for cand in u_cands:
+            if tuple(cand) != tuple(FR_line) and tuple(cand) != tuple(VTX_line):
+                U_line = cand
+                break
+        if U_line is None:
+            U_line = u_cands[0]  # どうしても被るなら最小ライン
+
+        # VTX先導モードの注釈（組み立て上の主軸はVTXだが、表示FRは◎/最強を維持）
+        mode_tag = "（※VTX先導：組み立て主軸=VTX）" if (gate_vtx and not gate_main) else ""
 
         FR_lst, VTX_lst, U_lst = list(FR_line), list(VTX_line), list(U_line)
 
-        # ライン整合（3波が同一ラインに重なる場合）
+        # ライン整合（3波が同一ラインに重なる場合はそのラインに統一）
         linebind_mode = False
         for ln in lines:
             s = set(ln)
@@ -3521,35 +3531,31 @@ def generate_tesla_bets(flow_res, lines_str, marks, scores):
                 linebind_mode = True
                 break
 
-        # 三連複：順不同の重複を排除 → スコア高い順で最大6点
+        # --- 三連複：順不同の重複排除 → スコア高い順 上位6点
         trio_set = set()
         for a in FR_lst:
             for b in VTX_lst:
                 for c in U_lst:
                     S = {a, b, c}
                     if len(S) == 3:
-                        tri = tuple(sorted(S))
-                        trio_set.add(tri)
+                        trio_set.add(tuple(sorted(S)))
         def _tri_score(tri):
             return scores.get(tri[0], 0.0) + scores.get(tri[1], 0.0) + scores.get(tri[2], 0.0)
-        trios_sorted = sorted(trio_set, key=_tri_score, reverse=True)[:6]
-        trios = [f"{x[0]}-{x[1]}-{x[2]}" for x in trios_sorted]
+        trios = [f"{x[0]}-{x[1]}-{x[2]}" for x in sorted(trio_set, key=_tri_score, reverse=True)[:6]]
 
-        # 2車複 / ワイド：自己対向・重複を排除
+        # --- 2車複/ワイド：自己対向と重複排除
+        def _top(lst): return max(lst, key=lambda n: scores.get(n, 0.0)) if lst else None
+        def _canon(a, b):
+            if a is None or b is None or a == b: return None
+            x, y = (a, b) if a < b else (b, a); return f"{x}-{y}"
+
         nf_set, w_set = set(), set()
-        a = _t369_top(FR_lst, scores)
-        b = _t369_top(VTX_lst, scores)
-        c = _t369_top(U_lst, scores)
-
-        p = _t369_canon_pair(a, b)
-        if p: nf_set.add(p)
-        p = _t369_canon_pair(a, c)
-        if p: w_set.add(p)
-        p = _t369_canon_pair(b, c)
-        if p: w_set.add(p)
+        a, b, c = _top(FR_lst), _top(VTX_lst), _top(U_lst)
+        p = _canon(a, b);  if p: nf_set.add(p)
+        p = _canon(a, c);  if p: w_set.add(p)
+        p = _canon(b, c);  if p: w_set.add(p)
 
         def j(nums): return "".join(map(str, nums)) if nums else "—"
-
         note = "\n".join([
             "【Tesla369-LineBindフォーメーション】" + mode_tag,
             f"発生波（FR）＝{j(FR_lst)}",
@@ -3564,6 +3570,7 @@ def generate_tesla_bets(flow_res, lines_str, marks, scores):
 
     except Exception as _e:
         return {"note": f"⚠ Tesla369-LineBindエラー: {type(_e).__name__}: {str(_e)}"}
+
 
 # -------------------------------------
 # 4) 実行（note_sections へ追記）
