@@ -3606,6 +3606,9 @@ except Exception as _e:
 
 # ===== /Tesla369｜完全統合・自己完結版 =====
 
+note_sections.append("\n")  # 空行
+
+
 # === Tesla369 診断ミニ（統合版の末尾に追記）==============================
 try:
     dbg_lines = _lines_list
