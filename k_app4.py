@@ -3457,19 +3457,20 @@ nu_adj = max(0.0, (nu - 0.5) * 2.0)
 
 FR = sd_adj * nu_adj
 # === FR計算部 置き換え終了 ===
-        # 7) 閾値・U（修正版）
-        vtx_all = [v for v, _ in vtx_list] or [0.0]
-        vtx_mu  = _t369_safe_mean(vtx_all, 0.0)
-        vtx_sd  = (_t369_safe_mean([(x - vtx_mu)**2 for x in vtx_all], 0.0))**0.5
-        vtx_hi  = max(0.60, vtx_mu + 0.35*vtx_sd)
+# 7) 閾値・U（修正版）
+vtx_all = [v for v, _ in vtx_list] or [0.0]
+vtx_mu  = _t369_safe_mean(vtx_all, 0.0)
+vtx_sd  = (_t369_safe_mean([(x - vtx_mu)**2 for x in vtx_all], 0.0))**0.5
+vtx_hi  = max(0.60, vtx_mu + 0.35*vtx_sd)
 
-        VTX_high = 1.0 if VTX >= vtx_hi else 0.0
-        FR_high  = 1.0 if FR  >= 0.12   else 0.0
+VTX_high = 1.0 if VTX >= vtx_hi else 0.0
+FR_high  = 1.0 if FR  >= 0.12   else 0.0
 
-        S_max    = max(1e-6, max(abs(w["S"]) for w in waves.values()))
-        S_noneN  = max(0.0, S_none_mean) / S_max
-        U_raw    = 1.0 / (1.0 + math.exp(-2.0 * _I(b_none, b_star)))
-        U        = max(0.05, (0.6*U_raw + 0.4*S_noneN) * (1.0 if VTX_high>0 else 0.8))
+S_max    = max(1e-6, max(abs(w["S"]) for w in waves.values()))
+S_noneN  = max(0.0, S_none_mean) / S_max
+U_raw    = 1.0 / (1.0 + math.exp(-2.0 * _I(b_none, b_star)))
+U        = max(0.05, (0.6*U_raw + 0.4*S_noneN) * (1.0 if VTX_high>0 else 0.8))
+
     def label(bid): mem=bucket_to_members.get(bid,[]); return "".join(map(str,mem)) if mem else "—"
     _tag="点灯" if (VTX_high>0 and FR_high>0) else "判定基準内"
 
