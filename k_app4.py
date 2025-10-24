@@ -3417,8 +3417,8 @@ def compute_flow_indicators(lines_str, marks, scores):
     vtx_list.sort(reverse=True,key=lambda x:x[0])
     VTX   = vtx_list[0][0] if vtx_list else 0.0
     VTX_bid = vtx_list[0][1] if vtx_list else ""
-
-    # --- ーFR：◎ラインの終端下向き×“無”の上向き合算
+    
+ # ---FR：◎ラインの終端下向き×“無”の上向き合算
         # === FR計算部 置き換え開始 ===
         def _S_at_end(w, t=1.0):
             if not w:
