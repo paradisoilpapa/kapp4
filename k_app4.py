@@ -3629,114 +3629,142 @@ def generate_tesla_bets(flow_res, lines_str, marks, scores):
     except Exception as _e:
         return {"note": f"⚠ Tesla369-LineBindエラー: {type(_e).__name__}: {str(_e)}"}
 
-# === Tesla369 可変位相・U可変 Hotfix (v2025-10-24b) ===
+# --- DROP-IN: 可変位相＋ソフトFR（インデント統一・タイプミスなし） ---
 def compute_flow_indicators_v2(lines_str, marks, scores):
     import math
-    def _norm(s): return (str(s) if s is not None else "").replace("　"," ").strip()
-    parts=[_norm(p) for p in lines_str.split() if _norm(p)]
-    lines=[[int(ch) for ch in p if ch.isdigit()] for p in parts if any(ch.isdigit() for ch in p)]
-    if not lines:
-        return {"VTX":0.0,"FR":0.0,"U":0.0,"note":"【流れ未循環】ラインなし → ケン","waves":{},"vtx_bid":"","lines":[]}
 
-    def _safe_mean(xs, d=0.0): 
+    # 1) 入力をパース
+    def _norm(s): return (str(s) if s is not None else "").replace("　", " ").strip()
+    def _safe_mean(xs, d=0.0):
         try: return sum(xs)/len(xs) if xs else d
         except Exception: return d
 
-    def _buckets(lines):
-        m={}; lid=0
-        for ln in lines:
-            if len(ln)==1: m[ln[0]]=f"S{ln[0]}"
+    parts = [_norm(p) for p in lines_str.split() if _norm(p)]
+    lines = [[int(ch) for ch in p if ch.isdigit()] for p in parts if any(ch.isdigit() for ch in p)]
+    if not lines:
+        return {"VTX":0.0, "FR":0.0, "U":0.0, "note":"【流れ未循環】ラインなし → ケン", "waves":{}, "vtx_bid":"", "lines":[]}
+
+    # 2) バケット
+    def _buckets(ls):
+        m = {}; lid = 0
+        for ln in ls:
+            if len(ln) == 1:
+                m[ln[0]] = f"S{ln[0]}"
             else:
-                lid+=1
-                for n in ln: m[n]=f"L{lid}"
+                lid += 1
+                for n in ln: m[n] = f"L{lid}"
         return m
+    buckets = _buckets(lines)
+    bucket_to_members = {buckets[ln[0]]: ln for ln in lines}
 
-    buckets=_buckets(lines)
-    bucket_to_members={buckets[ln[0]]:ln for ln in lines}
-
-    env=(globals().get("race_env") or {})
+    # 3) 環境・位相可変
+    env = (globals().get("race_env") or {})
     wind=float(env.get("wind_head",0.0)); pull=float(env.get("pull_len",0.0))
     jam=float(env.get("jam",0.0)); pace=float(env.get("pace_var",0.3)); kick=float(env.get("kick_freq",1.0))
-    def _avg_score(mem): return _safe_mean([float(globals().get("scores",{}).get(n,0.0) if False else scores.get(n,50.0)) for n in mem],50.0)
-    muA=_safe_mean([_avg_score(ln) for ln in lines],50.0)/100.0
 
-    star_id=marks.get("◎",-999); none_id=marks.get("無",-999)
+    def _avg_score(mem): return _safe_mean([scores.get(n,50.0) for n in mem], 50.0)
+    muA = _safe_mean([_avg_score(ln) for ln in lines], 50.0)/100.0
 
-    def est(mem):
-        baseA=_avg_score(mem); A=max(10.0,min(baseA,90.0))/100.0
-        gamma=max(0.02,0.02+0.02*wind+0.6*pull+0.3*jam)*(0.95 if len(mem)==1 else 1.0)
-        f=max(0.4,min(2.0,0.4+1.2*pace+0.3*kick))
+    star_id = marks.get("◎", -999)
+    none_id = marks.get("無", -999)
+
+    def _est(mem):
+        baseA = _avg_score(mem)
+        A     = max(10.0, min(baseA, 90.0)) / 100.0
+        gamma = max(0.02, 0.02 + 0.02*wind + 0.6*pull + 0.3*jam) * (0.95 if len(mem)==1 else 1.0)
+        f     = max(0.4, min(2.0, 0.4 + 1.2*pace + 0.3*kick))
         if star_id in mem:   phi0, d = -0.8, +1
         elif none_id in mem: phi0, d = +0.8, -1
         else:                phi0, d =  0.2, +1
-        phi = phi0 + 1.2*(A - muA)   # ← 可変位相
+        phi = phi0 + 1.2*(A - muA)   # 可変位相
         return A, gamma, f, phi, d
 
-    def S_end(A,g,f,phi,t0=0.75,t1=1.0,steps=25):
-        dt=(t1-t0)/max(1,steps-1)
-        vals=[A*math.exp(-g*t)*(2*math.pi*f*math.cos(2*math.pi*f*t+phi)-g*math.sin(2*math.pi*f*t+phi))
-              for t in [t0+i*dt for i in range(steps)]]
-        return _safe_mean(vals,0.0)
+    def _S_end(A,g,f,phi,t=1.0):
+        return A*math.exp(-g*t)*(2*math.pi*f*math.cos(2*math.pi*f*t+phi) - g*math.sin(2*math.pi*f*t+phi))
 
-    waves={}
-    for bid,mem in bucket_to_members.items():
-        A,g,f,p,d=est(mem); waves[bid]={"A":A,"gamma":g,"f":f,"phi":p,"d":d,"S":S_end(A,g,f,p)}
+    # 4) 各ライン波
+    waves = {}
+    for bid, mem in bucket_to_members.items():
+        A,g,f,phi,d = _est(mem)
+        waves[bid] = {"A":A, "gamma":g, "f":f, "phi":phi, "d":d, "S": _S_end(A,g,f,phi, t=0.875)}
 
     def _bucket_of(num):
         try: n=int(num)
         except Exception: return ""
-        return buckets.get(n,"")
+        return buckets.get(n, "")
 
-    def I(bi,bj):
+    def _I(bi,bj):
         if not bi or not bj or bi not in waves or bj not in waves: return 0.0
-        return math.cos(waves[bi]["phi"]-waves[bj]["phi"])
+        return math.cos(waves[bi]["phi"] - waves[bj]["phi"])
 
-    b_star=_bucket_of(star_id); b_none=_bucket_of(none_id)
+    b_star = _bucket_of(star_id)
+    b_none = _bucket_of(none_id)
+
+    # “無”が未指定なら最弱ラインで補完
     if not b_none:
         try:
-            lowest_ln=min(lines,key=lambda ln:_safe_mean([scores.get(n,50.0) for n in ln],50.0))
-            b_none=_bucket_of(lowest_ln[0])
-        except Exception: b_none=""
+            lowest_ln = min(lines, key=lambda ln: _safe_mean([scores.get(n,50.0) for n in ln], 50.0))
+            b_none = _bucket_of(lowest_ln[0])
+        except Exception:
+            b_none = ""
 
-    vtx_list=[]
-    for bid,mem in bucket_to_members.items():
-        if bid in (b_star,b_none): continue
-        if waves[bid]["S"] < -0.02: continue
-        wA = 0.5 + 0.5*waves[bid]["A"]  # 振幅重み
-        v  = (0.6*abs(I(bid,b_star)) + 0.4*abs(I(bid,b_none))) * wA
-        vtx_list.append((v,bid))
-    vtx_list.sort(reverse=True,key=lambda x:x[0])
-    VTX=vtx_list[0][0] if vtx_list else 0.0
-    VTX_bid=vtx_list[0][1] if vtx_list else ""
+    # 5) VTX：位相差×振幅重み
+    vtx_list = []
+    for bid, mem in bucket_to_members.items():
+        if bid in (b_star, b_none): continue
+        if waves[bid]["S"] < -0.02:  # 失速は除外
+            continue
+        wA = 0.5 + 0.5*waves[bid]["A"]  # 0.5〜1.0
+        v  = (0.6*abs(_I(bid, b_star)) + 0.4*abs(_I(bid, b_none))) * wA
+        vtx_list.append((v, bid))
+    vtx_list.sort(reverse=True, key=lambda x: x[0])
+    VTX     = vtx_list[0][0] if vtx_list else 0.0
+    VTX_bid = vtx_list[0][1] if vtx_list else ""
 
-    S_star=waves.get(b_star,{}).get("S",0.0)
-    rev_sum=sum(max(0.0,w["S"]) for bid,w in waves.items() if bid!=b_star and w["d"]<0)
-    FR=max(0.0,-S_star)*max(0.0,rev_sum)
+    # 6) FR：終端＋平均のブレンドをシグモイドでソフト化
+    ws = waves.get(b_star, {})
+    wn = waves.get(b_none, {})
+    S_star_mean  = ws.get("S", 0.0)
+    S_none_mean  = wn.get("S", 0.0)
+    S_star_point = _S_end(ws.get("A",0.0), ws.get("gamma",0.0), ws.get("f",0.0), ws.get("phi",0.0), t=1.0) if ws else 0.0
+    S_none_point = _S_end(wn.get("A",0.0), wn.get("gamma",0.0), wn.get("f",0.0), wn.get("phi",0.0), t=1.0) if wn else 0.0
 
-    vtx_all=[v for v,_ in vtx_list] or [0.0]
-    vtx_mu=_safe_mean(vtx_all,0.0)
-    vtx_sd=(_safe_mean([(x-vtx_mu)**2 for x in vtx_all],0.0))**0.5
-    vtx_hi=max(0.60, vtx_mu+0.35*vtx_sd)
+    blend_star = 0.6*S_star_point + 0.4*S_star_mean    # ◎：マイナス=下向き
+    blend_none = 0.6*S_none_point + 0.4*S_none_mean    # 無：プラス=上向き
+    sd = 1.0 / (1.0 + math.exp(-3.0 * (-blend_star)))  # 下向きほど1
+    nu = 1.0 / (1.0 + math.exp(-3.0 * ( blend_none)))  # 上向きほど1
+    sd_adj = max(0.0, (sd - 0.5) * 2.0)
+    nu_adj = max(0.0, (nu - 0.5) * 2.0)
+    FR = sd_adj * nu_adj
 
-    VTX_high=1.0 if VTX>=vtx_hi else 0.0
-    FR_high =1.0 if FR >=0.03 else 0.0
+    # 7) 閾値・U
+    vtx_all = [v for v,_ in vtx_list] or [0.0]
+    vtx_mu  = _safe_mean(vtx_all, 0.0)
+    vtx_sd  = (_safe_mean([(x - vtx_mu)**2 for x in vtx_all], 0.0))**0.5
+    vtx_hi  = max(0.60, vtx_mu + 0.35*vtx_sd)
 
-    S_max=max(1e-6, max(abs(w["S"]) for w in waves.values()))
-    S_none=max(0.0, waves.get(b_none,{}).get("S",0.0))/S_max
-    U_raw=1.0/(1.0+math.exp(-2.0*I(b_none,b_star)))
-    U=max(0.05, (0.6*U_raw + 0.4*S_none) * (1.0 if VTX_high>0 else 0.8))  # ← Uも可変
+    VTX_high = 1.0 if VTX >= vtx_hi else 0.0
+    FR_high  = 1.0 if FR  >= 0.12   else 0.0
 
-    def label(bid): mem=bucket_to_members.get(bid,[]); return "".join(map(str,mem)) if mem else "—"
-    _tag="点灯" if (VTX_high>0 and FR_high>0) else "判定基準内"
-    note="\n".join([
-        f"【順流】◎ライン {label(b_star)}：失速危険 {'高' if FR>=0.15 else ('中' if FR>=0.05 else '低')}",
-        f"【渦】候補ライン：{label(VTX_bid)}（VTX={VTX:.2f}）",
-        f"【逆流】無ライン {label(b_none)}：U={U:.2f}（※{_tag}）",
-        "（T369 v2025-10-24b）",
+    S_max   = max(1e-6, max(abs(w["S"]) for w in waves.values()))
+    S_noneN = max(0.0, S_none_mean) / S_max
+    U_raw   = 1.0 / (1.0 + math.exp(-2.0 * _I(b_none, b_star)))
+    U       = max(0.05, (0.6*U_raw + 0.4*S_noneN) * (1.0 if VTX_high>0 else 0.8))
+
+    # 8) 出力
+    def _label(bid):
+        mem = bucket_to_members.get(bid, [])
+        return "".join(map(str, mem)) if mem else "—"
+
+    tag = "点灯" if (VTX_high>0 and FR_high>0) else "判定基準内"
+    note = "\n".join([
+        f"【順流】◎ライン {_label(b_star)}：失速危険 {'高' if FR>=0.15 else ('中' if FR>=0.05 else '低')}",
+        f"【渦】候補ライン：{_label(VTX_bid)}（VTX={VTX:.2f}）",
+        f"【逆流】無ライン {_label(b_none)}：U={U:.2f}（※{tag}）",
     ])
-    return {"VTX":VTX,"FR":FR,"U":U,"note":note,"waves":waves,"vtx_bid":VTX_bid,"lines":lines}
+    return {"VTX":VTX, "FR":FR, "U":U, "note":note, "waves":waves, "vtx_bid":VTX_bid, "lines":lines}
 
-# 既存の関数を強制置換
+# 既存を上書き
 compute_flow_indicators = compute_flow_indicators_v2
 
 # -------------------------------------
