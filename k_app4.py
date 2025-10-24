@@ -3820,7 +3820,8 @@ try:
         f"[FR内訳] blend_star={blend_star:.3f} blend_none={blend_none:.3f} "
         f"sd={sd:.3f} nu={nu:.3f} → FR={FR:.3f}"
     )
-except Exc
+except Exception as _e:
+    note_sections.append(f"⚠ Tesla369エラー: {type(_e).__name__}: {str(_e)}")
 
 # === ここまで ===
 
