@@ -3418,37 +3418,39 @@ def compute_flow_indicators(lines_str, marks, scores):
     VTX   = vtx_list[0][0] if vtx_list else 0.0
     VTX_bid = vtx_list[0][1] if vtx_list else ""
     
- # ---FR：◎ラインの終端下向き×“無”の上向き合算
-        # === FR計算部 置き換え開始 ===
-        def _S_at_end(w, t=1.0):
-            if not w:
-                return 0.0
-            A, g, f, phi = w["A"], w["gamma"], w["f"], w["phi"]
-            return A*math.exp(-g*t)*(2*math.pi*f*math.cos(2*math.pi*f*t+phi) - g*math.sin(2*math.pi*f*t+phi))
-
+        # === FR計算部 置き換え開始（ネストdefなし） ===
         ws = waves.get(b_star, {})
         wn = waves.get(b_none, {})
 
-        S_star_mean  = ws.get("S", 0.0)
-        S_none_mean  = wn.get("S", 0.0)
-        S_star_point = _S_at_end(ws, 1.0)
-        S_none_point = _S_at_end(wn, 1.0)
+        S_star_mean = ws.get("S", 0.0)
+        S_none_mean = wn.get("S", 0.0)
 
-        # 端点(60%)＋平均(40%)のブレンド
-        blend_star = 0.6 * S_star_point + 0.4 * S_star_mean
-        blend_none = 0.6 * S_none_point + 0.4 * S_none_mean
+        # 終盤t=1.0の瞬間傾き（ws/wnが空なら0）
+        if ws:
+            A, g, f, phi = ws["A"], ws["gamma"], ws["f"], ws["phi"]
+            S_star_point = A*math.exp(-g*1.0) * (
+                2*math.pi*f*math.cos(2*math.pi*f*1.0 + phi)
+                - g*math.sin(2*math.pi*f*1.0 + phi)
+            )
+        else:
+            S_star_point = 0.0
 
-        # ソフト化：連続値 0〜1 に写像
-        def _sig(x, k=3.0):
-            try:
-                return 1.0 / (1.0 + math.exp(-k * x))
-            except OverflowError:
-                return 0.0 if x < 0 else 1.0
+        if wn:
+            A, g, f, phi = wn["A"], wn["gamma"], wn["f"], wn["phi"]
+            S_none_point = A*math.exp(-g*1.0) * (
+                2*math.pi*f*math.cos(2*math.pi*f*1.0 + phi)
+                - g*math.sin(2*math.pi*f*1.0 + phi)
+            )
+        else:
+            S_none_point = 0.0
 
-        sd = _sig(-blend_star, 3.0)   # ◎が下向きほど 1
-        nu = _sig( blend_none, 3.0)   # 無が上向きほど 1
+        # 端点(60%)+平均(40%)ブレンド → シグモイドで0〜1に正規化
+        blend_star = 0.6*S_star_point + 0.4*S_star_mean   # ◎：マイナス=下向き
+        blend_none = 0.6*S_none_point + 0.4*S_none_mean   # 無：プラス=上向き
 
-        # 0.5 基準で強さだけ抽出（[0,1]）
+        sd = 1.0 / (1.0 + math.exp(-3.0 * (-blend_star)))  # 下向きほど1
+        nu = 1.0 / (1.0 + math.exp(-3.0 * ( blend_none)))  # 上向きほど1
+
         sd_adj = max(0.0, (sd - 0.5) * 2.0)
         nu_adj = max(0.0, (nu - 0.5) * 2.0)
 
