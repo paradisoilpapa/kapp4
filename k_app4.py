@@ -3541,6 +3541,92 @@ def generate_tesla_bets(flow_res, lines_str, marks, scores):
                 linebind_mode = True
                 break
 
+        # -------------------------------------
+# 3) 買い目生成（三連複 最大6点／2車複／ワイド）
+# -------------------------------------
+def _t369_pick_line_by_bid(lines, bid: str):
+    """compute_flow_indicators の vtx_bid（L1/L2…/Sx）から該当ラインを復元"""
+    if not bid:
+        return None
+    bmap = _t369_buckets(lines)  # num -> "L1"/"S3" …
+    for ln in lines:
+        if not ln:
+            continue
+        n0 = ln[0]
+        if bmap.get(n0) == bid:
+            return ln
+    return None
+
+def _t369_top(nums, scores):
+    """リスト内でスコア最大の車番を返す"""
+    return max(nums, key=lambda n: scores.get(n, 0.0)) if nums else None
+
+def _t369_canon_pair(a, b):
+    """2車（順不同）の正規化。a==b/None は無効"""
+    if a is None or b is None or a == b:
+        return None
+    x, y = (a, b) if a < b else (b, a)
+    return f"{x}-{y}"
+
+def generate_tesla_bets(flow_res, lines_str, marks, scores):
+    try:
+        FRv  = float(flow_res.get("FR", 0.0))
+        VTXv = float(flow_res.get("VTX", 0.0))
+        Uv   = float(flow_res.get("U", 0.0))
+        vtx_bid = flow_res.get("vtx_bid", "")
+        lines = flow_res.get("lines", [])
+
+        # ゲート：本線 or VTX先導
+        gate_main = (FRv >= 0.02 and VTXv >= 0.50 and Uv >= 0.10)
+        gate_vtx  = (not gate_main) and (VTXv >= 1.20) and (Uv >= 0.05)
+        if not (gate_main or gate_vtx) or not lines:
+            return {"note": "【流れ未循環】369にささらず → ケン"}
+
+        # ライン別スコア
+        line_score = {tuple(ln): _t369_safe_mean([scores.get(n, 50.0) for n in ln], 50.0) for ln in lines}
+
+        # 発生波（FR）：◎ライン最優先、無ければスコア最大
+        star_ln = next((tuple(ln) for ln in lines if marks.get("◎", -1) in ln), None)
+        FR_line = star_ln if star_ln else max(line_score, key=line_score.get)
+
+        # 展開波（VTX）：vtx_bid優先 → 長さ2に近い → スコア
+        def _vtx_sorted_candidates():
+            base = sorted(
+                lines,
+                key=lambda ln: (abs(len(ln) - 2), -_t369_safe_mean([scores.get(n, 0.0) for n in ln], 0.0))
+            )
+            by_bid = _t369_pick_line_by_bid(lines, vtx_bid)
+            if by_bid and by_bid in base:
+                base.remove(by_bid)
+                base.insert(0, by_bid)
+            return base
+
+        vtx_cands = _vtx_sorted_candidates()
+        VTX_line = vtx_cands[0]
+        if tuple(VTX_line) == tuple(FR_line) and len(vtx_cands) > 1:
+            VTX_line = vtx_cands[1]
+
+        # 帰還波（U）：スコア最小。FR/VTXと被れば次点
+        u_cands = sorted(lines, key=lambda ln: _t369_safe_mean([scores.get(n, 50.0) for n in ln], 50.0))
+        U_line = None
+        for cand in u_cands:
+            if tuple(cand) != tuple(FR_line) and tuple(cand) != tuple(VTX_line):
+                U_line = cand
+                break
+        if U_line is None:
+            U_line = u_cands[0]
+
+        FR_lst, VTX_lst, U_lst = list(FR_line), list(VTX_line), list(U_line)
+
+        # ライン整合（全波が同ラインなら揃える）
+        linebind_mode = False
+        for ln in lines:
+            s = set(ln)
+            if (s & set(FR_lst)) and (s & set(VTX_lst)) and (s & set(U_lst)):
+                FR_lst = VTX_lst = U_lst = list(ln)
+                linebind_mode = True
+                break
+
         # 三連複：順不同の重複排除 → スコア高い順 上位6点
         trio_set = set()
         for a in FR_lst:
@@ -3549,8 +3635,10 @@ def generate_tesla_bets(flow_res, lines_str, marks, scores):
                     S = {a, b, c}
                     if len(S) == 3:
                         trio_set.add(tuple(sorted(S)))
+
         def _tri_score(tri):
             return scores.get(tri[0], 0.0) + scores.get(tri[1], 0.0) + scores.get(tri[2], 0.0)
+
         trios = [f"{x[0]}-{x[1]}-{x[2]}" for x in sorted(trio_set, key=_tri_score, reverse=True)[:6]]
 
         # --- 2車複/ワイド：自己対向と重複排除 ---
@@ -3590,6 +3678,10 @@ def generate_tesla_bets(flow_res, lines_str, marks, scores):
             "三連複（最大6点）： " + (", ".join(trios) if trios else "—"),
         ])
         return {"note": note}
+
+    except Exception as _e:
+        return {"note": f"⚠ Tesla369-LineBindエラー: {type(_e).__name__}: {str(_e)}"}
+
 
 # -------------------------------------
 # 4) 実行（note_sections へ追記）
