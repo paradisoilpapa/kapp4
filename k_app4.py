@@ -3792,7 +3792,13 @@ try:
 except Exception as _e:
     note_sections.append(f"⚠ Tesla369診断エラー: {type(_e).__name__}: {str(_e)}")
 # =======================================================================
-
+try:
+    note_sections.append(
+        f"[FR内訳] blend_star={blend_star:.3f} blend_none={blend_none:.3f} "
+        f"sd={sd:.3f} nu={nu:.3f} → FR={FR:.3f}"
+    )
+except Exception:
+    pass
 
 # === ここまで ===
 
