@@ -3419,9 +3419,27 @@ def compute_flow_indicators(lines_str, marks, scores):
     VTX_bid = vtx_list[0][1] if vtx_list else ""
 
     # --- FR：◎ラインの終端下向き×“無”の上向き合算
-    S_star=waves.get(b_star,{}).get("S",0.0)
-    rev_sum=sum(max(0.0,w["S"]) for bid,w in waves.items() if bid!=b_star and w["d"]<0)
-    FR=max(0.0,-S_star)*max(0.0,rev_sum)
+# 置き換え前:
+# S_star=waves.get(b_star,{}).get("S",0.0)
+# rev_sum=sum(max(0.0,w["S"]) for bid,w in waves.items() if bid!=b_star and w["d"]<0)
+# FR=max(0.0,-S_star)*max(0.0,rev_sum)
+
+# 置き換え後（平均と終端のブレンドで“ゼロ病”を回避）
+def _S_at_end(w, t=1.0):
+    A, g, f, phi = w["A"], w["gamma"], w["f"], w["phi"]
+    return A*math.exp(-g*t)*(2*math.pi*f*math.cos(2*math.pi*f*t+phi) - g*math.sin(2*math.pi*f*t+phi))
+
+ws = waves.get(b_star, {})
+wn = waves.get(b_none, {})
+S_star_mean = ws.get("S", 0.0)
+S_none_mean = wn.get("S", 0.0)
+S_star_point = _S_at_end(ws, 1.0) if ws else 0.0
+S_none_point = _S_at_end(wn, 1.0) if wn else 0.0
+
+# “下向きの◎”と“上向きの無”を 端点(60%)＋平均(40%) のブレンドで評価
+star_down = max(0.0, -(0.6*S_star_point + 0.4*S_star_mean))
+none_up   = max(0.0,  (0.6*S_none_point + 0.4*S_none_mean))
+FR = star_down * none_up
 
     # 閾値
     vtx_all=[v for v,_ in vtx_list] or [0.0]
