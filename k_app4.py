@@ -1,4 +1,4 @@
-    # -*- coding: utf-8 -*-
+k    # -*- coding: utf-8 -*-
 import streamlit as st
 import pandas as pd
 import numpy as np   # ← ここ！NumPy を np にする
@@ -3418,54 +3418,42 @@ def compute_flow_indicators(lines_str, marks, scores):
     VTX   = vtx_list[0][0] if vtx_list else 0.0
     VTX_bid = vtx_list[0][1] if vtx_list else ""
 
-    # --- FR：◎ラインの終端下向き×“無”の上向き合算
-# 置き換え前:
-# S_star=waves.get(b_star,{}).get("S",0.0)
-# rev_sum=sum(max(0.0,w["S"]) for bid,w in waves.items() if bid!=b_star and w["d"]<0)
-# FR=max(0.0,-S_star)*max(0.0,rev_sum)
-
-# 置き換え後（平均と終端のブレンドで“ゼロ病”を回避）
-def _S_at# --- (1) 端点+平均のブレンドを作る（ここは今のままでOK） ---
+    # --- ーFR：◎ラインの終端下向き×“無”の上向き合算
+# === FR計算部 置き換え開始 ===
 def _S_at_end(w, t=1.0):
+    if not w:
+        return 0.0
     A, g, f, phi = w["A"], w["gamma"], w["f"], w["phi"]
     return A*math.exp(-g*t)*(2*math.pi*f*math.cos(2*math.pi*f*t+phi) - g*math.sin(2*math.pi*f*t+phi))
 
 ws = waves.get(b_star, {})
 wn = waves.get(b_none, {})
-S_star_mean = ws.get("S", 0.0)
-S_none_mean = wn.get("S", 0.0)
-S_star_point = _S_at_end(ws, 1.0) if ws else 0.0
-S_none_point = _S_at_end(wn, 1.0) if wn else 0.0
-blend_star = 0.6*S_star_point + 0.4*S_star_mean   # ◎の終盤傾き（+上向き / -下向き）
-blend_none = 0.6*S_none_point + 0.4*S_none_mean   # 無の終盤傾き（+上向き / -下向き)
 
-# --- (2) ソフト化：急峻なく 0〜1 に写像（ゼロ病回避） ---
-def _sig(x, k=3.0):        # kは鋭さ
-    try: return 1.0/(1.0+math.exp(-k*x))
-    except OverflowError: return 0.0 if x < 0 else 1.0
+S_star_mean  = ws.get("S", 0.0)
+S_none_mean  = wn.get("S", 0.0)
+S_star_point = _S_at_end(ws, 1.0)
+S_none_point = _S_at_end(wn, 1.0)
+
+# 端点(60%)＋平均(40%)のブレンド
+blend_star = 0.6 * S_star_point + 0.4 * S_star_mean   # ◎の終盤傾き（+上向き / -下向き）
+blend_none = 0.6 * S_none_point + 0.4 * S_none_mean   # 無の終盤傾き（+上向き / -下向き）
+
+# ソフト化：連続値 0〜1 に写像
+def _sig(x, k=3.0):
+    try:
+        return 1.0 / (1.0 + math.exp(-k * x))
+    except OverflowError:
+        return 0.0 if x < 0 else 1.0
 
 sd = _sig(-blend_star, 3.0)   # ◎が下向きほど 1 に近づく
 nu = _sig( blend_none, 3.0)   # 無が上向きほど 1 に近づく
 
-# 0.5 を基準に “強さ” を取り出して [0,1] に正規化
+# 0.5 を基準に強さだけを抽出（[0,1]）
 sd_adj = max(0.0, (sd - 0.5) * 2.0)
 nu_adj = max(0.0, (nu - 0.5) * 2.0)
 
-FR = sd_adj * nu_adj          # ← ここが新しい FR
-
-# --- (3) 閾値の微調整（少しだけ上げる）
-vtx_all=[v for v,_ in vtx_list] or [0.0]
-vtx_mu=_t369_safe_mean(vtx_all,0.0)
-vtx_sd=(_t369_safe_mean([(x-vtx_mu)**2 for x in vtx_all],0.0))**0.5
-vtx_hi=max(0.60, vtx_mu+0.35*vtx_sd)
-
-VTX_high=1.0 if VTX>=vtx_hi else 0.0
-FR_high =1.0 if FR >= 0.12 else 0.0      # ← 0.03 → 0.12 に引き上げ
-
-# “下向きの◎”と“上向きの無”を 端点(60%)＋平均(40%) のブレンドで評価
-star_down = max(0.0, -(0.6*S_star_point + 0.4*S_star_mean))
-none_up   = max(0.0,  (0.6*S_none_point + 0.4*S_none_mean))
-FR = star_down * none_up
+FR = sd_adj * nu_adj
+# === FR計算部 置き換え終了 ===
 
     # 閾値
     vtx_all=[v for v,_ in vtx_list] or [0.0]
