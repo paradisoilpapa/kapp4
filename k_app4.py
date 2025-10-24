@@ -3471,15 +3471,27 @@ S_noneN  = max(0.0, S_none_mean) / S_max
 U_raw    = 1.0 / (1.0 + math.exp(-2.0 * _I(b_none, b_star)))
 U        = max(0.05, (0.6*U_raw + 0.4*S_noneN) * (1.0 if VTX_high>0 else 0.8))
 
-    def label(bid): mem=bucket_to_members.get(bid,[]); return "".join(map(str,mem)) if mem else "—"
-    _tag="点灯" if (VTX_high>0 and FR_high>0) else "判定基準内"
+def label(bid):
+    mem = bucket_to_members.get(bid, [])
+    return "".join(map(str, mem)) if mem else "—"
 
-    note="\n".join([
-        f"【順流】◎ライン {label(b_star)}：失速危険 {'高' if FR>=0.15 else ('中' if FR>=0.05 else '低')}",
-        f"【渦】候補ライン：{label(VTX_bid)}（VTX={VTX:.2f}）",
-        f"【逆流】無ライン {label(b_none)}：U={U:.2f}（※{_tag}）",
-    ])
-    return {"VTX":VTX,"FR":FR,"U":U,"note":note,"waves":waves,"vtx_bid":VTX_bid,"lines":lines}
+_tag = "点灯" if (VTX_high > 0 and FR_high > 0) else "判定基準内"
+
+note = "\n".join([
+    f"【順流】◎ライン {label(b_star)}：失速危険 {'高' if FR>=0.15 else ('中' if FR>=0.05 else '低')}",
+    f"【渦】候補ライン：{label(VTX_bid)}（VTX={VTX:.2f}）",
+    f"【逆流】無ライン {label(b_none)}：U={U:.2f}（※{_tag}）",
+])
+
+return {
+    "VTX": VTX,
+    "FR": FR,
+    "U": U,
+    "note": note,
+    "waves": waves,
+    "vtx_bid": VTX_bid,
+    "lines": lines
+}
 
 # -------------------------------------
 # 3) 買い目生成（三連複 最大6点／2車複／ワイド）
