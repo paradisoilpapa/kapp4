@@ -3553,16 +3553,31 @@ def generate_tesla_bets(flow_res, lines_str, marks, scores):
             return scores.get(tri[0], 0.0) + scores.get(tri[1], 0.0) + scores.get(tri[2], 0.0)
         trios = [f"{x[0]}-{x[1]}-{x[2]}" for x in sorted(trio_set, key=_tri_score, reverse=True)[:6]]
 
-        # 2車複/ワイド：自己対向と重複排除
-        def _top(lst): 
+        # --- 2車複/ワイド：自己対向と重複排除 ---
+        def _top(lst):
             return max(lst, key=lambda n: scores.get(n, 0.0)) if lst else None
-        nf_set, w_set = set(), set()
-        a, b, c = _top(FR_lst), _top(VTX_lst), _top(U_lst)
-        p = _t369_canon_pair(a, b);  if p: nf_set.add(p)
-        p = _t369_canon_pair(a, c);  if p: w_set.add(p)
-        p = _t369_canon_pair(b, c);  if p: w_set.add(p)
 
-        def j(nums): return "".join(map(str, nums)) if nums else "—"
+        nf_set, w_set = set(), set()
+
+        a = _top(FR_lst)
+        b = _top(VTX_lst)
+        c = _top(U_lst)
+
+        p = _t369_canon_pair(a, b)
+        if p:
+            nf_set.add(p)
+
+        p = _t369_canon_pair(a, c)
+        if p:
+            w_set.add(p)
+
+        p = _t369_canon_pair(b, c)
+        if p:
+            w_set.add(p)
+
+        def j(nums):
+            return "".join(map(str, nums)) if nums else "—"
+
         mode_tag = "（※VTX先導：組み立て主軸=VTX）" if (gate_vtx and not gate_main) else ""
         note = "\n".join([
             "【Tesla369-LineBindフォーメーション】" + mode_tag,
@@ -3575,9 +3590,6 @@ def generate_tesla_bets(flow_res, lines_str, marks, scores):
             "三連複（最大6点）： " + (", ".join(trios) if trios else "—"),
         ])
         return {"note": note}
-
-    except Exception as _e:
-        return {"note": f"⚠ Tesla369-LineBindエラー: {type(_e).__name__}: {str(_e)}"}
 
 # -------------------------------------
 # 4) 実行（note_sections へ追記）
