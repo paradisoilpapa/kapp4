@@ -3499,6 +3499,7 @@ def generate_tesla_bets(flow_res, lines_str, marks, scores):
       6) ◎-U1-V1
     ※ 同一ライン3名は禁止・重複除去。6点未満はフォールバックで充足。
     ※ ケンは flow_res['ken'] を最優先で尊重（数値ゲートも併用可）。
+    ※ 単騎が2車以上ある場合：V/U が単騎ラインなら、単騎プールを“塊”として上位2名を採用。
     """
     try:
         FRv  = float(flow_res.get("FR", 0.0))
@@ -3565,14 +3566,33 @@ def generate_tesla_bets(flow_res, lines_str, marks, scores):
         cand_idx = [i for i in range(len(lines)) if lines[i] is not VTX_line and i != li]
         U_line = (min((lines[i] for i in cand_idx), key=_ln_mean) if cand_idx else min(lines, key=_ln_mean))
 
-        # U/V上位（軸は除外）
-        V1=V2=U1=U2=None
-        vtops = _pick_top(VTX_line, 2, exclude=[axis]) if VTX_line else []
-        utops = _pick_top(U_line,   2, exclude=[axis]) if U_line   else []
-        if vtops: V1 = vtops[0]
-        if len(vtops) >= 2: V2 = vtops[1]
-        if utops: U1 = utops[0]
-        if len(utops) >= 2: U2 = utops[1]
+        # --- 単騎（ライン長=1）を“ひと塊”として扱う ---
+        singletons = [ln[0] for ln in lines if len(ln) == 1]
+
+        def _pick_top_ex(pool, k, exclude=None):
+            ex = set(exclude or [])
+            arr = [n for n in pool if n not in ex]
+            arr.sort(key=lambda n: scores.get(n, 0.0), reverse=True)
+            return arr[:k]
+
+        # U/V上位（軸は除外）— VTX/U が単騎かつ単騎が2車以上いるときは単騎プール優先
+        V1 = V2 = U1 = U2 = None
+
+        if VTX_line:
+            if len(VTX_line) == 1 and len(singletons) >= 2:
+                vtops = _pick_top_ex(singletons, 2, exclude=[axis])
+            else:
+                vtops = _pick_top(VTX_line, 2, exclude=[axis])
+            V1 = vtops[0] if len(vtops) >= 1 else None
+            V2 = vtops[1] if len(vtops) >= 2 else None
+
+        if U_line:
+            if len(U_line) == 1 and len(singletons) >= 2:
+                utops = _pick_top_ex(singletons, 2, exclude=[axis])
+            else:
+                utops = _pick_top(U_line, 2, exclude=[axis])
+            U1 = utops[0] if len(utops) >= 1 else None
+            U2 = utops[1] if len(utops) >= 2 else None
 
         circle  = marks.get("〇")
         triangle= marks.get("▲")
@@ -3592,8 +3612,8 @@ def generate_tesla_bets(flow_res, lines_str, marks, scores):
             return True
 
         # ================== ケン判定（最優先） ==================
-        is_ken_flag = bool(flow_res.get("ken", False))  # 上流のケンを絶対優先
-        # （数値ゲートも使う場合は下の3行を有効化）
+        is_ken_flag = bool(flow_res.get("ken", False))  # 上流のケンを絶対尊重
+        # 数値ゲート（必要に応じて調整）
         FR_MIN, VTX_MIN, VTX_MAX, U_MIN = 0.02, 0.50, 0.70, 0.10
         gate_main = (FRv >= FR_MIN) and (VTX_MIN <= VTXv <= VTX_MAX) and (Uv >= U_MIN)
 
@@ -3605,7 +3625,6 @@ def generate_tesla_bets(flow_res, lines_str, marks, scores):
             t = tuple(sorted([a,b,c]))
             if t not in chosen: chosen.append(t)
 
-        # 6点テンプレ
         if not is_ken_flag and gate_main:
             # (1)
             if U1 and U2: _push(axis, U1, U2)
@@ -3629,7 +3648,7 @@ def generate_tesla_bets(flow_res, lines_str, marks, scores):
             # (6)
             if U1 and V1: _push(axis, U1, V1)
 
-            # フォールバックで6本に
+            # ---- フォールバックで6本に ----
             if len(chosen) < 6:
                 pool = []
                 cands = [x for x in [SL, circle, triangle, V1, V2, U1, U2] if x and x in all_nums]
@@ -3648,11 +3667,10 @@ def generate_tesla_bets(flow_res, lines_str, marks, scores):
                         chosen.append(t)
 
         tri_strs = [f"{t[0]}-{t[1]}-{t[2]}" for t in chosen[:6]]
-        # ケン or ゲート外 or 生成不能 → “—”
         trios_line_body = "—" if (is_ken_flag or not gate_main or not tri_strs) \
                           else ", ".join(tri_strs)
 
-        # 表示（指定レイアウトに厳密一致：ヘッダ＋FR/VTX/U＋空行＋三連複行＋空行）
+        # 表示（既定の並び）
         note_lines = [
             "【Tesla369-LineBindフォーメーション（共通6点テンプレ）】",
             f"発生波（FR）＝{_fmt(FR_line)}",
