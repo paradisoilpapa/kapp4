@@ -3504,6 +3504,12 @@ def _t369_canon_pair(a, b):
     return f"{x}-{y}"
 
 def generate_tesla_bets(flow_res, lines_str, marks, scores):
+    """
+    現実波モデル版：
+      土台＝◎（本流）固定 ＋ 渦2枚 ＋ 逆流2枚
+      残り1台は VTX/U の優劣でブースト（渦3枚目 or 逆流筆頭の再掲）
+      → 1-2354-2345 / 1-2356-2356 / 1-2357-2357 を自動切替
+    """
     try:
         FRv  = float(flow_res.get("FR", 0.0))
         VTXv = float(flow_res.get("VTX", 0.0))
@@ -3511,26 +3517,39 @@ def generate_tesla_bets(flow_res, lines_str, marks, scores):
         vtx_bid = flow_res.get("vtx_bid", "")
         lines = flow_res.get("lines", [])
 
-        # ゲート：本線 or VTX先導
-        gate_main = (FRv >= 0.02 and VTXv >= 0.50 and Uv >= 0.10)
-        gate_vtx  = (not gate_main) and (VTXv >= 1.20) and (Uv >= 0.05)
-        if not (gate_main or gate_vtx) or not lines:
+        # ゲート（循環条件が弱い場合はケン）
+        gate_main = (FRv >= 0.02 and 0.50 <= VTXv <= 0.70 and Uv >= 0.10)
+        if not gate_main or not lines:
             return {"note": "【流れ未循環】369にささらず → ケン"}
 
-        # ライン別スコア
-        line_score = {tuple(ln): _t369_safe_mean([scores.get(n, 50.0) for n in ln], 50.0) for ln in lines}
+        # ライン平均スコア
+        def _ln_mean(ln):
+            return _t369_safe_mean([scores.get(n, 50.0) for n in ln], 50.0)
 
-        # 発生波（FR）：◎ライン最優先、無ければスコア最大
-        star_ln = next((tuple(ln) for ln in lines if marks.get("◎", -1) in ln), None)
-        FR_line = star_ln if star_ln else max(line_score, key=line_score.get)
+        # ◎から本流（FRライン）を決定
+        star = marks.get("◎", None)
+        FR_line = None
+        for ln in lines:
+            if star is not None and star in ln:
+                FR_line = ln
+                break
+        if FR_line is None:
+            FR_line = max(lines, key=_ln_mean)
 
-        # 展開波（VTX）：vtx_bid優先 → 長さ2に近い → スコア
+        # VTXライン候補（vtx_bid優先→長さ2に近い→スコア）
         def _vtx_sorted_candidates():
             base = sorted(
                 lines,
-                key=lambda ln: (abs(len(ln) - 2), -_t369_safe_mean([scores.get(n, 0.0) for n in ln], 0.0))
+                key=lambda ln: (abs(len(ln) - 2), -_ln_mean(ln))
             )
-            by_bid = _t369_pick_line_by_bid(lines, vtx_bid)
+            # bid一致があれば先頭に
+            bmap = _t369_buckets(lines)  # 既存ヘルパ想定：num -> "L1"/"S3" …
+            by_bid = None
+            if vtx_bid:
+                for ln in lines:
+                    if ln and bmap.get(ln[0]) == vtx_bid:
+                        by_bid = ln
+                        break
             if by_bid and by_bid in base:
                 base.remove(by_bid)
                 base.insert(0, by_bid)
@@ -3541,75 +3560,100 @@ def generate_tesla_bets(flow_res, lines_str, marks, scores):
         if tuple(VTX_line) == tuple(FR_line) and len(vtx_cands) > 1:
             VTX_line = vtx_cands[1]
 
-        # 帰還波（U）：スコア最小。FR/VTXと被れば次点
-        u_cands = sorted(lines, key=lambda ln: _t369_safe_mean([scores.get(n, 50.0) for n in ln], 50.0))
+        # Uライン候補（スコア低→裏ライン）
+        u_cands = sorted(lines, key=_ln_mean)
         U_line = None
         for cand in u_cands:
             if tuple(cand) != tuple(FR_line) and tuple(cand) != tuple(VTX_line):
                 U_line = cand
                 break
         if U_line is None:
+            # どうしても無ければ最小を採用
             U_line = u_cands[0]
 
-        FR_lst, VTX_lst, U_lst = list(FR_line), list(VTX_line), list(U_line)
+        # ---- 各クラスタ内から「2枚ずつ」選ぶ（スコア順） ----
+        def _pick_k(lst, k):
+            return sorted(lst, key=lambda n: scores.get(n, 0.0), reverse=True)[:k]
 
-        # ライン整合（全波が同ラインなら揃える）
-        linebind_mode = False
-        for ln in lines:
-            s = set(ln)
-            if (s & set(FR_lst)) and (s & set(VTX_lst)) and (s & set(U_lst)):
-                FR_lst = VTX_lst = U_lst = list(ln)
-                linebind_mode = True
-                break
+        FR_lst  = list(FR_line)              # 参照用（◎は固定で軸にのみ使う）
+        VTX_lst = _pick_k(list(VTX_line), 2) # 渦2
+        U_lst   = _pick_k(list(U_line),  2)  # 逆流2
 
-        # 三連複：順不同の重複排除 → スコア高い順 上位6点
+        # ◎（軸）
+        axis = star if (star is not None) else _t369_top(FR_lst, scores)
+        if axis is None:
+            return {"note": "【流れ未循環】軸不明 → ケン"}
+
+        # ---- ブースト決定（|VTX-U|しきい=0.03、FRでタイブレーク） ----
+        thresh = 0.03
+        booster = None
+        mode = None
+
+        if (VTXv - Uv) >= thresh or (FRv >= 0.18 and (VTXv >= Uv)):
+            # 渦ブースト：渦の3番手があれば採用、なければ2番手を再掲
+            v_sorted = sorted(list(VTX_line), key=lambda n: scores.get(n, 0.0), reverse=True)
+            booster = v_sorted[2] if len(v_sorted) >= 3 else (v_sorted[1] if len(v_sorted) >= 2 else (v_sorted[0] if v_sorted else None))
+            mode = "boost_vtx"
+        elif (Uv - VTXv) >= thresh:
+            # 逆流ブースト：逆流クラスタ筆頭（6/7など）
+            u_sorted = sorted(list(U_line), key=lambda n: scores.get(n, 0.0), reverse=True)
+            booster = u_sorted[0] if u_sorted else None
+            mode = "boost_u"
+        else:
+            # タイブレーク：FR<=0.12なら逆流、>0.12なら渦
+            if FRv <= 0.12:
+                u_sorted = sorted(list(U_line), key=lambda n: scores.get(n, 0.0), reverse=True)
+                booster = u_sorted[0] if u_sorted else None
+                mode = "boost_u_tie"
+            else:
+                v_sorted = sorted(list(VTX_line), key=lambda n: scores.get(n, 0.0), reverse=True)
+                booster = v_sorted[2] if len(v_sorted) >= 3 else (v_sorted[1] if len(v_sorted) >= 2 else (v_sorted[0] if v_sorted else None))
+                mode = "boost_vtx_tie"
+
+        # ---- 左右グループ生成（例：1-2356-2356 / 1-2354-2345） ----
+        base = VTX_lst + U_lst
+        left  = list(dict.fromkeys(base + ([booster] if booster is not None else [])))
+        right = list(dict.fromkeys(base + ([booster] if booster is not None else [])))
+
+        # 表示フォーマット
+        def _fmt(nums): return "".join(str(x) for x in nums) if nums else "—"
+        formation_str = f"{axis}-{_fmt(left)}-{_fmt(right)}"
+
+        # ---- 三連複展開（axis固定・重複除外） ----
+        from itertools import product
         trio_set = set()
-        for a in FR_lst:
-            for b in VTX_lst:
-                for c in U_lst:
-                    S = {a, b, c}
-                    if len(S) == 3:
-                        trio_set.add(tuple(sorted(S)))
+        for a, b in product(left, right):
+            if a == b:
+                trio = tuple(sorted([axis, a, b]))
+            else:
+                trio = tuple(sorted([axis, a, b]))
+            if axis not in (a, b):
+                trio_set.add(trio)
 
+        # 上位6点（スコア合計が高い順）
         def _tri_score(tri):
             return scores.get(tri[0], 0.0) + scores.get(tri[1], 0.0) + scores.get(tri[2], 0.0)
+        tri_sorted = sorted(trio_set, key=_tri_score, reverse=True)[:6]
+        trios = [f"{x[0]}-{x[1]}-{x[2]}" for x in tri_sorted]
 
-        trios = [f"{x[0]}-{x[1]}-{x[2]}" for x in sorted(trio_set, key=_tri_score, reverse=True)[:6]]
-
-        # 2車複/ワイド：自己対向と重複排除
+        # ---- 二車複/ワイド（基準線のみ簡潔に） ----
         def _top(lst):
             return max(lst, key=lambda n: scores.get(n, 0.0)) if lst else None
+        nf = _t369_canon_pair(axis, _top(VTX_lst))  # 二車複：◎-渦筆頭
+        wd = _t369_canon_pair(axis, _top(U_lst))    # ワイド：◎-逆流筆頭（表記のみ）
 
-        nf_set, w_set = set(), set()
-        a = _top(FR_lst)
-        b = _top(VTX_lst)
-        c = _top(U_lst)
-
-        p = _t369_canon_pair(a, b)
-        if p:
-            nf_set.add(p)
-        p = _t369_canon_pair(a, c)
-        if p:
-            w_set.add(p)
-        p = _t369_canon_pair(b, c)
-        if p:
-            w_set.add(p)
-
-        def j(nums):
-            return "".join(map(str, nums)) if nums else "—"
-
-        mode_tag = "（※VTX先導：組み立て主軸=VTX）" if (gate_vtx and not gate_main) else ""
-        note = "\n".join([
-            "【Tesla369-LineBindフォーメーション】" + mode_tag,
-            f"発生波（FR）＝{j(FR_lst)}",
-            f"展開波（VTX）＝{j(VTX_lst)}",
-            f"帰還波（U）＝{j(U_lst)}",
-            ("（※ライン整合）" if linebind_mode else ""),
-            f"二車複：{(' / '.join(sorted(nf_set)) if nf_set else '—')}",
-            f"ワイド：{(' / '.join(sorted(w_set)) if w_set else '—')}",
+        note_lines = [
+            "【Tesla369-LineBindフォーメーション（現実波モデル）】",
+            f"発生波（FR）＝{_fmt(FR_line)}",
+            f"展開波（VTX）＝{_fmt(VTX_line)}",
+            f"帰還波（U）＝{_fmt(U_line)}",
+            f"三連複フォメ：{formation_str}",
+            f"二車複：{nf if nf else '—'}",
+            f"ワイド：{wd if wd else '—'}",
             "三連複（最大6点）： " + (", ".join(trios) if trios else "—"),
-        ])
-        return {"note": note}
+            f"[mode={mode} | FR={FRv:.3f} VTX={VTXv:.3f} U={Uv:.3f}]",
+        ]
+        return {"note": "\n".join(note_lines)}
 
     except Exception as _e:
         return {"note": f"⚠ Tesla369-LineBindエラー: {type(_e).__name__}: {str(_e)}"}
