@@ -3670,12 +3670,20 @@ def generate_tesla_bets(flow_res, lines_str, marks, scores):
         trios_line_body = "—" if (is_ken_flag or not gate_main or not tri_strs) \
                           else ", ".join(tri_strs)
 
+        # ===== 表示用：単騎が2車以上ある場合は “単騎プール上位2名” を波として表示 =====
+        VTX_disp = VTX_line
+        U_disp   = U_line
+        if VTX_line and len(VTX_line) == 1 and len(singletons) >= 2:
+            VTX_disp = _pick_top_ex(singletons, 2, exclude=[axis])
+        if U_line and len(U_line) == 1 and len(singletons) >= 2:
+            U_disp = _pick_top_ex(singletons, 2, exclude=[axis])
+
         # 表示（既定の並び）
         note_lines = [
             "【Tesla369-LineBindフォーメーション（共通6点テンプレ）】",
             f"発生波（FR）＝{_fmt(FR_line)}",
-            f"展開波（VTX）＝{_fmt(VTX_line)}",
-            f"帰還波（U）＝{_fmt(U_line)}",
+            f"展開波（VTX）＝{_fmt(VTX_disp)}",  # 単騎複数時は単騎プール上位2名を表示
+            f"帰還波（U）＝{_fmt(U_disp)}",      # 同上
             "",
             f"三連複（最大6点）： {trios_line_body} ",
             "",
@@ -3684,8 +3692,6 @@ def generate_tesla_bets(flow_res, lines_str, marks, scores):
 
     except Exception as _e:
         return {"note": f"⚠ Tesla369-LineBindエラー: {type(_e).__name__}: {str(_e)}"}
-
-# --- 実行直前にノートを初期化してから走らせると混入しません ---
 
 
 
