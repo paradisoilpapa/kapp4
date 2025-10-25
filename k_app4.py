@@ -3657,7 +3657,7 @@ def generate_tesla_bets(flow_res, lines_str, marks, scores):
         return {"note": f"⚠ Tesla369-LineBindエラー: {type(_e).__name__}: {str(_e)}"}
 
 # --- 実行直前にノートを初期化してから走らせると混入しません ---
-note_sections = []
+
 
 
 # -------------------------------------
