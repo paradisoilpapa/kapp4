@@ -3593,30 +3593,65 @@ def generate_tesla_bets(flow_res, lines_str, marks, scores):
         if len(VTX2) < 2 and len(u_sorted) >= 2:
             VTX2 = (VTX2 + [u_sorted[1]])[:2]
 
-        # --- ブースト決定（|VTX-U|しきい=0.03、FRでタイブレーク） ---
+               # --- ブースト決定（|VTX-U|しきい=0.03、FRでタイブレーク） ---
         thresh = 0.03
+
+        # まず土台（渦2+逆流2）を作る
+        base = VTX2 + U2
+        base = list(dict.fromkeys(base))  # 重複除去・順序維持
+        avoid = set(base)
+
+        def _pick_first_not_in(cands):
+            for n in cands:
+                if n not in avoid:
+                    return n
+            return None
+
         booster = None
         mode = None
+
         if (VTXv - Uv) >= thresh or (FRv >= 0.18 and (VTXv >= Uv)):
-            # 渦ブースト：渦の3番手があれば採用、なければ2番手再掲
-            booster = v_sorted[2] if len(v_sorted) >= 3 else (v_sorted[1] if len(v_sorted) >= 2 else (v_sorted[0] if v_sorted else None))
+            # 渦ブースト：渦の3番手→2番手→1番手の順で、まだ入っていない番号を優先
+            v_sorted = sorted(list(VTX_line), key=lambda n: scores.get(n, 0.0), reverse=True)
+            pref = [v_sorted[2]] if len(v_sorted) >= 3 else []
+            if len(v_sorted) >= 2: pref.append(v_sorted[1])
+            if len(v_sorted) >= 1: pref.append(v_sorted[0])
+            booster = _pick_first_not_in(pref)
+            # それでも無ければ逆流側の次点で補完
+            if booster is None:
+                u_sorted = sorted(list(U_line), key=lambda n: scores.get(n, 0.0), reverse=True)
+                booster = _pick_first_not_in(u_sorted[2:] + u_sorted[:2])  # 3番手→1,2番手
             mode = "boost_vtx"
         elif (Uv - VTXv) >= thresh:
-            # 逆流ブースト：逆流筆頭
-            booster = u_sorted[0] if len(u_sorted) >= 1 else None
+            # 逆流ブースト：逆流の筆頭→次点→3番手の順で未採用を優先
+            u_sorted = sorted(list(U_line), key=lambda n: scores.get(n, 0.0), reverse=True)
+            booster = _pick_first_not_in(u_sorted[:3])
+            # それでも無ければ渦側で補完
+            if booster is None:
+                v_sorted = sorted(list(VTX_line), key=lambda n: scores.get(n, 0.0), reverse=True)
+                booster = _pick_first_not_in(v_sorted[2:] + v_sorted[:2])  # 3番手→1,2番手
             mode = "boost_u"
         else:
-            # タイブレーク：FR<=0.12 → 逆流、>0.12 → 渦
+            # タイブレーク：FR<=0.12 → 逆流、>0.12 → 渦（いずれも未採用優先）
             if FRv <= 0.12:
-                booster = u_sorted[0] if len(u_sorted) >= 1 else None
+                u_sorted = sorted(list(U_line), key=lambda n: scores.get(n, 0.0), reverse=True)
+                booster = _pick_first_not_in(u_sorted[:3])
+                if booster is None:
+                    v_sorted = sorted(list(VTX_line), key=lambda n: scores.get(n, 0.0), reverse=True)
+                    booster = _pick_first_not_in(v_sorted[:3])
                 mode = "boost_u_tie"
             else:
-                booster = v_sorted[2] if len(v_sorted) >= 3 else (v_sorted[1] if len(v_sorted) >= 2 else (v_sorted[0] if v_sorted else None))
+                v_sorted = sorted(list(VTX_line), key=lambda n: scores.get(n, 0.0), reverse=True)
+                booster = _pick_first_not_in(v_sorted[:3])
+                if booster is None:
+                    u_sorted = sorted(list(U_line), key=lambda n: scores.get(n, 0.0), reverse=True)
+                    booster = _pick_first_not_in(u_sorted[:3])
                 mode = "boost_vtx_tie"
 
-        # 候補集合（重複除去しつつ順序維持）
-        base = VTX2 + U2
-        cand = list(dict.fromkeys(base + ([booster] if booster is not None else [])))
+        # 最終候補リスト（左右同一）：土台＋（ブーストがあれば追加）
+        cand = base + ([booster] if booster is not None else [])
+        cand = list(dict.fromkeys(cand))  # 念のため二重除去
+
 
         # 表示用フォメ（例：1-5264-5264）
         def _fmt(nums): return "".join(str(x) for x in nums) if nums else "—"
