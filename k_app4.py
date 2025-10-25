@@ -3479,7 +3479,7 @@ def compute_flow_indicators(lines_str, marks, scores):
 # -------------------------------------
 # 3) 買い目生成（三連複 最大6点／2車複／ワイド）
 # -------------------------------------
-# ===== パッチ：共通6点テンプレのみを出す版 =====
+# ===== パッチ：共通6点テンプレのみを出す版（ケン尊重） =====
 
 # 旧フォーマット文字列を含む既存ノートを掃除（再実行時の混入防止）
 try:
@@ -3497,7 +3497,8 @@ def generate_tesla_bets(flow_res, lines_str, marks, scores):
       4) ◎-V1-V2（V2不在 → ◎-SL-V1）
       5) ◎-SL-〇（〇不在 → ▲ → 同ライン外スコア最上位）
       6) ◎-U1-V1
-    ※同一ライン3名は禁止。重複除去。6点未満はフォールバックで充足。
+    ※ 同一ライン3名は禁止・重複除去。6点未満はフォールバックで充足。
+    ※ ケンは flow_res['ken'] を最優先で尊重（数値ゲートも併用可）。
     """
     try:
         FRv  = float(flow_res.get("FR", 0.0))
@@ -3536,7 +3537,7 @@ def generate_tesla_bets(flow_res, lines_str, marks, scores):
         if axis is None:
             return {"note": "【流れ未循環】軸不明 → ケン"}
 
-        # FRライン
+        # FRライン（◎が所属するライン、無ければ平均最大）
         li = _line_of(axis)
         if li is None:
             li = max(range(len(lines)), key=lambda i: _ln_mean(lines[i]))
@@ -3590,66 +3591,76 @@ def generate_tesla_bets(flow_res, lines_str, marks, scores):
                 return False
             return True
 
+        # ================== ケン判定（最優先） ==================
+        is_ken_flag = bool(flow_res.get("ken", False))  # 上流のケンを絶対優先
+        # （数値ゲートも使う場合は下の3行を有効化）
+        FR_MIN, VTX_MIN, VTX_MAX, U_MIN = 0.02, 0.50, 0.70, 0.10
+        gate_main = (FRv >= FR_MIN) and (VTX_MIN <= VTXv <= VTX_MAX) and (Uv >= U_MIN)
+
+        # ========= 三連複6点の組成 =========
         chosen = []
+
         def _push(a,b,c):
             if not _valid(a,b,c): return
             t = tuple(sorted([a,b,c]))
             if t not in chosen: chosen.append(t)
 
-        # ---- 6点テンプレ ----
-        # (1)
-        if U1 and U2: _push(axis, U1, U2)
-        elif U1 and V1: _push(axis, U1, V1)
+        # 6点テンプレ
+        if not is_ken_flag and gate_main:
+            # (1)
+            if U1 and U2: _push(axis, U1, U2)
+            elif U1 and V1: _push(axis, U1, V1)
+            # (2)
+            if SL and U1: _push(axis, SL, U1)
+            # (3)
+            if SL and V1: _push(axis, SL, V1)
+            # (4)
+            if V1 and V2: _push(axis, V1, V2)
+            elif SL and V1: _push(axis, SL, V1)
+            # (5)
+            def _alt_for_main():
+                if circle and circle in all_nums and circle != axis: return circle
+                if triangle and triangle in all_nums and triangle != axis: return triangle
+                others = [n for n in all_nums if n not in FR_line and n != axis]
+                return max(others, key=lambda n: scores.get(n, 0.0)) if others else None
+            if SL:
+                alt = _alt_for_main()
+                if alt: _push(axis, SL, alt)
+            # (6)
+            if U1 and V1: _push(axis, U1, V1)
 
-        # (2)
-        if SL and U1: _push(axis, SL, U1)
-
-        # (3)
-        if SL and V1: _push(axis, SL, V1)
-
-        # (4)
-        if V1 and V2: _push(axis, V1, V2)
-        elif SL and V1: _push(axis, SL, V1)
-
-        # (5)
-        def _alt_for_main():
-            if circle and circle in all_nums and circle != axis: return circle
-            if triangle and triangle in all_nums and triangle != axis: return triangle
-            others = [n for n in all_nums if n not in FR_line and n != axis]
-            return max(others, key=lambda n: scores.get(n, 0.0)) if others else None
-        if SL:
-            alt = _alt_for_main()
-            if alt: _push(axis, SL, alt)
-
-        # (6)
-        if U1 and V1: _push(axis, U1, V1)
-
-        # ---- フォールバックで6本に ----
-        if len(chosen) < 6:
-            pool = []
-            cands = [x for x in [SL, circle, triangle, V1, V2, U1, U2] if x and x in all_nums]
-            for i in range(len(cands)):
-                for j in range(i+1, len(cands)):
-                    pool.append(tuple(sorted([axis, cands[i], cands[j]])))
-            others = [n for n in all_nums if n not in FR_line and n != axis]
-            others = sorted(others, key=lambda n: scores.get(n, 0.0), reverse=True)[:3]
-            for x in [v for v in [V1, U1, V2, U2] if v]:
-                for y in others:
-                    pool.append(tuple(sorted([axis, x, y])))
-            for t in pool:
-                if len(chosen) >= 6: break
-                a,b,c = t
-                if _valid(a,b,c) and t not in chosen:
-                    chosen.append(t)
+            # フォールバックで6本に
+            if len(chosen) < 6:
+                pool = []
+                cands = [x for x in [SL, circle, triangle, V1, V2, U1, U2] if x and x in all_nums]
+                for i in range(len(cands)):
+                    for j in range(i+1, len(cands)):
+                        pool.append(tuple(sorted([axis, cands[i], cands[j]])))
+                others = [n for n in all_nums if n not in FR_line and n != axis]
+                others = sorted(others, key=lambda n: scores.get(n, 0.0), reverse=True)[:3]
+                for x in [v for v in [V1, U1, V2, U2] if v]:
+                    for y in others:
+                        pool.append(tuple(sorted([axis, x, y])))
+                for t in pool:
+                    if len(chosen) >= 6: break
+                    a,b,c = t
+                    if _valid(a,b,c) and t not in chosen:
+                        chosen.append(t)
 
         tri_strs = [f"{t[0]}-{t[1]}-{t[2]}" for t in chosen[:6]]
+        # ケン or ゲート外 or 生成不能 → “—”
+        trios_line_body = "—" if (is_ken_flag or not gate_main or not tri_strs) \
+                          else ", ".join(tri_strs)
+
+        # 表示（指定レイアウトに厳密一致：ヘッダ＋FR/VTX/U＋空行＋三連複行＋空行）
         note_lines = [
             "【Tesla369-LineBindフォーメーション（共通6点テンプレ）】",
             f"発生波（FR）＝{_fmt(FR_line)}",
             f"展開波（VTX）＝{_fmt(VTX_line)}",
             f"帰還波（U）＝{_fmt(U_line)}",
-            "三連複（最大6点）： " + (", ".join(tri_strs) if tri_strs else "—"),
-            f"[FR={FRv:.3f} VTX={VTXv:.3f} U={Uv:.3f}]"
+            "",
+            f"三連複（最大6点）： {trios_line_body} ",
+            "",
         ]
         return {"note": "\n".join(note_lines)}
 
