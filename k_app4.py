@@ -3220,11 +3220,6 @@ note_sections.append("\n")  # 空行
 # - 実行すると note_sections に【流れ】と【買い目】を必ず追記
 # - 既存定義は本ブロックで上書き（全貼り換え想定）
 
-# ===== Tesla369｜完全統合・自己完結版（note出力直後に丸ごと貼る） =====
-# - 依存なし：_groups, line_inputs, result_marks, race_t, USED_IDS, race_env が無くても動作
-# - 実行すると note_sections に【流れ】と【買い目】を必ず追記
-# - 既存定義は本ブロックで上書き（全貼り換え想定）
-
 # -------------------------------------
 # 0) import & 基本ヘルパ
 # -------------------------------------
@@ -3479,7 +3474,7 @@ def compute_flow_indicators(lines_str, marks, scores):
 # -------------------------------------
 # 3) 買い目生成（三連複 最大6点／2車複／ワイド）
 # -------------------------------------
-# ===== パッチ：共通6点テンプレのみを出す版（ケン尊重） =====
+# ===== パッチ：共通6点テンプレのみを出す版（ケン尊重／単騎プール／軸自動切替） =====
 
 # 旧フォーマット文字列を含む既存ノートを掃除（再実行時の混入防止）
 try:
@@ -3500,6 +3495,7 @@ def generate_tesla_bets(flow_res, lines_str, marks, scores):
     ※ 同一ライン3名は禁止・重複除去。6点未満はフォールバックで充足。
     ※ ケンは flow_res['ken'] を最優先で尊重（数値ゲートも併用可）。
     ※ 単騎が2車以上ある場合：V/U が単騎ラインなら、単騎プールを“塊”として上位2名を採用。
+    ※ 重み（FRv,VTXv,Uv）で軸を自動切替（ASR-Weight）。
     """
     try:
         FRv  = float(flow_res.get("FR", 0.0))
@@ -3530,30 +3526,19 @@ def generate_tesla_bets(flow_res, lines_str, marks, scores):
         def _fmt(nums): 
             return "".join(str(x) for x in nums) if nums else "—"
 
-        # ◎（軸）
-        axis = marks.get("◎")
-        if axis is None:
-            all_nums = sorted({n for g in lines for n in g})
-            axis = max(all_nums, key=lambda n: scores.get(n, 0.0)) if all_nums else None
-        if axis is None:
-            return {"note": "【流れ未循環】軸不明 → ケン"}
-
+        # --- FR/VTX/U ライン確定 ---
+        # ◎（仮軸）
+        axis_default = marks.get("◎")
         # FRライン（◎が所属するライン、無ければ平均最大）
-        li = _line_of(axis)
+        li = _line_of(axis_default) if axis_default is not None else None
         if li is None:
             li = max(range(len(lines)), key=lambda i: _ln_mean(lines[i]))
         FR_line = lines[li]
 
-        # SL（◎と同ライン最上位1名）
-        SL = None
-        sl_cands = [n for n in FR_line if n != axis]
-        if sl_cands:
-            SL = max(sl_cands, key=lambda n: scores.get(n, 0.0))
-
         # VTXライン（vtx_bid優先→FR以外の平均スコア最大）
         VTX_line = None
         if vtx_bid:
-            bmap = _t369_buckets(lines)  # 既存ユーティリティ
+            bmap = _t369_buckets(lines)
             for ln in lines:
                 if ln and bmap.get(ln[0]) == vtx_bid:
                     VTX_line = ln
@@ -3568,16 +3553,58 @@ def generate_tesla_bets(flow_res, lines_str, marks, scores):
 
         # --- 単騎（ライン長=1）を“ひと塊”として扱う ---
         singletons = [ln[0] for ln in lines if len(ln) == 1]
-
         def _pick_top_ex(pool, k, exclude=None):
             ex = set(exclude or [])
             arr = [n for n in pool if n not in ex]
             arr.sort(key=lambda n: scores.get(n, 0.0), reverse=True)
             return arr[:k]
 
-        # U/V上位（軸は除外）— VTX/U が単騎かつ単騎が2車以上いるときは単騎プール優先
-        V1 = V2 = U1 = U2 = None
+        # --- 軸自動切替（ASR-Weight） ---
+        def _top_k(ln, k=1, exclude=None):
+            ex = set(exclude or [])
+            arr = [n for n in (ln or []) if n not in ex]
+            arr.sort(key=lambda n: scores.get(n, 0.0), reverse=True)
+            return arr[:k]
 
+        # 仮軸の補正（◎が無い時はFRライン最上位）
+        if axis_default is None:
+            axis_default = _top_k(FR_line, 1)[0] if FR_line else None
+        if axis_default is None:
+            return {"note": "【流れ未循環】軸不明 → ケン"}
+
+        w = {"FR": float(FRv), "VTX": float(VTXv), "U": float(Uv)}
+        label_order = sorted(w.keys(), key=lambda k: w[k], reverse=True)
+        top, second = label_order[0], label_order[1]
+        margin = w[top] - w[second]
+        MARGIN_TH = 0.05
+        MIN_TH = {"FR": 0.18, "VTX": 0.56, "U": 0.60}
+
+        axis = axis_default
+        axis_line = FR_line
+        if margin >= MARGIN_TH and w[top] >= MIN_TH.get(top, 0.0):
+            if top == "VTX":
+                axis_line = VTX_line
+                cand = _top_k(VTX_line, 1, exclude=[axis_default]) if VTX_line else []
+                axis = cand[0] if cand else axis_default
+            elif top == "U":
+                axis_line = U_line
+                cand = _top_k(U_line, 1, exclude=[axis_default]) if U_line else []
+                axis = cand[0] if cand else axis_default
+            else:  # FR
+                axis_line = FR_line
+                axis = axis_default
+        else:
+            axis = axis_default
+            axis_line = FR_line
+
+        # SL（選ばれた軸の同ライン最上位）
+        SL = None
+        if axis_line:
+            sl_cands = [n for n in axis_line if n != axis]
+            if sl_cands:
+                SL = max(sl_cands, key=lambda n: scores.get(n, 0.0))
+
+        # --- 最終axisに合わせて V1/V2, U1/U2 を再計算（axis除外） ---
         if VTX_line:
             if len(VTX_line) == 1 and len(singletons) >= 2:
                 vtops = _pick_top_ex(singletons, 2, exclude=[axis])
@@ -3585,6 +3612,8 @@ def generate_tesla_bets(flow_res, lines_str, marks, scores):
                 vtops = _pick_top(VTX_line, 2, exclude=[axis])
             V1 = vtops[0] if len(vtops) >= 1 else None
             V2 = vtops[1] if len(vtops) >= 2 else None
+        else:
+            V1 = V2 = None
 
         if U_line:
             if len(U_line) == 1 and len(singletons) >= 2:
@@ -3593,6 +3622,8 @@ def generate_tesla_bets(flow_res, lines_str, marks, scores):
                 utops = _pick_top(U_line, 2, exclude=[axis])
             U1 = utops[0] if len(utops) >= 1 else None
             U2 = utops[1] if len(utops) >= 2 else None
+        else:
+            U1 = U2 = None
 
         circle  = marks.get("〇")
         triangle= marks.get("▲")
@@ -3640,7 +3671,7 @@ def generate_tesla_bets(flow_res, lines_str, marks, scores):
             def _alt_for_main():
                 if circle and circle in all_nums and circle != axis: return circle
                 if triangle and triangle in all_nums and triangle != axis: return triangle
-                others = [n for n in all_nums if n not in FR_line and n != axis]
+                others = [n for n in all_nums if n not in axis_line and n != axis]
                 return max(others, key=lambda n: scores.get(n, 0.0)) if others else None
             if SL:
                 alt = _alt_for_main()
@@ -3655,7 +3686,7 @@ def generate_tesla_bets(flow_res, lines_str, marks, scores):
                 for i in range(len(cands)):
                     for j in range(i+1, len(cands)):
                         pool.append(tuple(sorted([axis, cands[i], cands[j]])))
-                others = [n for n in all_nums if n not in FR_line and n != axis]
+                others = [n for n in all_nums if n not in axis_line and n != axis]
                 others = sorted(others, key=lambda n: scores.get(n, 0.0), reverse=True)[:3]
                 for x in [v for v in [V1, U1, V2, U2] if v]:
                     for y in others:
@@ -3692,8 +3723,6 @@ def generate_tesla_bets(flow_res, lines_str, marks, scores):
 
     except Exception as _e:
         return {"note": f"⚠ Tesla369-LineBindエラー: {type(_e).__name__}: {str(_e)}"}
-
-
 
 # -------------------------------------
 # 4) 実行（note_sections へ追記）
@@ -3755,6 +3784,7 @@ note_text = "\n".join(note_sections)
 st.markdown("### 📋 note用（コピーエリア）")
 st.text_area("ここを選択してコピー", note_text, height=560)
 # =========================
+
 
 # =========================
 #  一括置換ブロック ここまで
