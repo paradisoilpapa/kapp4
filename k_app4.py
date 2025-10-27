@@ -3130,6 +3130,9 @@ if isinstance(result_marks, dict) and '◎' in result_marks:
 if 'note_sections' not in globals() or not isinstance(note_sections, list):
     note_sections = []
 
+# 既存に紛れた「【狙いたいレース】」行は掃除（再実行時の混入防止）
+note_sections = [s for s in note_sections if not (isinstance(s, str) and s.strip() == "【狙いたいレース】")]
+
 _venue = str(globals().get("track", globals().get("place", "")))
 _eval  = str(globals().get("tenkai", globals().get("confidence", "")))
 
@@ -3151,9 +3154,9 @@ def _is_same_header_line(s: str) -> bool:
 
 note_sections = [s for s in note_sections if not _is_same_header_line(s)]
 
-# 一旦「括弧なし」で挿入（あとで自動ラベルを付与）
+# “狙いたいレース”は挿入しない（括弧なしで置いて、後で自動ラベル付与）
 note_sections.append(_hdr1)
-note_sections.append(_hdr2_raw + "\n" + ("【狙いたいレース】\n\n" if _is_target_local else "\n"))
+note_sections.append(_hdr2_raw + "\n")
 
 # 簡素表示
 race_time = globals().get('race_time', '')
@@ -3168,6 +3171,7 @@ note_sections.append(f"{marks_str} {no_str}")
 note_sections.append("\n偏差値（風・ライン込み）")
 note_sections.append(_fmt_hen_lines(race_t, USED_IDS))
 note_sections.append("\n")  # 空行
+
 
 # ===== Tesla369｜完全統合・自己完結版（note出力直後に丸ごと貼る） =====
 # - 依存なし：_groups, line_inputs, result_marks, race_t, USED_IDS, race_env が無くても動作
