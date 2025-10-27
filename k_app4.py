@@ -3491,9 +3491,35 @@ def compute_flow_indicators(lines_str, marks, scores):
             "vtx_bid": VTX_bid, "lines": lines, "dbg": dbg}
 
 # =========================
-#  Tesla369｜出力統合・最終ブロック（安定版）
+#  Tesla369｜出力統合・最終ブロック（安定版・二重出力防止）
 # =========================
-import re
+import re, json, hashlib
+
+# --- 二重出力ワンショットガード ---------------------------------
+def _t369_build_render_key(lines_str, marks, scores) -> str:
+    payload = json.dumps({
+        "lines_str": str(lines_str),
+        "marks": {str(k): int(v) for k, v in (marks or {}).items()},
+        "scores": {str(k): float((scores or {}).get(k, 0.0)) for k in sorted((scores or {}).keys(), key=lambda x: int(x) if str(x).isdigit() else str(x))}
+    }, ensure_ascii=False, sort_keys=True)
+    return "t369:" + hashlib.md5(payload.encode("utf-8")).hexdigest()
+
+def _t369_render_once(key: str) -> bool:
+    try:
+        import streamlit as st  # 遅延importでもOK
+        store = st.session_state.get("_t369_done_keys", set())
+        if key in store:
+            return False
+        store.add(key)
+        st.session_state["_t369_done_keys"] = store
+        return True
+    except Exception:
+        # st未使用時のフォールバック
+        globals().setdefault("_t369_done_keys_fallback", set())
+        if key in globals()["_t369_done_keys_fallback"]:
+            return False
+        globals()["_t369_done_keys_fallback"].add(key)
+        return True
 
 # --- 安全関数群 --------------------------------------------------
 def _safe_flow(lines_str, marks, scores):
@@ -3524,8 +3550,9 @@ def _infer_eval(flow):
     FRv  = float((flow or {}).get("FR", 0.0))
     VTXv = float((flow or {}).get("VTX", 0.0))
     Uv   = float((flow or {}).get("U", 0.0))
-    if (FRv >= 0.18 and 0.50 <= VTXv <= 0.70 and Uv >= 0.10): return "優位"
-    if (VWXv := max(VTXv, Uv)) >= 0.56:  # ざっくり：渦or逆流が強ければ拮抗〜混戦寄せ
+    if (FRv >= 0.18 and 0.50 <= VTXv <= 0.70 and Uv >= 0.10): 
+        return "優位"
+    if (VWXv := max(VTXv, Uv)) >= 0.56:
         return "互角" if VTXv >= 0.56 and Uv < 0.62 else "混戦"
     return "混戦"
 
@@ -3533,19 +3560,26 @@ def _fmt_rank_local(marks_dict: dict, used_ids: list) -> tuple[str, str]:
     ids_set = set(used_ids or [])
     marks_dict = marks_dict or {}
     used_marks = set(marks_dict.values())
-    no_mark_ids = [int(i) for i in ids_set if int(i) not in used_marks]
+    try:
+        no_mark_ids = [int(i) for i in ids_set if int(i) not in used_marks]
+    except Exception:
+        no_mark_ids = []
     marks_str = ' '.join(
         f'{m}{marks_dict[m]}' for m in ['◎','〇','▲','△','×','α'] if m in marks_dict
-    )
+    ) or ""
     no_str = ' '.join(map(str, sorted(no_mark_ids))) if no_mark_ids else '—'
     return marks_str, f"無{no_str}"
 
-def _fmt_hen_lines(ts_map: dict, ids: list[int]) -> str:
-    lines = []
+def _fmt_hen_lines(ts_map: dict, ids) -> str:
+    ids = list(ids or [])
     ts_map = ts_map or {}
-    for n in (ids or []):
+    lines = []
+    for n in ids:
         v = ts_map.get(n, "—")
-        lines.append(f"{n}: {float(v):.1f}" if isinstance(v, (int, float)) else f"{n}: —")
+        if isinstance(v, (int, float)):
+            lines.append(f"{n}: {float(v):.1f}")
+        else:
+            lines.append(f"{n}: —")
     return "\n".join(lines)
 
 def _fmt_nums(arr):
@@ -3558,134 +3592,145 @@ def _risk_from_FRv(fr):
     if fr >= 0.10: return "中"
     return "低"
 
-# --- note_sections 準備 ------------------------------------------
+# --- note_sections 準備（古い不要ノート除去） --------------------
 if 'note_sections' not in globals() or not isinstance(note_sections, list):
     note_sections = []
 
-# 不要な行の除去
 def _kill_garbage(s: str) -> bool:
     if not isinstance(s, str): return False
     t = s.strip()
     return ("狙いたいレース" in t) or ("三連複フォーメーション：" in t)
+
 note_sections = [s for s in note_sections if not _kill_garbage(s)]
 
 # --- 環境取得 -----------------------------------------------------
 lines_str = globals().get("lines_str", "")
 marks     = globals().get("marks", {})
 scores    = globals().get("scores", {})
-_flow     = _safe_flow(lines_str, marks, scores)
-_bets     = _safe_generate(_flow, lines_str, marks, scores)
 
-# --- 見出し（会場＋R）＋展開評価＋推奨/参考 --------------------
-venue  = str(globals().get("track") or globals().get("place") or "").strip()
-race_no = str(globals().get("race_no") or "").strip()
-if venue or race_no:
-    note_sections.append(f"{venue}{race_no}R")
-
-eval_word = _infer_eval(_flow)
-label     = _decide_label(_flow)
-note_sections.append(f"展開評価：{eval_word}")
-
-# --- 基本情報 ----------------------------------------------------
-race_time  = globals().get('race_time', '')
-race_class = globals().get('race_class', '')
-note_sections.append(f"{race_time}　{race_class}")
-
-try:
-    line_inputs = globals().get('line_inputs', [])
-    note_sections.append(f"ライン　{'　'.join([x for x in line_inputs if str(x).strip()])}")
-except Exception:
+# 二重出力ガード発動（同一入力は1回のみ追記）
+_render_key = _t369_build_render_key(lines_str, marks, scores)
+if not _t369_render_once(_render_key):
+    # 既出なので、以降の出力はスキップ
     pass
-
-try:
-    USED_IDS = list(globals().get('USED_IDS', []))
-    xs_base_raw = globals().get('xs_base_raw', [])
-    if '._format_rank_from_array' in globals():
-        note_sections.append(f"スコア順（SBなし）　{_format_rank_from_array(USED_IDS, xs_base_raw)}")
-    else:
-        raise NameError
-except Exception:
-    USED_IDS = list(globals().get('USED_IDS', []))
-    note_sections.append(f"スコア順（SBなし）　{' '.join(map(str, USED_IDS))}")
-
-# 印
-try:
-    result_marks = globals().get('result_marks', {})
-    marks_str, no_str = _fmt_rank_local(result_marks, USED_IDS)
-    note_sections.append(f"{marks_str} {no_str}")
-except Exception:
-    pass
-
-# 偏差値
-try:
-    race_t = dict(globals().get('race_t', {}))
-    note_sections.append("\n偏差値（風・ライン込み）")
-    note_sections.append(_fmt_hen_lines(race_t, USED_IDS))
-    note_sections.append("\n")
-except Exception:
-    note_sections.append("偏差値データなし\n")
-
-# --- ヘッダ三行は“必ず _bets の値”で出す ----------------------
-_FR_line  = _bets.get("FR_line", _flow.get("FR_line"))
-_VTX_line = _bets.get("VTX_line", _flow.get("VTX_line"))
-_U_line   = _bets.get("U_line", _flow.get("U_line"))
-_FRv      = float(_bets.get("FRv",  _flow.get("FR", 0.0)) or 0.0)
-_VTXv     = float(_bets.get("VTXv", _flow.get("VTX", 0.0)) or 0.0)
-_Uv       = float(_bets.get("Uv",   _flow.get("U", 0.0)) or 0.0)
-
-if _FR_line is not None or _VTX_line is not None or _U_line is not None:
-    note_sections.append(f"【順流】◎ライン {_fmt_nums(_FR_line)}：失速危険 {_risk_from_FRv(_FRv)}")
-    note_sections.append(f"【渦】候補ライン：{_fmt_nums(_VTX_line)}（VTX={_VTXv:.2f}）")
-    note_sections.append(f"【逆流】無ライン {_fmt_nums(_U_line)}：U={_Uv:.2f}（※判定基準内）")
 else:
-    # フォールバック
-    note_sections.append(_flow.get("note", "【流れ】出力なし"))
+    _flow     = _safe_flow(lines_str, marks, scores)
+    _bets     = _safe_generate(_flow, lines_str, marks, scores)
 
-# --- フォーメーション＆買い目ノート本体 -------------------------
-note_sections.append(_bets.get("note", "【買い目】出力なし"))
+    # --- 見出し（会場＋R）＋展開評価 -----------------------------
+    venue   = str(globals().get("track") or globals().get("place") or "").strip()
+    race_no = str(globals().get("race_no") or "").strip()
+    if venue or race_no:
+        # race_no が "9" などの数字のみ想定、"9R" なら重複回避
+        _rn = race_no if (race_no.endswith("R") or race_no == "") else f"{race_no}R"
+        note_sections.append(f"{venue}{_rn}")
 
+    eval_word = _infer_eval(_flow)
+    # label     = _decide_label(_flow)  # 必要なら使用
+    note_sections.append(f"展開評価：{eval_word}")
 
-
-
-# -------------------------------------
-# 5) 診断（最小）
-# -------------------------------------
-try:
-    dbg_lines = _lines_list
-    dbg_marks = marks
-    dbg_scores_keys = sorted(scores.keys())
+    # --- 基本情報 ------------------------------------------------
+    race_time  = globals().get('race_time', '')
+    race_class = globals().get('race_class', '')
+    note_sections.append(f"{race_time}　{race_class}".strip())
 
     try:
-        _flow_diag_raw = compute_flow_indicators(lines_str, marks, scores)
-        _flow_diag = _flow_diag_raw if isinstance(_flow_diag_raw, dict) else {}
-    except Exception as e:
-        _flow_diag = {}
-        note_sections.append(f"⚠ compute_flow_indicators(診断)エラー: {type(e).__name__}: {e}")
+        line_inputs = globals().get('line_inputs', [])
+        if isinstance(line_inputs, list):
+            note_sections.append(f"ライン　{'　'.join([x for x in line_inputs if str(x).strip()])}")
+    except Exception:
+        pass
 
-    note_sections.append(
-        "【Tesla369診断】"
-        f"\nlines_str={lines_str or '—'}"
-        f"\nlines_list={dbg_lines or '—'}"
-        f"\nmarks={dbg_marks or '—'}"
-        f"\nscores.keys={dbg_scores_keys or '—'}"
-        f"\nFR={_flow_diag.get('FR',0.0):.3f}  "
-        f"VTX={_flow_diag.get('VTX',0.0):.3f}  "
-        f"U={_flow_diag.get('U',0.0):.3f}"
-        f"\n※どれかが '—' なら入力が読めていません。"
-    )
+    try:
+        USED_IDS     = list(globals().get('USED_IDS', []))
+        xs_base_raw  = globals().get('xs_base_raw', [])
+        _fmt_rank_fn = globals().get('_format_rank_from_array', None)
+        if callable(_fmt_rank_fn):
+            note_sections.append(f"スコア順（SBなし）　{_fmt_rank_fn(USED_IDS, xs_base_raw)}")
+        else:
+            note_sections.append(f"スコア順（SBなし）　{' '.join(map(str, USED_IDS))}")
+    except Exception:
+        USED_IDS = list(globals().get('USED_IDS', []))
+        note_sections.append(f"スコア順（SBなし）　{' '.join(map(str, USED_IDS))}")
 
-    _dbg = _flow_diag.get("dbg", {}) if isinstance(_flow_diag, dict) else {}
-    if isinstance(_dbg, dict) and _dbg:
+    # 印
+    try:
+        result_marks = globals().get('result_marks', {})
+        marks_str, no_str = _fmt_rank_local(result_marks, USED_IDS)
+        marks_line = f"{marks_str} {no_str}".strip()
+        if marks_line:
+            note_sections.append(marks_line)
+    except Exception:
+        pass
+
+    # 偏差値
+    try:
+        race_t = dict(globals().get('race_t', {}))
+        note_sections.append("\n偏差値（風・ライン込み）")
+        note_sections.append(_fmt_hen_lines(race_t, USED_IDS))
+        note_sections.append("\n")
+    except Exception:
+        note_sections.append("偏差値データなし\n")
+
+    # --- ヘッダ三行は“必ず _bets の値”で出す -------------------
+    _FR_line  = _bets.get("FR_line", _flow.get("FR_line"))
+    _VTX_line = _bets.get("VTX_line", _flow.get("VTX_line"))
+    _U_line   = _bets.get("U_line",  _flow.get("U_line"))
+    _FRv      = float(_bets.get("FRv",  _flow.get("FR", 0.0)) or 0.0)
+    _VTXv     = float(_bets.get("VTXv", _flow.get("VTX", 0.0)) or 0.0)
+    _Uv       = float(_bets.get("Uv",   _flow.get("U", 0.0)) or 0.0)
+
+    if (_FR_line is not None) or (_VTX_line is not None) or (_U_line is not None):
+        note_sections.append(f"【順流】◎ライン {_fmt_nums(_FR_line)}：失速危険 {_risk_from_FRv(_FRv)}")
+        note_sections.append(f"【渦】候補ライン：{_fmt_nums(_VTX_line)}（VTX={_VTXv:.2f}）")
+        note_sections.append(f"【逆流】無ライン {_fmt_nums(_U_line)}：U={_Uv:.2f}（※判定基準内）")
+    else:
+        note_sections.append(_flow.get("note", "【流れ】出力なし"))
+
+    # --- フォーメーション＆買い目ノート本体 ---------------------
+    note_sections.append(_bets.get("note", "【買い目】出力なし"))
+
+    # -------------------------------------
+    # 5) 診断（最小）
+    # -------------------------------------
+    try:
+        dbg_lines = globals().get('_lines_list') or globals().get('lines_list') or '—'
+        dbg_marks = marks or '—'
+        try:
+            dbg_scores_keys = sorted((scores or {}).keys())
+        except Exception:
+            dbg_scores_keys = '—'
+
+        try:
+            _flow_diag_raw = compute_flow_indicators(lines_str, marks, scores)
+            _flow_diag = _flow_diag_raw if isinstance(_flow_diag_raw, dict) else {}
+        except Exception as e:
+            _flow_diag = {}
+            note_sections.append(f"⚠ compute_flow_indicators(診断)エラー: {type(e).__name__}: {e}")
+
         note_sections.append(
-            f"[FR内訳] blend_star={_dbg.get('blend_star',0.0):.3f} "
-            f"blend_none={_dbg.get('blend_none',0.0):.3f} "
-            f"sd={_dbg.get('sd',0.0):.3f} nu={_dbg.get('nu',0.0):.3f}"
+            "【Tesla369診断】"
+            f"\nlines_str={lines_str or '—'}"
+            f"\nlines_list={dbg_lines}"
+            f"\nmarks={dbg_marks}"
+            f"\nscores.keys={dbg_scores_keys}"
+            f"\nFR={_flow_diag.get('FR',0.0):.3f}  "
+            f"VTX={_flow_diag.get('VTX',0.0):.3f}  "
+            f"U={_flow_diag.get('U',0.0):.3f}"
+            f"\n※どれかが '—' なら入力が読めていません。"
         )
-except Exception as _e:
-    note_sections.append(f"⚠ Tesla369診断エラー: {type(_e).__name__}: {str(_e)}")
+
+        _dbg = _flow_diag.get("dbg", {}) if isinstance(_flow_diag, dict) else {}
+        if isinstance(_dbg, dict) and _dbg:
+            note_sections.append(
+                f"[FR内訳] blend_star={_dbg.get('blend_star',0.0):.3f} "
+                f"blend_none={_dbg.get('blend_none',0.0):.3f} "
+                f"sd={_dbg.get('sd',0.0):.3f} nu={_dbg.get('nu',0.0):.3f}"
+            )
+    except Exception as _e:
+        note_sections.append(f"⚠ Tesla369診断エラー: {type(_e).__name__}: {str(_e)}")
 
 # ===== /Tesla369｜完全統合・自己完結版 =====
-
 
 
 
