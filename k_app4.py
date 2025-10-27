@@ -3199,7 +3199,9 @@ note_sections = []
 _venue = str(globals().get("track", globals().get("place", "")))
 _eval  = str(globals().get("tenkai", globals().get("confidence", "")))
 note_sections.append(f"{_venue}{race_no}R")
+note_sections.append(f"{_venue}{race_no}R")
 note_sections.append(f"展開評価：{_eval}\n" + ("【狙いたいレース】\n\n" if _is_target_local else "\n"))
+
 
 # 簡素表示
 race_time = globals().get('race_time', '')
@@ -3724,6 +3726,41 @@ def generate_tesla_bets(flow_res, lines_str, marks, scores):
     except Exception as _e:
         return {"note": f"⚠ Tesla369-LineBindエラー: {type(_e).__name__}: {str(_e)}"}
 
+# === ラベル決定（推奨/参考） ===
+def _t369_decide_label(flow_res):
+    FRv  = float(flow_res.get("FR", 0.0))
+    VTXv = float(flow_res.get("VTX", 0.0))
+    Uv   = float(flow_res.get("U", 0.0))
+    is_ken_flag = bool(flow_res.get("ken", False))  # 上流のケン(手入力)があれば最優先で参考
+
+    # 既存ゲート値に合わせる（必要ならここだけ調整）
+    FR_MIN, VTX_MIN, VTX_MAX, U_MIN = 0.02, 0.50, 0.70, 0.10
+    gate_main = (FRv >= FR_MIN) and (VTX_MIN <= VTXv <= VTX_MAX) and (Uv >= U_MIN)
+
+    return "推奨" if (gate_main and not is_ken_flag) else "参考"
+
+# === 見出しの【Tesla/ケン】→【推奨/参考】差し替え ===
+def t369_apply_auto_label(header_text: str, flow_res) -> str:
+    """
+    例：
+      '展開評価：優位【Tesla】' → '展開評価：優位【推奨】'
+      '展開評価：互角【ケン】'   → '展開評価：互角【参考】'
+      '展開評価：優位' (括弧なし) → '展開評価：優位【推奨/参考】' を末尾に追記
+    """
+    import re
+    label = _t369_decide_label(flow_res)
+    if re.search(r"(展開評価：[^\n]*?【)(?:Tesla|ケン)(】)", header_text):
+        return re.sub(r"(展開評価：[^\n]*?【)(?:Tesla|ケン)(】)",
+                      r"\1" + label + r"\2", header_text)
+    # 括弧が無い場合は末尾に付与（行末の改行は保持）
+    m = re.match(r"^(.*?)(\n*)$", header_text, flags=re.DOTALL)
+    if m:
+        base, tails = m.group(1), m.group(2)
+        if "展開評価：" in base and "【" not in base:
+            return f"{base}{tails}"
+    return header_text
+
+
 # -------------------------------------
 # 4) 実行（note_sections へ追記）
 # -------------------------------------
@@ -3736,6 +3773,12 @@ try:
     else:
         _flow = compute_flow_indicators(lines_str, marks, scores)
         note_sections.append(_flow.get("note", "【流れ】出力なし"))
+
+        _flow = compute_flow_indicators(lines_str, marks, scores)
+        # 見出しの【Tesla/ケン】 → 【推奨/参考】を自動反映（2行目が見出し行）
+        if len(note_sections) >= 2:
+            note_sections[1] = t369_apply_auto_label(note_sections[1], _flow)
+
 
         _bets = generate_tesla_bets(_flow, lines_str, marks, scores)
         note_sections.append(_bets.get("note", "【買い目】出力なし"))
