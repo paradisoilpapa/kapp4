@@ -3880,7 +3880,13 @@ try:
     if not _lines_list:
         note_sections.append("【流れ未循環】ライン不明 → ケン")
     else:
-        _flow = compute_flow_indicators(lines_str, marks, scores)
+        # ---- 安全に flow を取り出す（None や例外でも落ちない） ----
+        try:
+            _flow_raw = compute_flow_indicators(lines_str, marks, scores)
+            _flow = _flow_raw if isinstance(_flow_raw, dict) else {}
+        except Exception as e:
+            _flow = {}
+            note_sections.append(f"⚠ compute_flow_indicatorsエラー: {type(e).__name__}: {e}")
 
         # ←← ここで見出しに【推奨/参考】を付与（直近の「展開評価：」行を後ろから検索）
         for i in range(len(note_sections) - 1, -1, -1):
@@ -3889,13 +3895,19 @@ try:
                 note_sections[i] = t369_apply_auto_label(s, _flow)
                 break
 
-        # 以降は従来どおり
+        # 流れ（_flowが空でもデフォルト文言で出す）
         note_sections.append(_flow.get("note", "【流れ】出力なし"))
 
-        _bets = generate_tesla_bets(_flow, lines_str, marks, scores)
+        # 買い目生成（内部で防御しているが、念のため例外を吸収）
+        try:
+            _bets = generate_tesla_bets(_flow, lines_str, marks, scores)
+        except Exception as e:
+            _bets = {"note": f"⚠ generate_tesla_betsエラー: {type(e).__name__}: {e}"}
+
         note_sections.append(_bets.get("note", "【買い目】出力なし"))
 except Exception as _e:
     note_sections.append(f"⚠ Tesla369ランナーエラー: {type(_e).__name__}: {str(_e)}")
+
 
 # -------------------------------------
 # 5) 診断（最小）
