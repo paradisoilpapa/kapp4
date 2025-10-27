@@ -3520,8 +3520,26 @@ def generate_tesla_bets(flow_res, lines_str, marks, scores):
             cand_idx = [i for i in range(len(lines)) if i != li]
             VTX_line = max((lines[i] for i in cand_idx), key=_ln_mean) if cand_idx else FR_line
 
-        # Uライン（FR/VTX以外の平均スコア最小、なければ最小）
-        cand_idx =
+               # Uライン（通常は FR/VTX 以外の最弱ライン）｜2ライン時は“仮想U波”を生成
+        cand_idx = [i for i in range(len(lines)) if (lines[i] is not VTX_line) and (i != li)]
+        if cand_idx:
+            U_line = min((lines[i] for i in cand_idx), key=_ln_mean)
+        else:
+            # 2ライン構成などで "FR/VTX以外" が無い場合は仮想U波を生成
+            # より弱いほう（平均スコアが低い方）のラインをベースにする
+            base = VTX_line if _ln_mean(VTX_line) <= _ln_mean(FR_line) else FR_line
+
+            # 軸（axis_default）を除いた base の“下位”から2名
+            base_sorted = sorted([n for n in base if n != axis_default],
+                                 key=lambda n: scores.get(n, 0.0))
+            U_line = base_sorted[:2]
+
+            # 2名に満たなければ相手ラインの“下位”で補完
+            other = FR_line if base is VTX_line else VTX_line
+            other_sorted = sorted([n for n in other if n != axis_default],
+                                  key=lambda n: scores.get(n, 0.0))
+            fill = [n for n in other_sorted if n not in U_line][: (2 - len(U_line))]
+            U_line = (U_line + fill) or other_sorted[:2]
 
         # --- 単騎（ライン長=1）を“ひと塊”として扱う ---
         singletons = [ln[0] for ln in lines if len(ln) == 1]
