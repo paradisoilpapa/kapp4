@@ -3109,17 +3109,22 @@ except NameError:
 
 
 
-# ---- ここから本体 ----
-# 依存変数のフォールバック（未定義で落ちないように）
+# ---- 本体開始 ----
 result_marks = globals().get('result_marks', {})
 USED_IDS     = list(globals().get('USED_IDS', []))
 race_t       = dict(globals().get('race_t', {}))
 
-# ◎
 _anchor_no = None
 if isinstance(result_marks, dict) and '◎' in result_marks:
-    try: _anchor_no = int(result_marks['◎'])
-    except Exception: _anchor_no = None
+    try:
+        _anchor_no = int(result_marks['◎'])
+    except Exception:
+        _anchor_no = None
+
+# 見出し（重複防止＆占位ラベル）
+# ↓ 以前差し替えた、狙いたいレースなしverを使う
+# （note_sections.append(_hdr1) と 展開評価：... だけ）
+
 
 # 見出し（重複防止＆占位ラベル）
 if 'note_sections' not in globals() or not isinstance(note_sections, list):
