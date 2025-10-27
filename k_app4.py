@@ -3764,8 +3764,14 @@ def _t369_decide_label(flow_res):
     is_ken_flag = bool(flow_res.get("ken", False))  # 上流のケン(手入力)があれば最優先で参考
 
     # 既存ゲート値に合わせる（必要ならここだけ調整）
-    FR_MIN, VTX_MIN, VTX_MAX, U_MIN = 0.02, 0.50, 0.70, 0.10
-    gate_main = (FRv >= FR_MIN) and (VTX_MIN <= VTXv <= VTX_MAX) and (Uv >= U_MIN)
+    # FRがゼロでも、VTXかUが立っていれば買い目を出す“ソフトゲート”
+FR_MIN, VTX_MIN, VTX_MAX, U_MIN = 0.00, 0.50, 0.75, 0.10
+gate_main = (
+    ((FRv >= FR_MIN) or (VTXv >= 0.53) or (Uv >= 0.60))  # いずれか立っていればOK
+    and (VTX_MIN <= VTXv <= VTX_MAX)
+    and (Uv >= U_MIN)
+)
+
 
     return "推奨" if (gate_main and not is_ken_flag) else "参考"
 
