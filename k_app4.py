@@ -3326,7 +3326,7 @@ except NameError:
                      and (VTX_MIN <= VTXv <= VTX_MAX) and (Uv >= 0.10))
 
         # ---- ライン抽出（FR/VTX/U） ----
-        # ---- ライン抽出（FR/VTX/U） ----
+# ---- ライン抽出（FR/VTX/U） ----
 # ここから置き換え開始：軸決定（重み切替フック対応）
 def _default_axis_by_weight(marks, scores, lines):
     # 候補：◎, 〇, ▲, α（無は除外）
@@ -3361,8 +3361,13 @@ if not isinstance(axis, int):
 if not isinstance(axis, int):
     axis = marks.get('◎')
 
+# ★最終フォールバック：それでも未決ならスコア最大
+if not isinstance(axis, int):
+    axis = max((n for ln in lines for n in ln), key=lambda n: scores.get(n, 0.0), default=None)
+
 FR_line = _line_of(axis)
 # 置き換えここまで
+
 
 
         vtx_bid = str(flow.get("vtx_bid") or "")
