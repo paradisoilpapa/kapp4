@@ -3460,133 +3460,6 @@ def compute_flow_indicators(lines_str, marks, scores):
 # =============================
 # Tesla369：買い目生成（安全版／ゾーン＋フォールバック）
 # =============================
-(flow_res, lines_str, marks, scores):
-    """共通ゾーン4点＋フォールバック。None/空dictでも落ちない安全版。"""
-    try:
-        flow_res = flow_res or {}
-        marks = marks or {}
-        scores = scores or {}
-
-        # ---- lines 復元 ----
-        lines = flow_res.get("lines") or globals().get("_lines_list")
-        if not lines and isinstance(lines_str, str):
-            tmp = []
-            for g in lines_str.split():
-                ln = [int(ch) for ch in g if ch.isdigit()]
-                if ln:
-                    tmp.append(ln)
-            lines = tmp
-        if not lines:
-            return {"note": "【Tesla369-LineBindフォーメーション】ライン不明 → ケン"}
-
-        # ---- 各数値 ----
-        FRv = float(flow_res.get("FR", 0.0))
-        VTXv = float(flow_res.get("VTX", 0.0))
-        Uv = float(flow_res.get("U", 0.0))
-        axis = marks.get("◎")
-
-        # ---- 内部小関数 ----
-        def _mean(ln): return sum(scores.get(n, 0.0) for n in ln) / max(1, len(ln))
-        def _line_of(n):
-            for i, ln in enumerate(lines):
-                if n in ln: return i
-            return None
-        def _valid(a,b,c):
-            if not all([a,b,c]): return False
-            if len({a,b,c}) < 3: return False
-            lids = [_line_of(x) for x in (a,b,c)]
-            if lids[0] is not None and lids.count(lids[0]) == 3: return False
-            return True
-
-        # ---- ライン構造解析 ----
-        FR_line = lines[_line_of(axis)] if axis and _line_of(axis) is not None else max(lines, key=_mean)
-        rest = [ln for ln in lines if ln != FR_line]
-        VTX_line = max(rest, key=_mean) if rest else FR_line
-        U_line = min(rest, key=_mean) if len(rest) >= 2 else rest[0] if rest else FR_line
-
-        # ---- 軸と番手 ----
-        SL = None
-        if FR_line:
-            cands = [n for n in FR_line if n != axis]
-            if cands:
-                SL = max(cands, key=lambda n: scores.get(n, 0.0))
-        U1 = U_line[0] if isinstance(U_line, list) and U_line else None
-        V1 = VTX_line[0] if isinstance(VTX_line, list) and VTX_line else None
-
-        # ---- ゲート＆ケン ----
-        ken = bool(flow_res.get("ken", False))
-        gate = ((FRv >= 0.0 or VTXv >= 0.53 or Uv >= 0.6)
-                and 0.5 <= VTXv <= 0.75 and Uv >= 0.1)
-
-        # ---- 評価ゾーン ----
-        zone = "優位"
-        if Uv >= 0.62: zone = "混戦"
-        elif VTXv >= 0.56: zone = "互角"
-
-        # ---- 三連複パターン ----
-        forms = {
-            "優位": [(axis, SL, U1), (axis, SL, V1), (axis, U1, V1), (axis, SL, None)],
-            "互角": [(axis, SL, V1), (axis, U1, V1), (axis, SL, None), (axis, SL, U1)],
-            "混戦": [(axis, U1, V1), (axis, SL, V1), (axis, SL, U1), (axis, SL, None)],
-        }
-        trios = []
-        for t in forms.get(zone, []):
-            a,b,c = t
-            if not c:
-                # 3番手が空なら他ラインから最高スコア
-                pool = [n for ln in lines for n in ln if n not in (a,b)]
-                if pool:
-                    c = max(pool, key=lambda n: scores.get(n, 0.0))
-            if _valid(a,b,c):
-                tri = tuple(sorted([a,b,c]))
-                if tri not in trios: trios.append(tri)
-        trios = trios[:4]  # 最大4点
-
-        # ---- 出力 ----
-        tri_str = ", ".join(f"{a}-{b}-{c}" for a,b,c in trios) if trios else "—"
-        note = (
-            "【Tesla369-LineBindフォーメーション（共通ゾーン/フォールバック）】\n"
-            f"発生波（FR）＝{''.join(map(str,FR_line))}\n"
-            f"展開波（VTX）＝{''.join(map(str,VTX_line))}\n"
-            f"帰還波（U）＝{''.join(map(str,U_line))}\n\n"
-            f"三連複（最大4点）： {tri_str} \n"
-        )
-        return {"note": note}
-
-    except Exception as e:
-        return {"note": f"⚠ Tesla369-LineBindエラー: {type(e).__name__}: {e}"}
-
-
-
-# === ラベル決定（推奨/参考） ===
-def _t369_decide_label(flow_res):
-    FRv  = float(flow_res.get("FR", 0.0))
-    VTXv = float(flow_res.get("VTX", 0.0))
-    Uv   = float(flow_res.get("U", 0.0))
-    is_ken_flag = bool(flow_res.get("ken", False))
-    # ソフトゲート
-    FR_MIN, VTX_MIN, VTX_MAX, U_MIN = 0.00, 0.50, 0.75, 0.10
-    gate_main = (
-        ((FRv >= FR_MIN) or (VTXv >= 0.53) or (Uv >= 0.60))
-        and (VTX_MIN <= VTXv <= VTX_MAX)
-        and (Uv >= U_MIN)
-    )
-    return "推奨" if (gate_main and not is_ken_flag) else "参考"
-
-# === 見出しの【…】を必ず剥がして → 【推奨/参考】を付け直す ===
-def t369_apply_auto_label(header_text: str, flow_res) -> str:
-    import re
-    if not isinstance(header_text, str):
-        return header_text
-    label = _t369_decide_label(flow_res)  # "推奨" or "参考"
-    # 既存の【…】は種類を問わず全て除去
-    s = re.sub(r"【[^】]*】", "", header_text).rstrip()
-    # 「展開評価：」を含んでいれば必ず付け直す
-    if "展開評価：" in s:
-        return f"{s}"
-    # 見出しでない行はそのまま返す
-    return header_text
-
 def generate_tesla_bets(flow_res, lines_str, marks, scores):
     """
     Tesla369：ゾーン可変（最大4点）＋既存6点フォールバック版
@@ -3635,7 +3508,6 @@ def generate_tesla_bets(flow_res, lines_str, marks, scores):
             return arr[:k]
 
         def _fmt(nums):
-            # 例： [1,3,6] → "136" / [7] → "7" / []→"—"
             if isinstance(nums, list):
                 return "".join(str(x) for x in nums) if nums else "—"
             return "—"
@@ -3663,14 +3535,11 @@ def generate_tesla_bets(flow_res, lines_str, marks, scores):
         if cand_idx:
             U_line = min((lines[i] for i in cand_idx), key=_ln_mean)
         else:
-            # 2ライン時など：弱い方のラインをベースに“下位2名”
             base = VTX_line if _ln_mean(VTX_line) <= _ln_mean(FR_line) else FR_line
-            base_sorted = sorted([n for n in base if n != axis_default],
-                                 key=lambda n: scores.get(n, 0.0))
+            base_sorted = sorted([n for n in base if n != axis_default], key=lambda n: scores.get(n, 0.0))
             U_line = base_sorted[:2]
             other = FR_line if base is VTX_line else VTX_line
-            other_sorted = sorted([n for n in other if n != axis_default],
-                                  key=lambda n: scores.get(n, 0.0))
+            other_sorted = sorted([n for n in other if n != axis_default], key=lambda n: scores.get(n, 0.0))
             fill = [n for n in other_sorted if n not in U_line][: (2 - len(U_line))]
             U_line = (U_line + fill) or other_sorted[:2]
 
@@ -3682,11 +3551,10 @@ def generate_tesla_bets(flow_res, lines_str, marks, scores):
             arr.sort(key=lambda n: scores.get(n, 0.0), reverse=True)
             return arr[:k]
 
-        # 軸ライン最上位（SL）
+        # 軸ライン最上位（SL）と3番手（SL2）
         axis_line = FR_line
         sl_cands = [n for n in axis_line if n != axis_default]
         SL = max(sl_cands, key=lambda n: scores.get(n, 0.0)) if sl_cands else None
-        # 同ライン3番手（例外枠で使う）
         SL2 = None
         if axis_line:
             rem = [n for n in axis_line if n not in {axis_default, SL}]
@@ -3706,7 +3574,6 @@ def generate_tesla_bets(flow_res, lines_str, marks, scores):
 
         if U_line:
             if isinstance(U_line, list) and all(isinstance(x, int) for x in U_line):
-                # 仮想U波のケース（すでに番号配列）
                 utops = [n for n in U_line if n != axis_default][:2]
             elif len(U_line) == 1 and len(singletons) >= 2:
                 utops = _pick_top_ex(singletons, 2, exclude=[axis_default])
@@ -3745,8 +3612,6 @@ def generate_tesla_bets(flow_res, lines_str, marks, scores):
 
         # ===== ゾーン優先（最大4点）→ 不足なら従来6点フォールバック =====
         chosen = []
-
-        # ゾーン定義
         ZONE_FORMS = {
             "優位": [1, 2, 3, 4, 5, 6, 7, 8],
             "互角": [5, 6, 7, 8, 1, 3, 9, 10],
@@ -3754,14 +3619,12 @@ def generate_tesla_bets(flow_res, lines_str, marks, scores):
         }
         N_PER_ZONE = 4
 
-        # 無/αの最上位
         XA = None
         for cand in [marks.get('無'), marks.get('α')]:
             if cand and cand in all_nums and cand != axis_default:
                 XA = cand
                 break
 
-        # 見出しからゾーン推定
         eval_text = str(globals().get("tenkai", globals().get("confidence", "")))
         def _zone_from_eval():
             if "優位" in eval_text: return "優位"
@@ -3771,21 +3634,20 @@ def generate_tesla_bets(flow_res, lines_str, marks, scores):
             if VTXv >= 0.56: return "互角"
             return "優位"
 
-        # 1フォーム → 実コンボ化
         def _emit_form(fid: int):
             table = {
-                1:  (axis_default, SL,  U1),          # ◎-SL-U1
-                2:  (axis_default, SL,  V1),          # ◎-SL-V1
-                3:  (axis_default, U1,  V1),          # ◎-U1-V1
-                4:  (axis_default, SL,  (circle or triangle)),  # ◎-SL-〇/▲
-                5:  (axis_default, U1,  U2),          # ◎-U1-U2
-                6:  (axis_default, SL,  U2),          # ◎-SL-U2
-                7:  (axis_default, V1,  V2),          # ◎-V1-V2
-                8:  (axis_default, SL,  None),        # ◎-SL-同ライン外最上位（後で埋める）
-                9:  (axis_default, U1,  XA),          # ◎-U1-無/α
-                10: (axis_default, V1,  XA),          # ◎-V1-無/α
-                11: (axis_default, SL,  XA),          # ◎-SL-無/α
-                12: (axis_default, U2,  V1),          # ◎-U2-V1
+                1:  (axis_default, SL,  U1),
+                2:  (axis_default, SL,  V1),
+                3:  (axis_default, U1,  V1),
+                4:  (axis_default, SL,  (circle or triangle)),
+                5:  (axis_default, U1,  U2),
+                6:  (axis_default, SL,  U2),
+                7:  (axis_default, V1,  V2),
+                8:  (axis_default, SL,  None),
+                9:  (axis_default, U1,  XA),
+                10: (axis_default, V1,  XA),
+                11: (axis_default, SL,  XA),
+                12: (axis_default, U2,  V1),
             }
             tri = list(table.get(fid, (None, None, None)))
             if fid == 8 and tri[2] is None:
@@ -3843,7 +3705,6 @@ def generate_tesla_bets(flow_res, lines_str, marks, scores):
                 if alt: _push(axis_default, SL, alt)
             if SL and SL2:
                 _push_same_line3(axis_default, SL, SL2)
-            # 追加で6点まで埋める
             if len(chosen) < 6:
                 pool = []
                 cands = [x for x in [SL, SL2, circle, triangle, V1, V2, U1, U2] if x and x in all_nums]
@@ -3861,7 +3722,7 @@ def generate_tesla_bets(flow_res, lines_str, marks, scores):
                     if _valid(a, b, c) and t not in chosen:
                         chosen.append(t)
 
-        # 出力点数（ゾーン時は4点、それ以外は最大6点）
+        # 出力点数
         out_k = 4 if chosen and len(chosen) >= 4 else len(chosen)
         tri_strs = [f"{t[0]}-{t[1]}-{t[2]}" for t in chosen[:out_k]]
         trios_line_body = "—" if (is_ken_flag or not gate_main or not tri_strs) \
@@ -3881,6 +3742,34 @@ def generate_tesla_bets(flow_res, lines_str, marks, scores):
 
     except Exception as _e:
         return {"note": f"⚠ Tesla369-LineBindエラー: {type(_e).__name__}: {str(_e)}"}
+
+
+# === ラベル決定（推奨/参考） ===
+def _t369_decide_label(flow_res):
+    FRv  = float(flow_res.get("FR", 0.0))
+    VTXv = float(flow_res.get("VTX", 0.0))
+    Uv   = float(flow_res.get("U", 0.0))
+    is_ken_flag = bool(flow_res.get("ken", False))
+    # ソフトゲート
+    FR_MIN, VTX_MIN, VTX_MAX, U_MIN = 0.00, 0.50, 0.75, 0.10
+    gate_main = (
+        ((FRv >= FR_MIN) or (VTXv >= 0.53) or (Uv >= 0.60))
+        and (VTX_MIN <= VTXv <= VTX_MAX)
+        and (Uv >= U_MIN)
+    )
+    return "推奨" if (gate_main and not is_ken_flag) else "参考"
+
+# === 見出しの【…】を必ず剥がして → 【推奨/参考】を付け直す ===
+def t369_apply_auto_label(header_text: str, flow_res) -> str:
+    import re
+    if not isinstance(header_text, str):
+        return header_text
+    label = _t369_decide_label(flow_res)  # "推奨" or "参考"
+    # 既存の【…】は種類を問わず全て除去して付け直す
+    s = re.sub(r"【[^】]*】", "", header_text).rstrip()
+    if "展開評価：" in s:
+        return f"{s}"
+    return header_text
 
 
 # -------------------------------------
@@ -3905,37 +3794,31 @@ try:
         import re as _re2
 
         def _apply_label_line(s: str, flow: dict) -> str:
-            # 既存の【…】を種類問わず全て剥がして末尾に【推奨/参考】を付け直す
             base = _re2.sub(r"【[^】]*】", "", s).rstrip()
             lb = _t369_decide_label(flow)  # "推奨" or "参考"
             return f"{base}"
 
         replaced = False
-        # 1) 末尾から「行頭が '展開評価：'」の行を探す（テンプレ通り想定）
         for i in range(len(note_sections) - 1, -1, -1):
             s = note_sections[i]
             if isinstance(s, str) and s.lstrip().startswith("展開評価："):
                 note_sections[i] = _apply_label_line(s, _flow)
                 replaced = True
                 break
-
-        # 2) 保険：どこかに「展開評価：」を含む行があればそこも対象に
         if not replaced:
             for i, s in enumerate(note_sections):
                 if isinstance(s, str) and ("展開評価：" in s):
                     note_sections[i] = _apply_label_line(s, _flow)
                     replaced = True
                     break
-
-        # 3) さらに保険：見出し自体が無いなら、新規で先頭に挿入
         if not replaced:
             lb = _t369_decide_label(_flow)
             note_sections.insert(0, f"展開評価：—")
 
-        # ---- 流れ（_flow['note'] があればそれを、無ければダミー）----
+        # ---- 流れ ----
         note_sections.append(_flow.get("note", "【流れ】出力なし"))
 
-        # ---- 買い目生成（失敗してもノートに落とす）----
+        # ---- 買い目生成 ----
         try:
             _bets = generate_tesla_bets(_flow, lines_str, marks, scores)
         except Exception as e:
@@ -3944,7 +3827,6 @@ try:
 
 except Exception as _e:
     note_sections.append(f"⚠ Tesla369ランナーエラー: {type(_e).__name__}: {str(_e)}")
-
 
 
 # -------------------------------------
@@ -3985,7 +3867,6 @@ except Exception as _e:
     note_sections.append(f"⚠ Tesla369診断エラー: {type(_e).__name__}: {str(_e)}")
 
 # ===== /Tesla369｜完全統合・自己完結版 =====
-
 
 
 
