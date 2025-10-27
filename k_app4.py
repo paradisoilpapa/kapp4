@@ -3458,11 +3458,37 @@ except NameError:
             zone = _zone_from_eval()
             order = ZONE_FORMS.get(zone, ZONE_FORMS["優位"])
             seen = set()
+            # 1) ゾーン優先で充足
             for fid in order:
-                if len(chosen) >= N_PER_ZONE: break
+                if len(chosen) >= N_PER_ZONE:
+                    break
                 t = _emit_form(fid)
-                if not t or t in seen: continue
-                seen.add(t); chosen.append(t)
+                if not t or t in seen:
+                    continue
+                seen.add(t)
+                chosen.append(t)
+
+            # 2) 不足分の救済：無/α系（9,10,11,12）を優先
+            if len(chosen) < N_PER_ZONE:
+                for fid in [9, 10, 11, 12]:
+                    if len(chosen) >= N_PER_ZONE:
+                        break
+                    t = _emit_form(fid)
+                    if not t or t in seen:
+                        continue
+                    seen.add(t)
+                    chosen.append(t)
+
+            # 3) それでも足りなければ 1..12 を総当たりで充足
+            if len(chosen) < N_PER_ZONE:
+                for fid in range(1, 13):
+                    if len(chosen) >= N_PER_ZONE:
+                        break
+                    t = _emit_form(fid)
+                    if not t or t in seen:
+                        continue
+                    seen.add(t)
+                    chosen.append(t)
 
         # 出力整形（最大4点。条件外なら "—"）
         tri_strs = [f"{t[0]}-{t[1]}-{t[2]}" for t in chosen]
@@ -3470,13 +3496,14 @@ except NameError:
         note_lines.append("三連複：" + ("—" if (not tri_strs) else ", ".join(tri_strs[:N_PER_ZONE])))
 
         return {
-            "FR_line": _line_of(marks.get('◎')),
+            "FR_line": FR_line,          # ← ◎固定参照を修正（選ばれた軸ベース）
             "VTX_line": VTX_line,
             "U_line": U_line,
             "FRv": FRv, "VTXv": VTXv, "Uv": Uv,
             "trios": chosen[:N_PER_ZONE],
             "note": "\n".join(note_lines),
         }
+
 
 # ---------- 出力ヘルパ ----------
 def _safe_flow(lines_str, marks, scores):
