@@ -3621,26 +3621,56 @@ def generate_tesla_bets(flow_res, lines_str, marks, scores):
         FR_MIN, VTX_MIN, VTX_MAX, U_MIN = 0.02, 0.50, 0.70, 0.10
         gate_main = (FRv >= FR_MIN) and (VTX_MIN <= VTXv <= VTX_MAX) and (Uv >= U_MIN)
 
-        # ========= 三連複6点の組成 =========
+        # ========= 三連複6点の組成（再編版） =========
         chosen = []
 
+        # 追加：◎ラインの“同ライン3番手”を抽出
+        SL2 = None
+        if axis_line:
+            rem = [n for n in axis_line if n not in {axis, SL}]
+            if rem:
+                SL2 = max(rem, key=lambda n: scores.get(n, 0.0))
+
         def _push(a,b,c):
+            """通常版（同一ライン3名は不可）"""
             if not _valid(a,b,c): return
             t = tuple(sorted([a,b,c]))
-            if t not in chosen: chosen.append(t)
+            if t not in chosen:
+                chosen.append(t)
+
+        def _push_same_line3(a,b,c):
+            """例外枠：◎-SL-同ライン3番手 を許容（同一ライン3名OK）"""
+            trio = [a,b,c]
+            if any(x is None for x in trio): 
+                return
+            if len({a,b,c}) < 3:
+                return
+            if any(x not in all_nums for x in trio):
+                return
+            t = tuple(sorted(trio))
+            if t not in chosen:
+                chosen.append(t)
 
         if not is_ken_flag and gate_main:
-            # (1)
-            if U1 and U2: _push(axis, U1, U2)
-            elif U1 and V1: _push(axis, U1, V1)
-            # (2)
-            if SL and U1: _push(axis, SL, U1)
-            # (3)
-            if SL and V1: _push(axis, SL, V1)
-            # (4)
-            if V1 and V2: _push(axis, V1, V2)
-            elif SL and V1: _push(axis, SL, V1)
-            # (5)
+            # 1) ◎-U1-U2（U2不在 → ◎-U1-V1）
+            if U1 and U2:
+                _push(axis, U1, U2)
+            elif U1 and V1:
+                _push(axis, U1, V1)
+
+            # 2) ◎-SL-U1
+            if SL and U1:
+                _push(axis, SL, U1)
+
+            # 3) ◎-SL-U2（新規）
+            if SL and U2:
+                _push(axis, SL, U2)
+
+            # 4) ◎-U1-V1（＝旧“◎-V1-U1”も包含）
+            if U1 and V1:
+                _push(axis, U1, V1)
+
+            # 5) ◎-SL-〇（〇不在 → ▲ → 同ライン外スコア最上位）
             def _alt_for_main():
                 if circle and circle in all_nums and circle != axis: return circle
                 if triangle and triangle in all_nums and triangle != axis: return triangle
@@ -3649,26 +3679,33 @@ def generate_tesla_bets(flow_res, lines_str, marks, scores):
             if SL:
                 alt = _alt_for_main()
                 if alt: _push(axis, SL, alt)
-            # (6)
-            if U1 and V1: _push(axis, U1, V1)
 
-            # ---- フォールバックで6本に ----
+            # 6) ◎-SL-同ライン3番手（新規・例外：同一ライン3名を許容）
+            if SL and SL2:
+                _push_same_line3(axis, SL, SL2)
+
+            # ---- フォールバックで6本に充足（不足時のみ追加）----
             if len(chosen) < 6:
                 pool = []
-                cands = [x for x in [SL, circle, triangle, V1, V2, U1, U2] if x and x in all_nums]
+                cands = [x for x in [SL, SL2, circle, triangle, V1, V2, U1, U2] if x and x in all_nums]
                 for i in range(len(cands)):
                     for j in range(i+1, len(cands)):
                         pool.append(tuple(sorted([axis, cands[i], cands[j]])))
+
+                # 跨線優先の外野からも少量補充
                 others = [n for n in all_nums if n not in axis_line and n != axis]
                 others = sorted(others, key=lambda n: scores.get(n, 0.0), reverse=True)[:3]
                 for x in [v for v in [V1, U1, V2, U2] if v]:
                     for y in others:
                         pool.append(tuple(sorted([axis, x, y])))
+
                 for t in pool:
                     if len(chosen) >= 6: break
                     a,b,c = t
+                    # ここは通常バリデーション（同ライン3名は不可）
                     if _valid(a,b,c) and t not in chosen:
                         chosen.append(t)
+
 
         tri_strs = [f"{t[0]}-{t[1]}-{t[2]}" for t in chosen[:6]]
         trios_line_body = "—" if (is_ken_flag or not gate_main or not tri_strs) \
