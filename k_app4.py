@@ -3646,37 +3646,93 @@ def generate_tesla_bets(flow_res, lines_str, marks, scores):
 
 
 
-        # ========= 三連複6点の組成（再編版） =========
+        # ========= 三連複 組成：ゾーン可変（4点）/ 既存6点フォールバック =========
         chosen = []
 
-        # 追加：◎ラインの“同ライン3番手”を抽出
-        SL2 = None
-        if axis_line:
-            rem = [n for n in axis_line if n not in {axis, SL}]
-            if rem:
-                SL2 = max(rem, key=lambda n: scores.get(n, 0.0))
+        # --- ゾーン設定（有効/無効, 何点出すか, フォーム序列） ---
+        USE_ZONE_MODE = True               # ←ゾーン方式を使う/使わない
+        N_PER_ZONE    = 4                  # ←出力点数（3でも4でもOK）
+        # 序列定義（1..12）※足りない要素は自動スキップ
+        # 優位：本流寄り（FR基調）、互角：渦/逆流ミックス、混戦：逆流/無を厚め
+        ZONE_FORMS = {
+            "優位": [1, 2, 3, 4, 5, 6, 7, 8],
+            "互角": [5, 6, 7, 8, 1, 3, 9, 10],
+            "混戦": [9, 10, 11, 12, 5, 6, 7, 8],
+        }
 
-        def _push(a,b,c):
-            """通常版（同一ライン3名は不可）"""
-            if not _valid(a,b,c): return
-            t = tuple(sorted([a,b,c]))
-            if t not in chosen:
-                chosen.append(t)
+        # 使う要素を取り出す（存在チェックは後段で実施）
+        C = circle
+        A = triangle
+        # 逆流側の“無/α”最上位（あれば採用）
+        XA = None
+        for cand in [marks.get('無'), marks.get('α')]:
+            if cand and cand in all_nums and cand != axis:
+                XA = cand
+                break
 
-        def _push_same_line3(a,b,c):
-            """例外枠：◎-SL-同ライン3番手 を許容（同一ライン3名OK）"""
-            trio = [a,b,c]
-            if any(x is None for x in trio): 
-                return
-            if len({a,b,c}) < 3:
-                return
-            if any(x not in all_nums for x in trio):
-                return
-            t = tuple(sorted(trio))
-            if t not in chosen:
-                chosen.append(t)
+        # ゾーン判定（見出しに置いた評価文字から決定）
+        def _zone_from_eval():
+            ev = str(globals().get("tenkai", globals().get("confidence", _eval or "")))
+            if "優位" in ev: return "優位"
+            if "互角" in ev: return "互角"
+            if "混戦" in ev: return "混戦"
+            # 数値の保険：Uが高ければ混戦寄り、VTXが高ければ互角寄り
+            if Uv >= 0.62: return "混戦"
+            if VTXv >= 0.56: return "互角"
+            return "優位"
 
-        if not is_ken_flag and gate_main:
+        # 1フォーム→実コンボ展開（足りなければ自動スキップ）
+        def _emit_form(fid: int):
+            # 各番号に対応する形（すべて◎を含む）
+            # U1/U2/V1/V2/SL/C/A/XA が無い場合はスキップ
+            table = {
+                1: (axis, SL,  U1),          # ◎-SL-U1
+                2: (axis, SL,  V1),          # ◎-SL-V1
+                3: (axis, U1,  V1),          # ◎-U1-V1
+                4: (axis, SL,  (C or A)),    # ◎-SL-〇（なければ▲）
+                5: (axis, U1,  U2),          # ◎-U1-U2
+                6: (axis, SL,  U2),          # ◎-SL-U2
+                7: (axis, V1,  V2),          # ◎-V1-V2
+                8: (axis, SL,  None),        # ◎-SL-同ライン外最上位（後で埋める）
+                9: (axis, U1,  XA),          # ◎-U1-無/α
+                10:(axis, V1,  XA),          # ◎-V1-無/α
+                11:(axis, SL,  XA),          # ◎-SL-無/α
+                12:(axis, U2,  V1),          # ◎-U2-V1
+            }
+
+            tri = list(table.get(fid, (None, None, None)))
+            # (8)の三人目は“同ライン外スコア最上位”で埋める
+            if fid == 8 and tri[2] is None:
+                others = [n for n in all_nums if n not in axis_line and n != axis]
+                if others:
+                    tri[2] = max(others, key=lambda n: scores.get(n, 0.0))
+
+            a, b, c = tri
+            if a is None or b is None or c is None:
+                return None
+            tup = tuple(sorted([a, b, c]))
+            return tup if _valid(a, b, c) else None
+
+        # ========== 実行：ゾーン優先 ==========
+        if not is_ken_flag:
+            if USE_ZONE_MODE:
+                zone = _zone_from_eval()
+                order = ZONE_FORMS.get(zone, ZONE_FORMS["優位"])
+                seen = set()
+                for fid in order:
+                    if len(chosen) >= N_PER_ZONE:
+                        break
+                    t = _emit_form(fid)
+                    if not t:
+                        continue
+                    if t in seen:
+                        continue
+                    seen.add(t)
+                    chosen.append(t)
+
+        # ゾーンで十分に埋まらない（2ライン/欠損など）→既存ロジックで補完
+        if (not chosen) and (not is_ken_flag):
+            # === ここから従来6点（あなたの元コードと同じ考え方） ===
             # 1) ◎-U1-U2（U2不在 → ◎-U1-V1）
             if U1 and U2:
                 _push(axis, U1, U2)
@@ -3691,70 +3747,47 @@ def generate_tesla_bets(flow_res, lines_str, marks, scores):
             if SL and U2:
                 _push(axis, SL, U2)
 
-            # 4) ◎-U1-V1（＝旧“◎-V1-U1”も包含）
+            # 4) ◎-U1-V1
             if U1 and V1:
                 _push(axis, U1, V1)
 
             # 5) ◎-SL-〇（〇不在 → ▲ → 同ライン外スコア最上位）
             def _alt_for_main():
-                if circle and circle in all_nums and circle != axis: return circle
-                if triangle and triangle in all_nums and triangle != axis: return triangle
+                if C and C in all_nums and C != axis: return C
+                if A and A in all_nums and A != axis: return A
                 others = [n for n in all_nums if n not in axis_line and n != axis]
                 return max(others, key=lambda n: scores.get(n, 0.0)) if others else None
             if SL:
                 alt = _alt_for_main()
                 if alt: _push(axis, SL, alt)
 
-            # 6) ◎-SL-同ライン3番手（新規・例外：同一ライン3名を許容）
+            # 6) ◎-SL-同ライン3番手（例外許容）
             if SL and SL2:
                 _push_same_line3(axis, SL, SL2)
 
             # ---- フォールバックで6本に充足（不足時のみ追加）----
             if len(chosen) < 6:
                 pool = []
-                cands = [x for x in [SL, SL2, circle, triangle, V1, V2, U1, U2] if x and x in all_nums]
+                cands = [x for x in [SL, SL2, C, A, V1, V2, U1, U2] if x and x in all_nums]
                 for i in range(len(cands)):
                     for j in range(i+1, len(cands)):
                         pool.append(tuple(sorted([axis, cands[i], cands[j]])))
-
-                # 跨線優先の外野からも少量補充
                 others = [n for n in all_nums if n not in axis_line and n != axis]
                 others = sorted(others, key=lambda n: scores.get(n, 0.0), reverse=True)[:3]
                 for x in [v for v in [V1, U1, V2, U2] if v]:
                     for y in others:
                         pool.append(tuple(sorted([axis, x, y])))
-
                 for t in pool:
                     if len(chosen) >= 6: break
                     a,b,c = t
-                    # ここは通常バリデーション（同ライン3名は不可）
                     if _valid(a,b,c) and t not in chosen:
                         chosen.append(t)
 
-
-        tri_strs = [f"{t[0]}-{t[1]}-{t[2]}" for t in chosen[:6]]
+        # 表示用文字列（ゾーンは点数可変、フォールバックは最大6）
+        tri_strs = [f"{t[0]}-{t[1]}-{t[2]}" for t in chosen[:(N_PER_ZONE if USE_ZONE_MODE else 6)]]
         trios_line_body = "—" if (is_ken_flag or not gate_main or not tri_strs) \
                           else ", ".join(tri_strs)
 
-        # ===== 表示用：単騎が2車以上ある場合は “単騎プール上位2名” を波として表示 =====
-        VTX_disp = VTX_line
-        U_disp   = U_line
-        if VTX_line and len(VTX_line) == 1 and len(singletons) >= 2:
-            VTX_disp = _pick_top_ex(singletons, 2, exclude=[axis])
-        if U_line and len(U_line) == 1 and len(singletons) >= 2:
-            U_disp = _pick_top_ex(singletons, 2, exclude=[axis])
-
-        # 表示（既定の並び）
-        note_lines = [
-            "【Tesla369-LineBindフォーメーション（共通6点テンプレ）】",
-            f"発生波（FR）＝{_fmt(FR_line)}",
-            f"展開波（VTX）＝{_fmt(VTX_disp)}",  # 単騎複数時は単騎プール上位2名を表示
-            f"帰還波（U）＝{_fmt(U_disp)}",      # 同上
-            "",
-            f"三連複（最大6点）： {trios_line_body} ",
-            "",
-        ]
-        return {"note": "\n".join(note_lines)}
 
     except Exception as _e:
         return {"note": f"⚠ Tesla369-LineBindエラー: {type(_e).__name__}: {str(_e)}"}
