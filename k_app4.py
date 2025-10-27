@@ -3458,138 +3458,169 @@ def compute_flow_indicators(lines_str, marks, scores):
             "vtx_bid": VTX_bid, "lines": lines, "dbg": dbg}
 
 # =============================
-# Tesla369：買い目生成（安全版／ライン無し→ケン）
+# Tesla369：買い目生成（安全版／ゾーン＋簡易フォールバック）
 # =============================
 def generate_tesla_bets(flow_res, lines_str, marks, scores):
-    """ライン無しはケン。ラインあれば最大4点（ゾーン）→不足は従来で補完。"""
+    """
+    目的: ゲート値に関係なく (ken=False なら) 常に 1〜4点は返す。
+    - 2ラインしかなくても“仮想U波”を合成して止めない
+    - VTXが低くても「混戦」なら出す
+    - 何も組めなければ単純フォールバックで埋める
+    返り値: {"note": "<表示テキスト>"}
+    """
     try:
         flow_res = flow_res if isinstance(flow_res, dict) else {}
         marks    = marks    if isinstance(marks, dict)    else {}
         scores   = scores   if isinstance(scores, dict)   else {}
 
-        # ---- lines 復元 ----
-        lines = flow_res.get("lines") or globals().get("_lines_list", [])
-        if (not lines) and isinstance(lines_str, str) and lines_str.strip():
-            blocks = [b for b in lines_str.strip().split() if b]
+        # --- lines 復元：flow_res → _lines_list → lines_str ---
+        lines = flow_res.get("lines") or globals().get("_lines_list")
+        if not lines and isinstance(lines_str, str) and lines_str.strip():
             tmp = []
-            for b in blocks:
-                ln = [int(ch) for ch in b if ch.isdigit()]
+            for grp in lines_str.split():
+                ln = [int(ch) for ch in grp if ch.isdigit()]
                 if ln: tmp.append(ln)
             lines = tmp
-
-        # ラインなし → ケン
         if not lines:
             return {"note": "【流れ未循環】ライン不明 → ケン"}
 
         FRv  = float(flow_res.get("FR", 0.0))
         VTXv = float(flow_res.get("VTX", 0.0))
         Uv   = float(flow_res.get("U", 0.0))
+        ken  = bool(flow_res.get("ken", False))
 
-        def _ln_mean(ln): return sum(scores.get(n, 0.0) for n in ln)/max(1,len(ln))
-        def _line_of(n):
-            for i, ln in enumerate(lines):
+        # ---- ユーティリティ ----
+        def lmean(ln): 
+            arr = ln or []
+            return (sum(scores.get(n,0.0) for n in arr) / max(1,len(arr)))
+
+        def where(n):
+            for i,ln in enumerate(lines):
                 if n in ln: return i
             return None
-        def _pick_top(ln, k, exclude=None):
-            ex=set(exclude or []); arr=[n for n in ln if n not in ex]
-            arr.sort(key=lambda n:scores.get(n,0.0), reverse=True)
+
+        def topk(ln,k,exclude=()):
+            ex=set(exclude)
+            arr=[n for n in (ln or []) if n not in ex]
+            arr.sort(key=lambda x: scores.get(x,0.0), reverse=True)
             return arr[:k]
-        def _fmt(nums): return "".join(map(str,nums)) if isinstance(nums,list) and nums else "—"
 
-        # 軸とFR/VTX/U
+        def fmt(ln):
+            return "".join(str(x) for x in ln) if isinstance(ln,list) and ln else "—"
+
+        # ---- 軸/FR/VTX/U ----
         axis = marks.get("◎")
-        li = _line_of(axis) if axis is not None else None
-        if li is None:
-            li = max(range(len(lines)), key=lambda i:_ln_mean(lines[i]))
-            top = _pick_top(lines[li],1)
-            axis = top[0] if top else None
+        idx  = where(axis) if axis is not None else None
+        if idx is None:
+            idx = max(range(len(lines)), key=lambda i: lmean(lines[i]))
+            axis = topk(lines[idx],1)[0] if lines[idx] else None
         if axis is None:
-            return {"note": "【流れ未循環】軸不明 → ケン"}
+            return {"note":"【流れ未循環】軸不明 → ケン"}
 
-        FR_line = lines[li]
-        cand = [i for i in range(len(lines)) if i!=li]
-        VTX_line = (max((lines[i] for i in cand), key=_ln_mean) if cand else FR_line)
-        cand2 = [i for i in range(len(lines)) if (i!=li and lines[i] is not VTX_line)]
-        if cand2:
-            U_line = min((lines[i] for i in cand2), key=_ln_mean)
+        FR_line  = lines[idx]
+        others   = [ln for i,ln in enumerate(lines) if i!=idx]
+        VTX_line = max(others, key=lmean) if others else FR_line
+        rest     = [ln for ln in others if ln is not VTX_line]
+        if rest:
+            U_line = min(rest, key=lmean)
         else:
-            # 2ライン時の仮想U
-            base = VTX_line if _ln_mean(VTX_line) <= _ln_mean(FR_line) else FR_line
-            others = FR_line if base is VTX_line else VTX_line
-            bs = sorted([n for n in base if n!=axis], key=lambda n:scores.get(n,0.0))
-            os = sorted([n for n in others if n!=axis], key=lambda n:scores.get(n,0.0))
-            U_line = (bs[:2] + [x for x in os if x not in bs][:2])[:2]
+            # 2ライン時: 弱い側から“下位2人”で仮想U
+            base  = VTX_line if lmean(VTX_line) <= lmean(FR_line) else FR_line
+            cand  = sorted([n for n in base if n!=axis], key=lambda n: scores.get(n,0.0))
+            U_line = cand[:2] or topk(base,2,exclude=[axis])
 
-        # パーツ
-        axis_line = FR_line
-        sl = [n for n in axis_line if n!=axis]
-        SL = max(sl, key=lambda n:scores.get(n,0.0)) if sl else None
-        V1V2 = _pick_top(VTX_line,2,exclude=[axis]); V1 = V1V2[0] if V1V2 else None; V2 = V1V2[1] if len(V1V2)>1 else None
-        if isinstance(U_line, list) and all(isinstance(x,int) for x in U_line):
-            u = [n for n in U_line if n!=axis][:2]
+        # ---- 同ライン番手など ----
+        SL  = None
+        cand=[n for n in FR_line if n!=axis]
+        if cand: SL = max(cand, key=lambda n: scores.get(n,0.0))
+
+        V = topk(VTX_line,2,exclude=[axis]);  V1 = V[0] if len(V)>0 else None; V2 = V[1] if len(V)>1 else None
+        if isinstance(U_line,list) and all(isinstance(x,int) for x in U_line) and where(U_line[0]) is None:
+            U = U_line[:2]                    # 仮想U（既に番号配列）
         else:
-            u = _pick_top(U_line,2,exclude=[axis])
-        U1 = u[0] if u else None; U2 = u[1] if len(u)>1 else None
+            U = topk(U_line,2,exclude=[axis])
+        U1 = U[0] if len(U)>0 else None; U2 = U[1] if len(U)>1 else None
 
-        circle = marks.get("〇"); triangle = marks.get("▲")
-        all_nums = set(n for ln in lines for n in ln)
-        def _valid(a,b,c):
+        C  = marks.get("〇"); A = marks.get("▲")
+        allN = {n for ln in lines for n in ln}
+
+        def valid(a,b,c):
             if not a or not b or not c: return False
             if len({a,b,c})<3: return False
-            lids = [_line_of(x) for x in (a,b,c)]
+            lids=[where(a),where(b),where(c)]
             if lids[0] is not None and lids.count(lids[0])==3: return False
             return True
 
-        # ケン/ゲート
-        is_ken = bool(flow_res.get("ken", False))
-        gate = (((FRv>=0.0) or (VTXv>=0.53) or (Uv>=0.60)) and (0.50<=VTXv<=0.75) and (Uv>=0.10))
-        if is_ken or not gate:
-            tri_str = "—"
-            return {"note": "【Tesla369-LineBindフォーメーション（共通ゾーン/フォールバック）】\n"
-                            f"発生波（FR）＝{_fmt(FR_line)}\n"
-                            f"展開波（VTX）＝{_fmt(VTX_line)}\n"
-                            f"帰還波（U）＝{_fmt(U_line if isinstance(U_line,list) else U_line)}\n\n"
-                            f"三連複（最大4点）： {tri_str} \n"}
+        # ---- ゾーン判定（見出し優先。無ければ数値で） ----
+        headline = str(globals().get("tenkai", globals().get("confidence","")))
+        if   "混戦" in headline: zone="混戦"
+        elif "互角" in headline: zone="互角"
+        elif "優位" in headline: zone="優位"
+        else:
+            zone = "混戦" if Uv>=0.62 else ("互角" if VTXv>=0.56 else "優位")
 
-        # ゾーン判定
-        eval_text = str(globals().get("tenkai", globals().get("confidence","")))
-        if "混戦" in eval_text or Uv>=0.62:   zone="混戦"
-        elif "互角" in eval_text or VTXv>=0.56: zone="互角"
-        else: zone="優位"
+        # ---- ここが肝：ゲートに依存せず（kenでない限り）必ず出す ----
+        if ken:
+            return {"note": (
+                "【Tesla369-LineBindフォーメーション（共通ゾーン/フォールバック）】\n"
+                f"発生波（FR）＝{fmt(FR_line)}\n"
+                f"展開波（VTX）＝{fmt(VTX_line)}\n"
+                f"帰還波（U）＝{fmt(U_line)}\n\n"
+                f"三連複（最大4点）： — \n"
+            )}
 
-        # 形を出す
-        XA=None
-        for c in [marks.get('無'), marks.get('α')]:
-            if c and c in all_nums and c!=axis: XA=c; break
+        # ゾーン別 優先フォーム（常に◎を含む）
+        order = {
+            "優位":[1,2,3,4,5,6,7,8],
+            "互角":[5,6,7,8,1,3,9,10],
+            "混戦":[9,10,11,12,5,6,7,8],
+        }[zone]
 
-        def _emit(fid):
-            table={
-                1:(axis,SL,U1), 2:(axis,SL,V1), 3:(axis,U1,V1), 4:(axis,SL,(circle or triangle)),
-                5:(axis,U1,U2), 6:(axis,SL,U2), 7:(axis,V1,V2), 8:(axis,SL,None),
-                9:(axis,U1,XA), 10:(axis,V1,XA), 11:(axis,SL,XA), 12:(axis,U2,V1),
+        def emit(fid):
+            tbl = {
+                1:(axis,SL,U1), 2:(axis,SL,V1), 3:(axis,U1,V1), 4:(axis,SL,(C or A)),
+                5:(axis,U1,U2), 6:(axis,SL,U2), 7:(axis,V1,V2), 
+                8:(axis,SL,None), 9:(axis,U1,marks.get('無') or marks.get('α')),
+                10:(axis,V1,marks.get('無') or marks.get('α')),
+                11:(axis,SL,  marks.get('無') or marks.get('α')), 
+                12:(axis,U2,V1)
             }
-            a,b,c = table.get(fid,(None,None,None))
-            if fid==8 and c is None:
-                others=[n for n in all_nums if n not in axis_line and n!=axis]
-                if others: c=max(others,key=lambda n:scores.get(n,0.0))
-            return (a,b,c) if _valid(a,b,c) else None
+            a,b,c = list(tbl.get(fid,(None,None,None)))
+            if c is None and fid==8:
+                # “同ライン外”最高スコアで穴埋め
+                others=[n for n in allN if where(n)!=where(axis) and n!=axis]
+                if others: c=max(others, key=lambda n: scores.get(n,0.0))
+            return (a,b,c) if valid(a,b,c) else None
 
-        order = {"優位":[1,2,3,4,5,6,7,8], "互角":[5,6,7,8,1,3,9,10], "混戦":[9,10,11,12,5,6,7,8]}[zone]
-        chosen=[]; seen=set()
+        chosen=[]
+        seen=set()
         for fid in order:
             if len(chosen)>=4: break
-            t=_emit(fid)
+            t = emit(fid)
             if not t: continue
-            tri=tuple(sorted(t))
-            if tri in seen: continue
-            seen.add(tri); chosen.append(tri)
+            key=tuple(sorted(t))
+            if key in seen: continue
+            seen.add(key); chosen.append(key)
 
-        tri_str = "—" if not chosen else ", ".join(f"{a}-{b}-{c}" for a,b,c in chosen)
-        note = ("【Tesla369-LineBindフォーメーション（共通ゾーン/フォールバック）】\n"
-                f"発生波（FR）＝{_fmt(FR_line)}\n"
-                f"展開波（VTX）＝{_fmt(VTX_line)}\n"
-                f"帰還波（U）＝{_fmt(U_line if isinstance(U_line,list) else U_line)}\n\n"
-                f"三連複（最大4点）： {tri_str} \n")
+        # フォールバック：まだ足りなければ {SL,V1,V2,U1,U2,C,A} から埋める
+        if len(chosen)<4:
+            pool=[x for x in [SL,V1,V2,U1,U2,C,A,marks.get('無'),marks.get('α')] if x and x in allN]
+            for i in range(len(pool)):
+                for j in range(i+1,len(pool)):
+                    t = tuple(sorted((axis,pool[i],pool[j])))
+                    if valid(*t) and t not in seen:
+                        seen.add(t); chosen.append(t)
+                        if len(chosen)>=4: break
+                if len(chosen)>=4: break
+
+        tri = ", ".join(f"{a}-{b}-{c}" for (a,b,c) in chosen[:4]) if chosen else "—"
+        note = (
+            "【Tesla369-LineBindフォーメーション（共通ゾーン/フォールバック）】\n"
+            f"発生波（FR）＝{fmt(FR_line)}\n"
+            f"展開波（VTX）＝{fmt(VTX_line)}\n"
+            f"帰還波（U）＝{fmt(U_line)}\n\n"
+            f"三連複（最大4点）： {tri} \n"
+        )
         return {"note": note}
 
     except Exception as e:
@@ -3601,32 +3632,19 @@ def _t369_decide_label(flow_res):
     FRv  = float(flow_res.get("FR", 0.0))
     VTXv = float(flow_res.get("VTX", 0.0))
     Uv   = float(flow_res.get("U", 0.0))
-    is_ken_flag = bool(flow_res.get("ken", False))
-    # ソフトゲート
+    is_ken = bool(flow_res.get("ken", False))
     FR_MIN, VTX_MIN, VTX_MAX, U_MIN = 0.00, 0.50, 0.75, 0.10
-    gate_main = (
-        ((FRv >= FR_MIN) or (VTXv >= 0.53) or (Uv >= 0.60))
-        and (VTX_MIN <= VTXv <= VTX_MAX)
-        and (Uv >= U_MIN)
-    )
-    return "推奨" if (gate_main and not is_ken_flag) else "参考"
+    gate = (((FRv>=FR_MIN) or (VTXv>=0.53) or (Uv>=0.60)) and (VTX_MIN<=VTXv<=VTX_MAX) and (Uv>=U_MIN))
+    return "推奨" if (gate and not is_ken) else "参考"
 
-
-# === 見出しの【…】を必ず剥がして → 【推奨/参考】を付け直す ===
 def t369_apply_auto_label(header_text: str, flow_res) -> str:
     import re
-    if not isinstance(header_text, str):
-        return header_text
-    label = _t369_decide_label(flow_res)  # "推奨" or "参考"
-    # 既存の【…】は種類を問わず全て除去して付け直す
-    s = re.sub(r"【[^】]*】", "", header_text).rstrip()
-    if "展開評価：" in s:
-        # 末尾にラベルを復元（改行保持）
-        has_nl = header_text.endswith("\n")
-        out = f"{s}"
-        return out + ("\n" if has_nl else "")
-    return header_text
-
+    if not isinstance(header_text,str): return header_text
+    base = re.sub(r"【[^】]*】","",header_text).rstrip()
+    if "展開評価：" not in base: return header_text
+    lab  = _t369_decide_label(flow_res)
+    # 改行保持
+    return f"{base}" + ("\n" if header_text.endswith("\n") else "")
 
 # -------------------------------------
 # 4) 実行（note_sections へ追記）
@@ -3638,7 +3656,7 @@ try:
     if not _lines_list:
         note_sections.append("【流れ未循環】ライン不明 → ケン")
     else:
-        # ---- flow を安全に取得 ----
+        # flow 安全取得
         try:
             _flow_raw = compute_flow_indicators(lines_str, marks, scores)
             _flow = _flow_raw if isinstance(_flow_raw, dict) else {}
@@ -3646,50 +3664,32 @@ try:
             _flow = {}
             note_sections.append(f"⚠ compute_flow_indicatorsエラー: {type(e).__name__}: {e}")
 
-        # ---- 見出しの【推奨/参考】を“必ず付け直す” ----
-        import re as _re2
-
-        def _apply_label_line(s: str, flow: dict) -> str:
-            base = _re2.sub(r"【[^】]*】", "", s).rstrip()
-            lb = _t369_decide_label(flow)  # "推奨" or "参考"
-            # 末尾に必ず付け直す（改行保持）
-            has_nl = s.endswith("\n")
-            out = f"{base}"
-            return out + ("\n" if has_nl else "")
-
+        # 見出しラベル付け直し
         replaced = False
-        # 末尾から「行頭が '展開評価：'」の行を検索
-        for i in range(len(note_sections) - 1, -1, -1):
+        for i in range(len(note_sections)-1, -1, -1):
             s = note_sections[i]
-            if isinstance(s, str) and s.lstrip().startswith("展開評価："):
-                note_sections[i] = _apply_label_line(s, _flow)
+            if isinstance(s,str) and s.lstrip().startswith("展開評価："):
+                note_sections[i] = t369_apply_auto_label(s, _flow)
                 replaced = True
                 break
-        # 保険：含む行があればそこにも適用
         if not replaced:
-            for i, s in enumerate(note_sections):
-                if isinstance(s, str) and ("展開評価：" in s):
-                    note_sections[i] = _apply_label_line(s, _flow)
-                    replaced = True
-                    break
-        # さらに保険：見出し自体が無いなら新規で先頭に挿入
-        if not replaced:
-            lb = _t369_decide_label(_flow)
-            eval_text = str(globals().get("tenkai", globals().get("confidence", "—")))
-            note_sections.insert(0, f"展開評価：{eval_text}")
+            # なければ作る
+            eval_text = str(globals().get("tenkai", globals().get("confidence","—")))
+            note_sections.insert(0, t369_apply_auto_label(f"展開評価：{eval_text}", _flow))
 
-        # ---- 流れ ----
-        note_sections.append(_flow.get("note", "【流れ】出力なし"))
+        # 流れノート
+        note_sections.append(_flow.get("note","【流れ】出力なし"))
 
-        # ---- 買い目生成 ----
+        # 買い目ノート（ここで必ず定義済みの generate_tesla_bets を呼ぶ）
         try:
             _bets = generate_tesla_bets(_flow, lines_str, marks, scores)
         except Exception as e:
             _bets = {"note": f"⚠ generate_tesla_betsエラー: {type(e).__name__}: {e}"}
-        note_sections.append(_bets.get("note", "【買い目】出力なし"))
+        note_sections.append(_bets.get("note","【買い目】出力なし"))
 
 except Exception as _e:
     note_sections.append(f"⚠ Tesla369ランナーエラー: {type(_e).__name__}: {str(_e)}")
+
 
 
 # -------------------------------------
