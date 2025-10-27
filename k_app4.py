@@ -3460,7 +3460,7 @@ def compute_flow_indicators(lines_str, marks, scores):
 # =============================
 # Tesla369：買い目生成（安全版／ゾーン＋フォールバック）
 # =============================
-def generate_tesla_bets(flow_res, lines_str, marks, scores):
+(flow_res, lines_str, marks, scores):
     """共通ゾーン4点＋フォールバック。None/空dictでも落ちない安全版。"""
     try:
         flow_res = flow_res or {}
@@ -3587,6 +3587,300 @@ def t369_apply_auto_label(header_text: str, flow_res) -> str:
     # 見出しでない行はそのまま返す
     return header_text
 
+def generate_tesla_bets(flow_res, lines_str, marks, scores):
+    """
+    Tesla369：ゾーン可変（最大4点）＋既存6点フォールバック版
+    ・None/欠損に強い安全実装
+    ・2ライン時も“仮想U波”を生成して出力を止めない
+    ・見出しは別ロジックで付与する想定（ここでは買い目ノートだけ返す）
+    """
+    try:
+        # ===== 正規化 =====
+        flow_res = flow_res if isinstance(flow_res, dict) else {}
+        marks    = marks    if isinstance(marks, dict)    else {}
+        scores   = scores   if isinstance(scores, dict)   else {}
+
+        # lines：flow_res → _lines_list → lines_str の順で確保
+        lines = flow_res.get("lines")
+        if not lines:
+            lines = globals().get("_lines_list", [])
+        if (not lines) and isinstance(lines_str, str) and lines_str.strip():
+            blocks = [b for b in lines_str.strip().split() if b]
+            tmp = []
+            for b in blocks:
+                ln = [int(ch) for ch in b if ch.isdigit()]
+                if ln:
+                    tmp.append(ln)
+            lines = tmp
+
+        # 数値
+        FRv  = float(flow_res.get("FR", 0.0))
+        VTXv = float(flow_res.get("VTX", 0.0))
+        Uv   = float(flow_res.get("U", 0.0))
+
+        # ---- ユーティリティ ----
+        def _ln_mean(ln):
+            return sum(scores.get(n, 0.0) for n in (ln or [])) / max(1, len(ln or []))
+
+        def _line_of(n):
+            for i, ln in enumerate(lines or []):
+                if n in ln:
+                    return i
+            return None
+
+        def _pick_top(ln, k, exclude=None):
+            ex = set(exclude or [])
+            arr = [n for n in (ln or []) if n not in ex]
+            arr.sort(key=lambda n: scores.get(n, 0.0), reverse=True)
+            return arr[:k]
+
+        def _fmt(nums):
+            # 例： [1,3,6] → "136" / [7] → "7" / []→"—"
+            if isinstance(nums, list):
+                return "".join(str(x) for x in nums) if nums else "—"
+            return "—"
+
+        # ---- 軸/FR/VTX/U 決定 ----
+        if not lines:
+            return {"note": "【流れ未循環】ライン不明 → ケン"}
+
+        axis_default = marks.get("◎")
+        li = _line_of(axis_default) if axis_default is not None else None
+        if li is None:
+            li = max(range(len(lines)), key=lambda i: _ln_mean(lines[i]))
+            axis_default = _pick_top(lines[li], 1)[0] if lines[li] else None
+        if axis_default is None:
+            return {"note": "【流れ未循環】軸不明 → ケン"}
+
+        FR_line = lines[li]
+
+        # VTX：FR以外で平均最大（無ければFR）
+        cand_idx = [i for i in range(len(lines)) if i != li]
+        VTX_line = (max((lines[i] for i in cand_idx), key=_ln_mean) if cand_idx else FR_line)
+
+        # U：FR/VTX以外で平均最小。無ければ“仮想U波”
+        cand_idx = [i for i in range(len(lines)) if (lines[i] is not VTX_line) and (i != li)]
+        if cand_idx:
+            U_line = min((lines[i] for i in cand_idx), key=_ln_mean)
+        else:
+            # 2ライン時など：弱い方のラインをベースに“下位2名”
+            base = VTX_line if _ln_mean(VTX_line) <= _ln_mean(FR_line) else FR_line
+            base_sorted = sorted([n for n in base if n != axis_default],
+                                 key=lambda n: scores.get(n, 0.0))
+            U_line = base_sorted[:2]
+            other = FR_line if base is VTX_line else VTX_line
+            other_sorted = sorted([n for n in other if n != axis_default],
+                                  key=lambda n: scores.get(n, 0.0))
+            fill = [n for n in other_sorted if n not in U_line][: (2 - len(U_line))]
+            U_line = (U_line + fill) or other_sorted[:2]
+
+        # 単騎プール
+        singletons = [ln[0] for ln in lines if len(ln) == 1]
+        def _pick_top_ex(pool, k, exclude=None):
+            ex = set(exclude or [])
+            arr = [n for n in (pool or []) if n not in ex]
+            arr.sort(key=lambda n: scores.get(n, 0.0), reverse=True)
+            return arr[:k]
+
+        # 軸ライン最上位（SL）
+        axis_line = FR_line
+        sl_cands = [n for n in axis_line if n != axis_default]
+        SL = max(sl_cands, key=lambda n: scores.get(n, 0.0)) if sl_cands else None
+        # 同ライン3番手（例外枠で使う）
+        SL2 = None
+        if axis_line:
+            rem = [n for n in axis_line if n not in {axis_default, SL}]
+            if rem:
+                SL2 = max(rem, key=lambda n: scores.get(n, 0.0))
+
+        # V1,V2 / U1,U2
+        if VTX_line:
+            if len(VTX_line) == 1 and len(singletons) >= 2:
+                vtops = _pick_top_ex(singletons, 2, exclude=[axis_default])
+            else:
+                vtops = _pick_top(VTX_line, 2, exclude=[axis_default])
+            V1 = vtops[0] if len(vtops) >= 1 else None
+            V2 = vtops[1] if len(vtops) >= 2 else None
+        else:
+            V1 = V2 = None
+
+        if U_line:
+            if isinstance(U_line, list) and all(isinstance(x, int) for x in U_line):
+                # 仮想U波のケース（すでに番号配列）
+                utops = [n for n in U_line if n != axis_default][:2]
+            elif len(U_line) == 1 and len(singletons) >= 2:
+                utops = _pick_top_ex(singletons, 2, exclude=[axis_default])
+            else:
+                utops = _pick_top(U_line, 2, exclude=[axis_default])
+            U1 = utops[0] if len(utops) >= 1 else None
+            U2 = utops[1] if len(utops) >= 2 else None
+        else:
+            U1 = U2 = None
+
+        circle = marks.get("〇")
+        triangle = marks.get("▲")
+        all_nums = set(n for ln in lines for n in ln)
+
+        def _valid(a, b, c):
+            trio = [a, b, c]
+            if any(x is None for x in trio):
+                return False
+            if len({a, b, c}) < 3:
+                return False
+            lids = [_line_of(x) for x in trio]
+            if lids[0] is not None and lids.count(lids[0]) == 3:
+                return False
+            if any(x not in all_nums for x in trio):
+                return False
+            return True
+
+        # ===== ケン判定＆ゲート =====
+        is_ken_flag = bool(flow_res.get("ken", False))
+        FR_MIN, VTX_MIN, VTX_MAX, U_MIN = 0.00, 0.50, 0.75, 0.10
+        gate_main = (
+            ((FRv >= FR_MIN) or (VTXv >= 0.53) or (Uv >= 0.60))
+            and (VTX_MIN <= VTXv <= VTX_MAX)
+            and (Uv >= U_MIN)
+        )
+
+        # ===== ゾーン優先（最大4点）→ 不足なら従来6点フォールバック =====
+        chosen = []
+
+        # ゾーン定義
+        ZONE_FORMS = {
+            "優位": [1, 2, 3, 4, 5, 6, 7, 8],
+            "互角": [5, 6, 7, 8, 1, 3, 9, 10],
+            "混戦": [9, 10, 11, 12, 5, 6, 7, 8],
+        }
+        N_PER_ZONE = 4
+
+        # 無/αの最上位
+        XA = None
+        for cand in [marks.get('無'), marks.get('α')]:
+            if cand and cand in all_nums and cand != axis_default:
+                XA = cand
+                break
+
+        # 見出しからゾーン推定
+        eval_text = str(globals().get("tenkai", globals().get("confidence", "")))
+        def _zone_from_eval():
+            if "優位" in eval_text: return "優位"
+            if "互角" in eval_text: return "互角"
+            if "混戦" in eval_text: return "混戦"
+            if Uv >= 0.62: return "混戦"
+            if VTXv >= 0.56: return "互角"
+            return "優位"
+
+        # 1フォーム → 実コンボ化
+        def _emit_form(fid: int):
+            table = {
+                1:  (axis_default, SL,  U1),          # ◎-SL-U1
+                2:  (axis_default, SL,  V1),          # ◎-SL-V1
+                3:  (axis_default, U1,  V1),          # ◎-U1-V1
+                4:  (axis_default, SL,  (circle or triangle)),  # ◎-SL-〇/▲
+                5:  (axis_default, U1,  U2),          # ◎-U1-U2
+                6:  (axis_default, SL,  U2),          # ◎-SL-U2
+                7:  (axis_default, V1,  V2),          # ◎-V1-V2
+                8:  (axis_default, SL,  None),        # ◎-SL-同ライン外最上位（後で埋める）
+                9:  (axis_default, U1,  XA),          # ◎-U1-無/α
+                10: (axis_default, V1,  XA),          # ◎-V1-無/α
+                11: (axis_default, SL,  XA),          # ◎-SL-無/α
+                12: (axis_default, U2,  V1),          # ◎-U2-V1
+            }
+            tri = list(table.get(fid, (None, None, None)))
+            if fid == 8 and tri[2] is None:
+                others = [n for n in all_nums if n not in axis_line and n != axis_default]
+                if others:
+                    tri[2] = max(others, key=lambda n: scores.get(n, 0.0))
+            a, b, c = tri
+            if a is None or b is None or c is None:
+                return None
+            t = tuple(sorted([a, b, c]))
+            return t if _valid(a, b, c) else None
+
+        if (not is_ken_flag) and gate_main:
+            zone = _zone_from_eval()
+            order = ZONE_FORMS.get(zone, ZONE_FORMS["優位"])
+            seen = set()
+            for fid in order:
+                if len(chosen) >= N_PER_ZONE:
+                    break
+                t = _emit_form(fid)
+                if not t or t in seen:
+                    continue
+                seen.add(t)
+                chosen.append(t)
+
+        # フォールバック（従来6点系）
+        def _push(a, b, c):
+            if not _valid(a, b, c): return
+            t = tuple(sorted([a, b, c]))
+            if t not in chosen:
+                chosen.append(t)
+
+        def _push_same_line3(a, b, c):
+            trio = [a, b, c]
+            if any(x is None for x in trio): return
+            if len({a, b, c}) < 3: return
+            if any(x not in all_nums for x in trio): return
+            t = tuple(sorted(trio))
+            if t not in chosen:
+                chosen.append(t)
+
+        if (not chosen) and (not is_ken_flag) and gate_main:
+            if U1 and U2: _push(axis_default, U1, U2)
+            elif U1 and V1: _push(axis_default, U1, V1)
+            if SL and U1: _push(axis_default, SL, U1)
+            if SL and U2: _push(axis_default, SL, U2)
+            if U1 and V1: _push(axis_default, U1, V1)
+            def _alt_for_main():
+                if circle and circle in all_nums and circle != axis_default: return circle
+                if triangle and triangle in all_nums and triangle != axis_default: return triangle
+                others = [n for n in all_nums if n not in axis_line and n != axis_default]
+                return max(others, key=lambda n: scores.get(n, 0.0)) if others else None
+            if SL:
+                alt = _alt_for_main()
+                if alt: _push(axis_default, SL, alt)
+            if SL and SL2:
+                _push_same_line3(axis_default, SL, SL2)
+            # 追加で6点まで埋める
+            if len(chosen) < 6:
+                pool = []
+                cands = [x for x in [SL, SL2, circle, triangle, V1, V2, U1, U2] if x and x in all_nums]
+                for i in range(len(cands)):
+                    for j in range(i + 1, len(cands)):
+                        pool.append(tuple(sorted([axis_default, cands[i], cands[j]])))
+                others = [n for n in all_nums if n not in axis_line and n != axis_default]
+                others = sorted(others, key=lambda n: scores.get(n, 0.0), reverse=True)[:3]
+                for x in [v for v in [V1, U1, V2, U2] if v]:
+                    for y in others:
+                        pool.append(tuple(sorted([axis_default, x, y])))
+                for t in pool:
+                    if len(chosen) >= 6: break
+                    a, b, c = t
+                    if _valid(a, b, c) and t not in chosen:
+                        chosen.append(t)
+
+        # 出力点数（ゾーン時は4点、それ以外は最大6点）
+        out_k = 4 if chosen and len(chosen) >= 4 else len(chosen)
+        tri_strs = [f"{t[0]}-{t[1]}-{t[2]}" for t in chosen[:out_k]]
+        trios_line_body = "—" if (is_ken_flag or not gate_main or not tri_strs) \
+                          else ", ".join(tri_strs)
+
+        # 表示
+        note_lines = [
+            "【Tesla369-LineBindフォーメーション（共通ゾーン/フォールバック）】",
+            f"発生波（FR）＝{_fmt(FR_line)}",
+            f"展開波（VTX）＝{_fmt(VTX_line)}",
+            f"帰還波（U）＝{_fmt(U_line if isinstance(U_line, list) else U_line)}",
+            "",
+            f"三連複（最大{out_k if out_k else 4}点）： {trios_line_body} ",
+            "",
+        ]
+        return {"note": "\n".join(note_lines)}
+
+    except Exception as _e:
+        return {"note": f"⚠ Tesla369-LineBindエラー: {type(_e).__name__}: {str(_e)}"}
 
 
 # -------------------------------------
