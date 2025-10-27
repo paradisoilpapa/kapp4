@@ -3765,15 +3765,15 @@ def _t369_decide_label(flow_res):
 
     # 既存ゲート値に合わせる（必要ならここだけ調整）
     # FRがゼロでも、VTXかUが立っていれば買い目を出す“ソフトゲート”
-FR_MIN, VTX_MIN, VTX_MAX, U_MIN = 0.00, 0.50, 0.75, 0.10
-gate_main = (
-    ((FRv >= FR_MIN) or (VTXv >= 0.53) or (Uv >= 0.60))  # いずれか立っていればOK
-    and (VTX_MIN <= VTXv <= VTX_MAX)
-    and (Uv >= U_MIN)
-)
-
+    FR_MIN, VTX_MIN, VTX_MAX, U_MIN = 0.00, 0.50, 0.75, 0.10
+    gate_main = (
+        ((FRv >= FR_MIN) or (VTXv >= 0.53) or (Uv >= 0.60))  # いずれか立っていればOK
+        and (VTX_MIN <= VTXv <= VTX_MAX)
+        and (Uv >= U_MIN)
+    )
 
     return "推奨" if (gate_main and not is_ken_flag) else "参考"
+
 
 # === 見出しの【Tesla/ケン】→【推奨/参考】差し替え ===
 def t369_apply_auto_label(header_text: str, flow_res) -> str:
