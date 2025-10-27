@@ -3521,8 +3521,7 @@ def generate_tesla_bets(flow_res, lines_str, marks, scores):
             VTX_line = max((lines[i] for i in cand_idx), key=_ln_mean) if cand_idx else FR_line
 
         # Uライン（FR/VTX以外の平均スコア最小、なければ最小）
-        cand_idx = [i for i in range(len(lines)) if lines[i] is not VTX_line and i != li]
-        U_line = (min((lines[i] for i in cand_idx), key=_ln_mean) if cand_idx else min(lines, key=_ln_mean))
+        cand_idx =
 
         # --- 単騎（ライン長=1）を“ひと塊”として扱う ---
         singletons = [ln[0] for ln in lines if len(ln) == 1]
