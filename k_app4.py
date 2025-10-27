@@ -3130,25 +3130,40 @@ if isinstance(result_marks, dict) and '◎' in result_marks:
 if 'note_sections' not in globals() or not isinstance(note_sections, list):
     note_sections = []
 
-# 既存に紛れた「【狙いたいレース】」行は掃除（再実行時の混入防止）
-note_sections = [s for s in note_sections if not (isinstance(s, str) and s.strip() == "【狙いたいレース】")]
+# 既存に紛れた「狙いたいレース」系の行を全て掃除（再実行時の混入防止）
+def _kill_target_lines(s: str) -> bool:
+    if not isinstance(s, str):
+        return False
+    t = s.strip()
+    # 下記いずれかを含む/で始まるものを削除
+    if "狙いたいレース" in t:
+        return True
+    if t.startswith("【狙いたいレースフォーメーション】"):
+        return True
+    if t.startswith("三連複フォーメーション："):
+        return True
+    return False
+
+note_sections = [s for s in note_sections if not _kill_target_lines(s)]
 
 _venue = str(globals().get("track", globals().get("place", "")))
 _eval  = str(globals().get("tenkai", globals().get("confidence", "")))
 
 # 既に同レースの見出しが入っている場合は除去（2行セットを想定）
-_hdr1 = f"{_venue}{race_no}R"
-_hdr2_raw = f"展開評価：{_eval}"
+_hdr1 = f"{_venue}{race_no}R".strip()
+_hdr2_raw = f"展開評価：{_eval}".strip()
 
 def _is_same_header_line(s: str) -> bool:
+    if not isinstance(s, str):
+        return False
     t = s.strip()
     cand = {
-        _hdr1.strip(),
-        _hdr2_raw.strip(),
-        f"{_hdr2_raw}【Tesla】".strip(),
-        f"{_hdr2_raw}【ケン】".strip(),
-        f"{_hdr2_raw}【推奨】".strip(),
-        f"{_hdr2_raw}【参考】".strip(),
+        _hdr1,
+        _hdr2_raw,
+        f"{_hdr2_raw}【Tesla】",
+        f"{_hdr2_raw}【ケン】",
+        f"{_hdr2_raw}【推奨】",
+        f"{_hdr2_raw}【参考】",
     }
     return t in cand
 
