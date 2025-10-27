@@ -3194,14 +3194,34 @@ _nmax = max(map(int, USED_IDS)) if USED_IDS else 9
 _groups = _parse_lines(line_inputs, _nmax)
 _is_target_local = _is_target_by_3line(_groups, race_t, _anchor_no)
 
-# 見出し
-note_sections = []
+# 見出し（重複防止＆占位ラベル）
+if 'note_sections' not in globals() or not isinstance(note_sections, list):
+    note_sections = []
+
 _venue = str(globals().get("track", globals().get("place", "")))
 _eval  = str(globals().get("tenkai", globals().get("confidence", "")))
-note_sections.append(f"{_venue}{race_no}R")
-note_sections.append(f"{_venue}{race_no}R")
-note_sections.append(f"展開評価：{_eval}\n" + ("【狙いたいレース】\n\n" if _is_target_local else "\n"))
 
+# 既に同レースの見出しが入っている場合は除去（2行セットを想定）
+_hdr1 = f"{_venue}{race_no}R"
+_hdr2_raw = f"展開評価：{_eval}"
+
+def _is_same_header_line(s: str) -> bool:
+    t = s.strip()
+    cand = {
+        _hdr1.strip(),
+        _hdr2_raw.strip(),
+        f"{_hdr2_raw}【Tesla】".strip(),
+        f"{_hdr2_raw}【ケン】".strip(),
+        f"{_hdr2_raw}【推奨】".strip(),
+        f"{_hdr2_raw}【参考】".strip(),
+    }
+    return t in cand
+
+note_sections = [s for s in note_sections if not _is_same_header_line(s)]
+
+# 一旦「括弧なし」で挿入（あとで自動ラベルを付与）
+note_sections.append(_hdr1)
+note_sections.append(_hdr2_raw + "\n" + ("【狙いたいレース】\n\n" if _is_target_local else "\n"))
 
 # 簡素表示
 race_time = globals().get('race_time', '')
@@ -3775,9 +3795,12 @@ try:
         note_sections.append(_flow.get("note", "【流れ】出力なし"))
 
         _flow = compute_flow_indicators(lines_str, marks, scores)
-        # 見出しの【Tesla/ケン】 → 【推奨/参考】を自動反映（2行目が見出し行）
-        if len(note_sections) >= 2:
-            note_sections[1] = t369_apply_auto_label(note_sections[1], _flow)
+
+# 見出しの【Tesla/ケン/無し】→【推奨/参考】を自動反映（先頭から探索）
+for i, s in enumerate(note_sections):
+    if isinstance(s, str) and s.lstrip().startswith("展開評価："):
+        note_sections[i] = t369_apply_auto_label(s, _flow)
+        break
 
 
         _bets = generate_tesla_bets(_flow, lines_str, marks, scores)
