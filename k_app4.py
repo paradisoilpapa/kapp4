@@ -3731,6 +3731,43 @@ def t369_apply_auto_label(header_text: str, flow_res) -> str:
             return f"{base}{tails}"
     return header_text
 
+# === 自動ラベル付与（推奨/参考） ===
+import re as _re
+
+def t369_apply_auto_label(head_line: str, flow_res: dict) -> str:
+    """
+    '展開評価：優位' などの見出し行に 【推奨】 / 【参考】 を自動付与する。
+    ・flow_res['ken'] が True → 【参考】
+    ・数値ゲート (FR>=0.02, 0.50<=VTX<=0.70, U>=0.10) を満たす → 【推奨】
+      それ以外 → 【参考】
+    既存の【...】は一度除去してから付け直す。
+    """
+    if not isinstance(head_line, str):
+        return head_line
+
+    FRv  = float(flow_res.get("FR", 0.0))
+    VTXv = float(flow_res.get("VTX", 0.0))
+    Uv   = float(flow_res.get("U", 0.0))
+    is_ken_flag = bool(flow_res.get("ken", False))
+
+    # 数値ゲート
+    gate_main = (FRv >= 0.02) and (0.50 <= VTXv <= 0.70) and (Uv >= 0.10)
+
+    # 既存の【…】を一旦除去
+    s = _re.sub(r"【[^】]*】", "", head_line).strip()
+
+    # ラベル決定
+    label = "【参考】"
+    if not is_ken_flag and gate_main:
+        label = "【推奨】"
+
+    # 改行は維持
+    has_nl = head_line.endswith("\n")
+    s = f"{s}{label}"
+    if has_nl:
+        s += "\n"
+    return s
+
 
 # -------------------------------------
 # 4) 実行（note_sections へ追記）
@@ -3744,17 +3781,18 @@ try:
     else:
         _flow = compute_flow_indicators(lines_str, marks, scores)
 
-        # === 自動ラベル付与（推奨／参考） ===
-        for i, s in enumerate(note_sections):
+        # ←← ここで見出しに【推奨/参考】を付与（直近の「展開評価：」行を後ろから検索）
+        for i in range(len(note_sections) - 1, -1, -1):
+            s = note_sections[i]
             if isinstance(s, str) and s.lstrip().startswith("展開評価："):
                 note_sections[i] = t369_apply_auto_label(s, _flow)
                 break
 
+        # 以降は従来どおり
         note_sections.append(_flow.get("note", "【流れ】出力なし"))
 
         _bets = generate_tesla_bets(_flow, lines_str, marks, scores)
         note_sections.append(_bets.get("note", "【買い目】出力なし"))
-
 except Exception as _e:
     note_sections.append(f"⚠ Tesla369ランナーエラー: {type(_e).__name__}: {str(_e)}")
 
