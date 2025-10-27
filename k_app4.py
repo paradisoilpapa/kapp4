@@ -2370,11 +2370,14 @@ def _gen_anchor_trios_fallback(anchor_id: int, max_take: int = 12):
         pool = set()
 
     rows = []
-    for a, b, c in pool:generate_tesla_bets
-        s = _trio_score_safe(a, b, c)
-        rows.append((int(a), int(b), int(c), float(s), "FB◎"))
-    rows.sort(key=lambda t: (-t[3], t[0], t[1], t[2]))
-    return rows[:max_take]
+    for a, b, c in pool:
+    s = _trio_score_safe(a, b, c)
+    rows.append((int(a), int(b), int(c), float(s), "FB◎"))
+
+rows.sort(key=lambda t: (-t[3], t[0], t[1], t[2]))
+return rows[:max_take]
+
+
 
 # ============================================================
 # 三連複「◎入り3点 / ◎抜き3点」(短縮・自給自足・tri_inc/tri_exc固定)
