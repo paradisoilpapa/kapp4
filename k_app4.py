@@ -3107,74 +3107,6 @@ try:
 except NameError:
     trio_rank_form_str = str(globals().get('trio_rank_form_str', '—'))
 
-# ---- ここから狙いたいレースの再計算（既出のユーティリティを利用） ----
-try:
-    _parse_lines  # type: ignore
-except NameError:
-    def _parse_lines(_line_inputs, nmax: int):
-        groups = []
-        for s in _line_inputs:
-            ids = extract_car_list(s, nmax)  # 既存ユーティリティ想定
-            if ids:
-                groups.append(ids)
-        return groups
-
-try:
-    _is_target_by_3line  # type: ignore
-except NameError:
-    def _is_target_by_3line(groups: list[list[int]], dev_map: dict[int, float], anchor_no: int | None) -> bool:
-        """
-        狙いたいレース（3車ライン崩れ候補）判定：
-          ・3車ラインが存在、他ラインは3車以下（4車以上があれば除外）
-          ・以下のいずれか
-              A) 3車ライン合計 <= 151
-              B) 3車ラインの下位2平均 < ◎基準
-                 （◎がライン所属なら上位2平均、◎が単騎なら◎本人）
-          ・ただし「◎が最強の3車ライン」にいる場合は全体除外（= False）
-        """
-
-        # 3車ライン抽出
-        three_lines = [g for g in groups if len(g) == 3]
-        if not three_lines:
-            return False
-        if any(len(h) > 3 for h in groups):
-            return False
-
-        def _sum_line(g): return sum(float(dev_map.get(i, 0.0)) for i in g)
-
-        # 3車ラインの合計
-        totals = [(g, _sum_line(g)) for g in three_lines]
-        max_total = max(t for _, t in totals)
-
-        # ◎ライン（基準値）
-        anchor_val = float(dev_map.get(anchor_no, 0.0)) if anchor_no is not None else None
-        anchor_line = next((g for g in groups if anchor_no in g), None)
-        if anchor_line and len(anchor_line) >= 2:
-            top2 = sorted((float(dev_map.get(i, 0.0)) for i in anchor_line), reverse=True)[:2]
-            anchor_basis = sum(top2) / len(top2)   # ◎ライン上位2平均
-        else:
-            anchor_basis = anchor_val or 0.0       # 単騎◎なら本人値
-
-        # ◎が「最強の3車ライン」にいるなら全体除外（同率最大も最強扱い）
-        if anchor_line is not None and len(anchor_line) == 3:
-            anchor_total = _sum_line(anchor_line)
-            if anchor_total >= max_total:
-                return False
-
-        # 本判定：評価対象ラインが◎を含むならスキップ（従来ルール）
-        for g, total in totals:
-            if anchor_no in g:
-                continue
-            vals = [float(dev_map.get(i, 0.0)) for i in g]
-            low2_avg = (total - max(vals)) / 2.0
-
-            condA = (total <= 151.0)
-            condB = (low2_avg < anchor_basis)
-            if condA or condB:
-                return True
-
-        return False
-
 
 
 # ---- ここから本体 ----
@@ -3188,11 +3120,6 @@ _anchor_no = None
 if isinstance(result_marks, dict) and '◎' in result_marks:
     try: _anchor_no = int(result_marks['◎'])
     except Exception: _anchor_no = None
-
-# 判定
-_nmax = max(map(int, USED_IDS)) if USED_IDS else 9
-_groups = _parse_lines(line_inputs, _nmax)
-_is_target_local = _is_target_by_3line(_groups, race_t, _anchor_no)
 
 # 見出し（重複防止＆占位ラベル）
 if 'note_sections' not in globals() or not isinstance(note_sections, list):
