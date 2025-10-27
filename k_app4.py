@@ -3326,55 +3326,53 @@ except NameError:
                      and (VTX_MIN <= VTXv <= VTX_MAX) and (Uv >= 0.10))
 
         # ---- ライン抽出（FR/VTX/U） ----
-# ---- ライン抽出（FR/VTX/U） ----
-# ここから置き換え開始：軸決定（重み切替フック対応）
-def _default_axis_by_weight(marks, scores, lines):
-    # 候補：◎, 〇, ▲, α（無は除外）
-    cand_keys = ['◎', '〇', '▲', 'α']
-    weights   = {'◎': 1.00, '〇': 0.86, '▲': 0.74, 'α': 0.60}
-    items = []
-    for k in cand_keys:
-        n = marks.get(k)
-        if isinstance(n, int):
-            sc = float(scores.get(n, 0.0))
-            # 同ライン平均で微補正（ライン強度 0.10 係数）
-            ln = next((L for L in lines if n in L), [])
-            ln_mu = (sum(scores.get(x, 0.0) for x in ln) / len(ln)) if ln else 0.0
-            adj = sc * weights.get(k, 0.0) + 0.10 * ln_mu
-            items.append((adj, n))
-    return max(items)[1] if items else None
+        # ここから置き換え開始：軸決定（重み切替フック対応）
+        def _default_axis_by_weight(marks, scores, lines):
+            # 候補：◎, 〇, ▲, α（無は除外）
+            cand_keys = ['◎', '〇', '▲', 'α']
+            weights   = {'◎': 1.00, '〇': 0.86, '▲': 0.74, 'α': 0.60}
+            items = []
+            for k in cand_keys:
+                n = marks.get(k)
+                if isinstance(n, int):
+                    sc = float(scores.get(n, 0.0))
+                    # 同ライン平均で微補正（ライン強度 0.10 係数）
+                    ln = next((L for L in lines if n in L), [])
+                    ln_mu = (sum(scores.get(x, 0.0) for x in ln) / len(ln)) if ln else 0.0
+                    adj = sc * weights.get(k, 0.0) + 0.10 * ln_mu
+                    items.append((adj, n))
+            return max(items)[1] if items else None
 
-# 外部フックがあれば最優先
-axis = None
-_choose = globals().get('choose_axis', None)
-if callable(_choose):
-    try:
-        axis = _choose(flow, marks, scores, lines)
-    except Exception:
+        # 外部フックがあれば最優先
         axis = None
+        _choose = globals().get('choose_axis', None)
+        if callable(_choose):
+            try:
+                axis = _choose(flow, marks, scores, lines)
+            except Exception:
+                axis = None
 
-# フォールバック：簡易重み
-if not isinstance(axis, int):
-    axis = _default_axis_by_weight(marks, scores, lines)
+        # フォールバック：簡易重み
+        if not isinstance(axis, int):
+            axis = _default_axis_by_weight(marks, scores, lines)
 
-# それでもNGなら従来どおり◎
-if not isinstance(axis, int):
-    axis = marks.get('◎')
+        # それでもNGなら従来どおり◎
+        if not isinstance(axis, int):
+            axis = marks.get('◎')
 
-# ★最終フォールバック：それでも未決ならスコア最大
-if not isinstance(axis, int):
-    axis = max((n for ln in lines for n in ln), key=lambda n: scores.get(n, 0.0), default=None)
+        # ★最終フォールバック：それでも未決ならスコア最大
+        if not isinstance(axis, int):
+            axis = max((n for ln in lines for n in ln), key=lambda n: scores.get(n, 0.0), default=None)
 
-FR_line = _line_of(axis)
-# 置き換えここまで
-
-
+        FR_line = _line_of(axis)
+        # 置き換えここまで
 
         vtx_bid = str(flow.get("vtx_bid") or "")
         VTX_line = []
         for ln in lines:
             if "".join(map(str, ln)) == vtx_bid:
-                VTX_line = ln[:]; break
+                VTX_line = ln[:]
+                break
         if not VTX_line:
             cand = sorted(lines, key=_avg, reverse=True)
             VTX_line = cand[0] if cand else []
