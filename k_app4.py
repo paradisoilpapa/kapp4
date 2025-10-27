@@ -3792,19 +3792,18 @@ try:
         note_sections.append("【流れ未循環】ライン不明 → ケン")
     else:
         _flow = compute_flow_indicators(lines_str, marks, scores)
+
+        # === 自動ラベル付与（推奨／参考） ===
+        for i, s in enumerate(note_sections):
+            if isinstance(s, str) and s.lstrip().startswith("展開評価："):
+                note_sections[i] = t369_apply_auto_label(s, _flow)
+                break
+
         note_sections.append(_flow.get("note", "【流れ】出力なし"))
-
-        _flow = compute_flow_indicators(lines_str, marks, scores)
-
-# 見出しの【Tesla/ケン/無し】→【推奨/参考】を自動反映（先頭から探索）
-for i, s in enumerate(note_sections):
-    if isinstance(s, str) and s.lstrip().startswith("展開評価："):
-        note_sections[i] = t369_apply_auto_label(s, _flow)
-        break
-
 
         _bets = generate_tesla_bets(_flow, lines_str, marks, scores)
         note_sections.append(_bets.get("note", "【買い目】出力なし"))
+
 except Exception as _e:
     note_sections.append(f"⚠ Tesla369ランナーエラー: {type(_e).__name__}: {str(_e)}")
 
