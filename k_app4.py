@@ -3497,26 +3497,37 @@ def generate_tesla_bets(flow_res, lines_str, marks, scores):
 def generate_tesla_bets(flow_res, lines_str, marks, scores):
     """
     共通6点テンプレ（7車・三連複のみ）。
-      1) ◎-U1-U2（U2不在 → ◎-U1-V1）
-      2) ◎-SL-U1
-      3) ◎-SL-V1
-      4) ◎-V1-V2（V2不在 → ◎-SL-V1）
-      5) ◎-SL-〇（〇不在 → ▲ → 同ライン外スコア最上位）
-      6) ◎-U1-V1
-    ※ 同一ライン3名は禁止・重複除去。6点未満はフォールバックで充足。
-    ※ ケンは flow_res['ken'] を最優先で尊重（数値ゲートも併用可）。
-    ※ 単騎が2車以上ある場合：V/U が単騎ラインなら、単騎プールを“塊”として上位2名を採用。
-    ※ 重み（FRv,VTXv,Uv）で軸を自動切替（ASR-Weight）。
+      ...
     """
     try:
+        # ===== ここから正規化（Noneガード）=====
+        if not isinstance(flow_res, dict):
+            flow_res = {}
+        if not isinstance(marks, dict):
+            marks = {}
+        if not isinstance(scores, dict):
+            scores = {}
+
+        # lines は flow_res → _lines_list → lines_str の順でフォールバック
+        lines = flow_res.get("lines")
+        if not lines:
+            lines = globals().get("_lines_list", [])
+        if (not lines) and isinstance(lines_str, str) and lines_str.strip():
+            blocks = [b for b in lines_str.strip().split() if b]
+            tmp = []
+            for b in blocks:
+                ln = [int(ch) for ch in b if ch.isdigit()]
+                if ln:
+                    tmp.append(ln)
+            lines = tmp
+
+        # flow_res 数値も欠損時はデフォルト化
         FRv  = float(flow_res.get("FR", 0.0))
         VTXv = float(flow_res.get("VTX", 0.0))
         Uv   = float(flow_res.get("U", 0.0))
         vtx_bid = flow_res.get("vtx_bid", "")
-        lines = flow_res.get("lines", [])
+        # ===== ここまで正規化 =====
 
-        if not lines:
-            return {"note": "【流れ未循環】ライン不明 → ケン"}
 
         # ---- 小ユーティリティ ----
         def _ln_mean(ln):
