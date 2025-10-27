@@ -3169,16 +3169,19 @@ def _is_same_header_line(s: str) -> bool:
 
 note_sections = [s for s in note_sections if not _is_same_header_line(s)]
 
-# “狙いたいレース”は挿入しない（括弧なしで置いて、後で自動ラベル付与）
-note_sections.append(_hdr1)
-note_sections.append(_hdr2_raw + "\n")
+# 展開評価：優位 のような見出しを追加
+note_sections.append(f"展開評価：{eval_label}")
 
-# 簡素表示
+# ここですぐ呼ぶ（←重要）
+ensure_head_label(note_sections, _flow)
+
+# 以下は既存どおり
 race_time = globals().get('race_time', '')
 race_class = globals().get('race_class', '')
 note_sections.append(f"{race_time}　{race_class}")
 note_sections.append(f"ライン　{'　'.join([x for x in line_inputs if str(x).strip()])}")
 note_sections.append(f"スコア順（SBなし）　{_format_rank_from_array(USED_IDS, xs_base_raw)}")
+
 
 marks_str, no_str = _fmt_rank(result_marks, USED_IDS)
 note_sections.append(f"{marks_str} {no_str}")
