@@ -3217,13 +3217,26 @@ def compute_flow_indicators(lines_str, marks, scores):
         if not bi or not bj or bi not in waves or bj not in waves: return 0.0
         return math.cos(waves[bi]["phi"] - waves[bj]["phi"])
 
+    # --- ◎（順流）と 無（逆流）の決定 --- ここを強化 -----------------
     b_star = bucket_of(star_id)
-    b_none = bucket_of(none_id)
-    if not b_none:
-        try:  b_none = bucket_of(min(lines, key=lambda ln: avg_score(ln))[0])
-        except Exception: b_none = ""
 
-    # VTX
+    # 1) 明示の「無」があればそのバケット、なければ候補から選ぶ
+    b_none = bucket_of(none_id)
+
+    # 1-α) 同一や未設定を避ける：平均スコアが低い順で◎以外を選択
+    if (not b_none) or (b_none == b_star):
+        ranked = sorted(bucket_to_members.keys(),
+                        key=lambda bid: avg_score(bucket_to_members[bid]))
+        b_none = next((bid for bid in ranked if bid != b_star), "")
+
+    # 2) それでも未決 or 下向きなら「S（終盤上向き）が最大」の◎以外を採用
+    if (not b_none) or (waves.get(b_none, {}).get("S", -1e9) <= 0):
+        cand = [(w["S"], bid) for bid, w in waves.items() if bid != b_star]
+        if cand:
+            b_none = max(cand)[1]
+    # -------------------------------------------------------------
+
+    # VTX（位相差×振幅）
     vtx_list = []
     for bid, mem in bucket_to_members.items():
         if bid in (b_star, b_none): continue
@@ -3235,7 +3248,7 @@ def compute_flow_indicators(lines_str, marks, scores):
     VTX = vtx_list[0][0] if vtx_list else 0.0
     VTX_bid = vtx_list[0][1] if vtx_list else ""
 
-    # FR
+    # FR（◎下向き×無上向き）
     ws, wn = waves.get(b_star, {}), waves.get(b_none, {})
     def S_point(w): 
         return 0.0 if not w else (lambda A,phi: A*math.exp(-0.12*1.0)*(2*math.pi*0.9*math.cos(2*math.pi*0.9*1.0+phi)-0.12*math.sin(2*math.pi*0.9*1.0+phi)))(w["A"],w["phi"])
@@ -3248,7 +3261,7 @@ def compute_flow_indicators(lines_str, marks, scores):
     nu = max(0.0, (sig( blend_none,3.0)-0.5)*2.0)
     FR = sd*nu
 
-    # U
+    # U（逆流圧）
     vtx_vals = [v for v,_ in vtx_list] or [0.0]
     vtx_mu = _t369_safe_mean(vtx_vals, 0.0)
     vtx_sd = (_t369_safe_mean([(x-vtx_mu)**2 for x in vtx_vals], 0.0))**0.5
@@ -3272,6 +3285,7 @@ def compute_flow_indicators(lines_str, marks, scores):
     ])
     dbg = {"blend_star":blend_star, "blend_none":blend_none, "sd":sd, "nu":nu, "vtx_hi":vtx_hi}
     return {"VTX":VTX, "FR":FR, "U":U, "note":note, "waves":waves, "vtx_bid":VTX_bid, "lines":lines, "dbg":dbg}
+
 
 # ---------- 出力ヘルパ ----------
 def _safe_flow(lines_str, marks, scores):
