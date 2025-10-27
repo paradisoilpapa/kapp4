@@ -3459,6 +3459,44 @@ except NameError:
 def generate_tesla_bets(flow_res, lines_str, marks, scores):
     """
     共通6点テンプレ（7車・三連複のみ）。
+      ...
+    """
+    try:
+        # ===== ここから正規化（Noneガード）=====
+        if not isinstance(flow_res, dict):
+            flow_res = {}
+        if not isinstance(marks, dict):
+            marks = {}
+        if not isinstance(scores, dict):
+            scores = {}
+
+        # lines は flow_res → _lines_list → lines_str の順でフォールバック
+        lines = flow_res.get("lines")
+        if not lines:
+            # 上流で _lines_list がある想定（無ければ空のままでもOK）
+            lines = globals().get("_lines_list", [])
+        if (not lines) and isinstance(lines_str, str) and lines_str.strip():
+            # "123 45 6" 形式を簡易パース（スペース区切り、各ブロックを桁ごとに分解）
+            blocks = [b for b in lines_str.strip().split() if b]
+            tmp = []
+            for b in blocks:
+                ln = [int(ch) for ch in b if ch.isdigit()]
+                if ln:
+                    tmp.append(ln)
+            lines = tmp
+
+        # flow_res 数値も欠損時はデフォルト化
+        FRv  = float(flow_res.get("FR", 0.0))
+        VTXv = float(flow_res.get("VTX", 0.0))
+        Uv   = float(flow_res.get("U", 0.0))
+        vtx_bid = flow_res.get("vtx_bid", "")
+
+        # ===== ここまで正規化 =====
+
+
+def generate_tesla_bets(flow_res, lines_str, marks, scores):
+    """
+    共通6点テンプレ（7車・三連複のみ）。
       1) ◎-U1-U2（U2不在 → ◎-U1-V1）
       2) ◎-SL-U1
       3) ◎-SL-V1
