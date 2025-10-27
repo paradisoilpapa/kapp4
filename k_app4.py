@@ -3073,24 +3073,82 @@ st.caption("上の4表は既存候補と“しきい値クリア”の交差済�
 
 
 # =========================
-#  note 出力（最後にまとめて）〈貼り替え版：未定義ガード付き〉
+#  note 出力（最後にまとめて）〈ラベル確実付与版〉
 # =========================
 
-# ---- 未定義ガード（このブロックの先頭に置く） ----
-try:
-    _fmt_hen_lines  # type: ignore
-except NameError:
-    def _fmt_hen_lines(ts_map: dict, ids: list[int]) -> str:
-        lines = []
-        ts_map = ts_map or {}
-        for n in (ids or []):
-            v = ts_map.get(n, "—")
-            lines.append(f"{n}: {float(v):.1f}" if isinstance(v, (int, float)) else f"{n}: —")
-        return "\n".join(lines)
+import re
+
+# --- 安全ユーティリティ群 ---
+def _is_header_line(s: str) -> bool:
+    return isinstance(s, str) and s.lstrip().startswith("展開評価：")
+
+def _decide_label(flow: dict) -> str:
+    FRv  = float((flow or {}).get("FR", 0.0))
+    VTXv = float((flow or {}).get("VTX", 0.0))
+    Uv   = float((flow or {}).get("U", 0.0))
+    is_ken = bool((flow or {}).get("ken", False))
+    FR_MIN, VTX_MIN, VTX_MAX, U_MIN = 0.00, 0.50, 0.75, 0.10
+    gate_main = (((FRv >= FR_MIN) or (VTXv >= 0.53) or (Uv >= 0.60))
+                 and (VTX_MIN <= VTXv <= VTX_MAX) and (Uv >= U_MIN))
+    return "【推奨】" if (gate_main and not is_ken) else "【参考】"
+
+def _infer_eval_label(flow: dict) -> str:
+    for k in ("eval_label", "tenkai", "confidence"):
+        v = globals().get(k)
+        if isinstance(v, str) and v.strip():
+            m = re.match(r"^\s*([^\s【】]+)", v.strip())
+            return (m.group(1) if m else v.strip())
+    FRv  = float((flow or {}).get("FR", 0.0))
+    VTXv = float((flow or {}).get("VTX", 0.0))
+    Uv   = float((flow or {}).get("U", 0.0))
+    if (FRv >= 0.18 and 0.50 <= VTXv <= 0.70 and Uv >= 0.10): return "優位"
+    if (VTXv >= 0.56) or (Uv >= 0.62): return "互角"
+    return "混戦"
+
+def _apply_label_line(line: str, flow: dict) -> str:
+    """展開評価行に【推奨/参考】を追加"""
+    base = re.sub(r"【[^】]*】", "", str(line)).rstrip()
+    return f"{base}{_decide_label(flow)}"
+
+# --- note_sections の安全確保 ---
+if 'note_sections' not in globals() or not isinstance(note_sections, list):
+    note_sections = []
+
+# --- 古い展開評価行を削除 ---
+note_sections = [s for s in note_sections if not _is_header_line(s)]
+
+# --- flow 情報を取得（compute_flow_indicators結果を想定） ---
+_flow = globals().get('_flow', {})
+if not isinstance(_flow, dict):
+    _flow = {}
+
+# --- 展開評価の生成 ---
+_eval_label = _infer_eval_label(_flow)
+header_line = f"展開評価：{_eval_label}"
+header_line = _apply_label_line(header_line, _flow)
+note_sections.append(header_line)
+
+# --- 以下既存出力 ---
+race_time  = globals().get('race_time', '')
+race_class = globals().get('race_class', '')
+note_sections.append(f"{race_time}　{race_class}")
 
 try:
-    _fmt_rank  # type: ignore
-except NameError:
+    line_inputs = globals().get('line_inputs', [])
+    note_sections.append(f"ライン　{'　'.join([x for x in line_inputs if str(x).strip()])}")
+except Exception:
+    pass
+
+try:
+    USED_IDS = list(globals().get('USED_IDS', []))
+    xs_base_raw = globals().get('xs_base_raw', [])
+    _format_rank_from_array  # type: ignore
+    note_sections.append(f"スコア順（SBなし）　{_format_rank_from_array(USED_IDS, xs_base_raw)}")
+except Exception:
+    note_sections.append(f"スコア順（SBなし）　{' '.join(map(str, USED_IDS))}")
+
+try:
+    result_marks = globals().get('result_marks', {})
     def _fmt_rank(marks_dict: dict, used_ids: list[int]) -> tuple[str, str]:
         no_mark_ids = [int(i) for i in (used_ids or [])
                        if isinstance(marks_dict, dict) and int(i) not in set(marks_dict.values())]
@@ -3100,126 +3158,25 @@ except NameError:
         )
         no_str = ' '.join(map(str, no_mark_ids)) if no_mark_ids else '—'
         return marks_str, f"無{no_str}"
-
-# Trioフォメ文字列（未定義でもエラーにしない）
-try:
-    trio_rank_form_str = get_trio_rank_formation(False)  # type: ignore
-except NameError:
-    trio_rank_form_str = str(globals().get('trio_rank_form_str', '—'))
-
-# ---- ラベル付与ユーティリティ（未定義フォールバック付き） ----
-import re
-
-def _is_header_line(s: str) -> bool:
-    return isinstance(s, str) and s.lstrip().startswith("展開評価：")
-
-def _decide_label_from_flow(flow: dict) -> str:
-    """flow から【推奨/参考】を決定（t369_apply_auto_label が無い時の代替）"""
-    FRv  = float((flow or {}).get("FR", 0.0))
-    VTXv = float((flow or {}).get("VTX", 0.0))
-    Uv   = float((flow or {}).get("U", 0.0))
-    is_ken = bool((flow or {}).get("ken", False))
-    # ソフトゲート（あなたの基準に合わせる）
-    FR_MIN, VTX_MIN, VTX_MAX, U_MIN = 0.00, 0.50, 0.75, 0.10
-    gate_main = (((FRv >= FR_MIN) or (VTXv >= 0.53) or (Uv >= 0.60))
-                 and (VTX_MIN <= VTXv <= VTX_MAX) and (Uv >= U_MIN))
-    return "【推奨】" if (gate_main and not is_ken) else "【参考】"
-
-def _infer_eval_label(flow: dict) -> str:
-    """'展開評価：◯◯' の ◯◯ を推定（globals 優先→数値から）"""
-    for k in ("eval_label", "tenkai", "confidence"):
-        v = globals().get(k)
-        if isinstance(v, str) and v.strip():
-            m = re.match(r"^\s*([^\s【】]+)", v.strip())
-            return (m.group(1) if m else v.strip())
-    FRv  = float((flow or {}).get("FR", 0.0))
-    VTXv = float((flow or {}).get("VTX", 0.0))
-    Uv   = float((flow or {}).get("U", 0.0))
-    if (FRv >= 0.18 and 0.50 <= VTXv <= 0.70 and Uv >= 0.10):
-        return "優位"
-    if (VTXv >= 0.56) or (Uv >= 0.62):
-        return "互角"
-    return "混戦"
-
-def _apply_head_label(text: str, flow: dict) -> str:
-    """'展開評価：◯◯' 行へ【推奨/参考】を付与。t369_apply_auto_label があれば使用。"""
-    try:
-        # 既存関数があるならそれを使用
-        return t369_apply_auto_label(text, flow)  # type: ignore
-    except Exception:
-        # 無ければフォールバック（既存の【…】は一旦除去）
-        s = re.sub(r"【[^】]*】", "", text).rstrip()
-        return f"{s}{_decide_label_from_flow(flow)}"
-
-def ensure_head_label(note_sections: list, flow: dict) -> None:
-    """note_sections 内の直近『展開評価：…』行を【推奨/参考】へ置換。無ければ作成して付与。"""
-    for i in range(len(note_sections) - 1, -1, -1):
-        s = note_sections[i]
-        if _is_header_line(s):
-            note_sections[i] = _apply_head_label(s, flow)
-            return
-    base = f"展開評価：{_infer_eval_label(flow)}"
-    note_sections.append(_apply_head_label(base, flow))
-
-# ---- 本体開始 ----
-result_marks = globals().get('result_marks', {})
-USED_IDS     = list(globals().get('USED_IDS', []))
-race_t       = dict(globals().get('race_t', {}))
-_flow        = dict(globals().get('_flow', {}))   # compute_flow 後があれば使う
-
-# 見出し（重複防止）
-if 'note_sections' not in globals() or not isinstance(note_sections, list):
-    note_sections = []
-
-# 旧「狙いたいレース」系の行は全削除（再実行時の混入防止）
-def _kill_target_lines(s: str) -> bool:
-    if not isinstance(s, str):
-        return False
-    t = s.strip()
-    return ("狙いたいレース" in t) or t.startswith("【狙いたいレースフォーメーション】") or t.startswith("三連複フォーメーション：")
-
-note_sections = [s for s in note_sections if not _kill_target_lines(s)]
-
-# 既にある「展開評価：…」は全て掃除（重複見出しを防ぐ）
-note_sections = [s for s in note_sections if not _is_header_line(s)]
-
-# 見出しを作成して即ラベル付与
-_eval_text = f"展開評価：{_infer_eval_label(_flow)}"
-note_sections.append(_eval_text)
-ensure_head_label(note_sections, _flow)
-
-# 以降は従来どおり（未定義でも落ちないよう try で包む）
-race_time  = globals().get('race_time', '')
-race_class = globals().get('race_class', '')
-
-note_sections.append(f"{race_time}　{race_class}")
-
-# ライン表示
-try:
-    line_inputs = globals().get('line_inputs', [])
-    note_sections.append(f"ライン　{'　'.join([x for x in line_inputs if str(x).strip()])}")
+    marks_str, no_str = _fmt_rank(result_marks, USED_IDS)
+    note_sections.append(f"{marks_str} {no_str}")
 except Exception:
     pass
 
-# スコア順
 try:
-    USED_IDS_SAFE   = list(USED_IDS or [])
-    xs_base_raw     = globals().get('xs_base_raw', [])
-    _format_rank_from_array  # type: ignore
-    note_sections.append(f"スコア順（SBなし）　{_format_rank_from_array(USED_IDS_SAFE, xs_base_raw)}")
+    race_t = dict(globals().get('race_t', {}))
+    def _fmt_hen_lines(ts_map: dict, ids: list[int]) -> str:
+        lines = []
+        for n in (ids or []):
+            v = ts_map.get(n, "—")
+            lines.append(f"{n}: {float(v):.1f}" if isinstance(v, (int, float)) else f"{n}: —")
+        return "\n".join(lines)
+    note_sections.append("\n偏差値（風・ライン込み）")
+    note_sections.append(_fmt_hen_lines(race_t, USED_IDS))
+    note_sections.append("\n")
 except Exception:
-    # フォールバック：並べ替え情報が無い場合は ID を羅列
-    if USED_IDS:
-        note_sections.append(f"スコア順（SBなし）　{' '.join(map(str, USED_IDS))}")
+    note_sections.append("偏差値データなし\n")
 
-# 印＋無
-marks_str, no_str = _fmt_rank(result_marks, USED_IDS)
-note_sections.append(f"{marks_str} {no_str}")
-
-# 偏差値
-note_sections.append("\n偏差値（風・ライン込み）")
-note_sections.append(_fmt_hen_lines(race_t, USED_IDS))
-note_sections.append("\n")  # 空行
 
 
 
