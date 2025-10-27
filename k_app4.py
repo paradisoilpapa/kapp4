@@ -3453,11 +3453,12 @@ except NameError:
             a,b,c = tri
             return tuple(sorted((a,b,c))) if _valid(a,b,c) else None
 
-        # ===== 実行：ゾーン優先（最大4点） =====
+               # ===== 実行：ゾーン優先（最大4点） =====
         if gate_main and not is_ken_flag:
             zone = _zone_from_eval()
             order = ZONE_FORMS.get(zone, ZONE_FORMS["優位"])
             seen = set()
+
             # 1) ゾーン優先で充足
             for fid in order:
                 if len(chosen) >= N_PER_ZONE:
@@ -3479,7 +3480,65 @@ except NameError:
                     seen.add(t)
                     chosen.append(t)
 
-            # 3) それでも足りなければ 1..12 を総当たりで充足
+            # 3) さらに不足：無 と α の“両順序”で直挿し補完（9/10/11の強化）
+            if len(chosen) < N_PER_ZONE:
+                def _try_xa_priority(order_marks):
+                    nonlocal chosen
+                    for mk in order_marks:
+                        cand = marks.get(mk)
+                        if not isinstance(cand, int):
+                            continue
+                        for tri in [
+                            (axis, U1, cand),
+                            (axis, V1, cand),
+                            (axis, SL, cand),
+                        ]:
+                            if len(chosen) >= N_PER_ZONE:
+                                break
+                            a, b, c = tri
+                            if not _valid(a, b, c):
+                                continue
+                            t = tuple(sorted((a, b, c)))
+                            if t in seen:
+                                continue
+                            seen.add(t)
+                            chosen.append(t)
+
+                if len(chosen) < N_PER_ZONE:
+                    _try_xa_priority(['無', 'α'])
+                if len(chosen) < N_PER_ZONE:
+                    _try_xa_priority(['α', '無'])
+
+            # 4) それでも不足：SL2 や“同ライン外 次善候補”で補完
+            if len(chosen) < N_PER_ZONE:
+                others = [n for n in all_nums if n not in axis_line and n != axis]
+                others_sorted = sorted(others, key=lambda n: scores.get(n, 0.0), reverse=True)
+
+                alt_pool = []
+                if SL2:
+                    alt_pool += [(axis, SL2, U1), (axis, SL2, V1)]
+                    for z in others_sorted:
+                        alt_pool.append((axis, SL2, z))
+
+                for z in others_sorted:
+                    alt_pool.append((axis, SL, z))
+
+                for z in others_sorted:
+                    alt_pool.append((axis, U1, z))
+                    alt_pool.append((axis, V1, z))
+
+                for a, b, c in alt_pool:
+                    if len(chosen) >= N_PER_ZONE:
+                        break
+                    if not _valid(a, b, c):
+                        continue
+                    t = tuple(sorted((a, b, c)))
+                    if t in seen:
+                        continue
+                    seen.add(t)
+                    chosen.append(t)
+
+            # 5) 最終保険：1..12 を総当たりで充足
             if len(chosen) < N_PER_ZONE:
                 for fid in range(1, 13):
                     if len(chosen) >= N_PER_ZONE:
@@ -3496,13 +3555,14 @@ except NameError:
         note_lines.append("三連複：" + ("—" if (not tri_strs) else ", ".join(tri_strs[:N_PER_ZONE])))
 
         return {
-            "FR_line": FR_line,          # ← ◎固定参照を修正（選ばれた軸ベース）
+            "FR_line": FR_line,          # ← 軸ベース
             "VTX_line": VTX_line,
             "U_line": U_line,
             "FRv": FRv, "VTXv": VTXv, "Uv": Uv,
             "trios": chosen[:N_PER_ZONE],
             "note": "\n".join(note_lines),
         }
+
 
 
 # ---------- 出力ヘルパ ----------
