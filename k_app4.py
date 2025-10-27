@@ -2371,11 +2371,12 @@ def _gen_anchor_trios_fallback(anchor_id: int, max_take: int = 12):
 
     rows = []
     for a, b, c in pool:
-    s = _trio_score_safe(a, b, c)
-    rows.append((int(a), int(b), int(c), float(s), "FB◎"))
+        s = _trio_score_safe(a, b, c)
+        rows.append((int(a), int(b), int(c), float(s), "FB◎"))
 
-rows.sort(key=lambda t: (-t[3], t[0], t[1], t[2]))
-return rows[:max_take]
+    rows.sort(key=lambda t: (-t[3], t[0], t[1], t[2]))
+    return rows[:max_take]
+
 
 
 
