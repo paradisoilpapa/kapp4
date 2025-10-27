@@ -3073,83 +3073,129 @@ st.caption("上の4表は既存候補と“しきい値クリア”の交差済�
 
 
 # =========================
-#  note 出力（最後にまとめて）〈ラベル確実付与版〉
+#  note 出力（最後にまとめて）〈ヘッダ復活＋不要行除去＋推奨/参考 付与〉
 # =========================
-
 import re
 
-# --- 安全ユーティリティ群 ---
-def _is_header_line(s: str) -> bool:
+# ---- 既存ユーティリティの存在チェック（無ければ簡易版を内蔵） ----
+if 't369_apply_auto_label' not in globals():
+    def _t369_decide_label(flow_res):
+        FRv  = float((flow_res or {}).get("FR", 0.0))
+        VTXv = float((flow_res or {}).get("VTX", 0.0))
+        Uv   = float((flow_res or {}).get("U", 0.0))
+        is_ken_flag = bool((flow_res or {}).get("ken", False))
+        # ソフトゲート（あなたの基準に合わせる）
+        FR_MIN, VTX_MIN, VTX_MAX, U_MIN = 0.00, 0.50, 0.75, 0.10
+        gate_main = (((FRv >= FR_MIN) or (VTXv >= 0.53) or (Uv >= 0.60))
+                     and (VTX_MIN <= VTXv <= VTX_MAX) and (Uv >= U_MIN))
+        return "推奨" if (gate_main and not is_ken_flag) else "参考"
+
+    def t369_apply_auto_label(head_line: str, flow_res: dict) -> str:
+        if not isinstance(head_line, str):
+            return head_line
+        s = re.sub(r"【[^】]*】", "", head_line).strip()
+        label = _t369_decide_label(flow_res)
+        has_nl = head_line.endswith("\n")
+        s = f"{s}" if not label.startswith("【") else f"{s}{label}"
+        if has_nl:
+            s += "\n"
+        return s
+
+# ---- 安全ユーティリティ ----
+def _is_target_like(s: str) -> bool:
+    """不要な『狙いたいレースフォーメーション』『三連複フォーメーション：…』を除去"""
+    if not isinstance(s, str):
+        return False
+    t = s.strip()
+    return (
+        t.startswith("【狙いたいレースフォーメーション】")
+        or t.startswith("三連複フォーメーション：")
+    )
+
+def _is_header_eval(s: str) -> bool:
     return isinstance(s, str) and s.lstrip().startswith("展開評価：")
 
-def _decide_label(flow: dict) -> str:
-    FRv  = float((flow or {}).get("FR", 0.0))
-    VTXv = float((flow or {}).get("VTX", 0.0))
-    Uv   = float((flow or {}).get("U", 0.0))
-    is_ken = bool((flow or {}).get("ken", False))
-    FR_MIN, VTX_MIN, VTX_MAX, U_MIN = 0.00, 0.50, 0.75, 0.10
-    gate_main = (((FRv >= FR_MIN) or (VTXv >= 0.53) or (Uv >= 0.60))
-                 and (VTX_MIN <= VTXv <= VTX_MAX) and (Uv >= U_MIN))
-    return "【推奨】" if (gate_main and not is_ken) else "【参考】"
+def _safe_get_flow():
+    try:
+        fr = compute_flow_indicators(globals().get('lines_str', ''), globals().get('marks', {}), globals().get('scores', {}))
+        return fr if isinstance(fr, dict) else {}
+    except Exception:
+        return {}
 
-def _infer_eval_label(flow: dict) -> str:
+def _infer_eval_word(flow: dict) -> str:
+    # 表示用の「優位/互角/混戦」を拾う（無ければ数値から推定）
     for k in ("eval_label", "tenkai", "confidence"):
         v = globals().get(k)
         if isinstance(v, str) and v.strip():
-            m = re.match(r"^\s*([^\s【】]+)", v.strip())
-            return (m.group(1) if m else v.strip())
+            return re.sub(r"【.*?】", "", v).strip()
     FRv  = float((flow or {}).get("FR", 0.0))
     VTXv = float((flow or {}).get("VTX", 0.0))
     Uv   = float((flow or {}).get("U", 0.0))
-    if (FRv >= 0.18 and 0.50 <= VTXv <= 0.70 and Uv >= 0.10): return "優位"
-    if (VTXv >= 0.56) or (Uv >= 0.62): return "互角"
+    if (FRv >= 0.18 and 0.50 <= VTXv <= 0.70 and Uv >= 0.10):
+        return "優位"
+    if (VTXv >= 0.56) or (Uv >= 0.62):
+        return "互角"
     return "混戦"
 
-def _apply_label_line(line: str, flow: dict) -> str:
-    """展開評価行に【推奨/参考】を追加"""
-    base = re.sub(r"【[^】]*】", "", str(line)).rstrip()
-    return f"{base}{_decide_label(flow)}"
+def _fmt_hen_lines_safe(ts_map: dict, ids: list) -> str:
+    lines = []
+    ts_map = ts_map or {}
+    for n in (ids or []):
+        v = ts_map.get(n, "—")
+        lines.append(f"{n}: {float(v):.1f}" if isinstance(v, (int, float)) else f"{n}: —")
+    return "\n".join(lines)
 
-# --- note_sections の安全確保 ---
+# ---- note_sections 初期化 ----
 if 'note_sections' not in globals() or not isinstance(note_sections, list):
     note_sections = []
 
-# --- 古い展開評価行を削除 ---
-note_sections = [s for s in note_sections if not _is_header_line(s)]
+# 不要な『狙いたいレース…』『三連複フォーメーション：』を掃除
+note_sections = [s for s in note_sections if not _is_target_like(s)]
+# 古い『展開評価：…』行を掃除（再実行時の重複防止）
+note_sections = [s for s in note_sections if not _is_header_eval(s)]
 
-# --- flow 情報を取得（compute_flow_indicators結果を想定） ---
-_flow = globals().get('_flow', {})
+# flow を取得
+_flow = globals().get('_flow')
 if not isinstance(_flow, dict):
-    _flow = {}
+    _flow = _safe_get_flow()
 
-# --- 展開評価の生成 ---
-_eval_label = _infer_eval_label(_flow)
-header_line = f"展開評価：{_eval_label}"
-header_line = _apply_label_line(header_line, _flow)
-note_sections.append(header_line)
+# 会場・レース番号（欠けたら空文字）
+venue = str(globals().get("track") or globals().get("place") or "").strip()
+race_no = str(globals().get("race_no") or globals().get("raceNo") or globals().get("race_number") or "").strip()
+if venue or race_no:
+    note_sections.append(f"{venue}{race_no}R")
 
-# --- 以下既存出力 ---
+# 展開評価：○○【推奨/参考】 を確実に出力
+_eval_word = _infer_eval_word(_flow) or "優位"
+header_eval = f"展開評価：{_eval_word}"
+header_eval = t369_apply_auto_label(header_eval, _flow)
+note_sections.append(header_eval)
+
+# 以降は既存の簡素表示
 race_time  = globals().get('race_time', '')
 race_class = globals().get('race_class', '')
 note_sections.append(f"{race_time}　{race_class}")
 
+# ライン
 try:
     line_inputs = globals().get('line_inputs', [])
     note_sections.append(f"ライン　{'　'.join([x for x in line_inputs if str(x).strip()])}")
 except Exception:
     pass
 
+# スコア順
 try:
     USED_IDS = list(globals().get('USED_IDS', []))
     xs_base_raw = globals().get('xs_base_raw', [])
-    _format_rank_from_array  # type: ignore
     note_sections.append(f"スコア順（SBなし）　{_format_rank_from_array(USED_IDS, xs_base_raw)}")
 except Exception:
+    USED_IDS = list(globals().get('USED_IDS', []))
     note_sections.append(f"スコア順（SBなし）　{' '.join(map(str, USED_IDS))}")
 
+# 印
 try:
     result_marks = globals().get('result_marks', {})
-    def _fmt_rank(marks_dict: dict, used_ids: list[int]) -> tuple[str, str]:
+    def _fmt_rank_local(marks_dict: dict, used_ids: list) -> tuple[str, str]:
         no_mark_ids = [int(i) for i in (used_ids or [])
                        if isinstance(marks_dict, dict) and int(i) not in set(marks_dict.values())]
         marks_str = ' '.join(
@@ -3158,24 +3204,20 @@ try:
         )
         no_str = ' '.join(map(str, no_mark_ids)) if no_mark_ids else '—'
         return marks_str, f"無{no_str}"
-    marks_str, no_str = _fmt_rank(result_marks, USED_IDS)
+    marks_str, no_str = _fmt_rank_local(result_marks, USED_IDS)
     note_sections.append(f"{marks_str} {no_str}")
 except Exception:
     pass
 
+# 偏差値
 try:
     race_t = dict(globals().get('race_t', {}))
-    def _fmt_hen_lines(ts_map: dict, ids: list[int]) -> str:
-        lines = []
-        for n in (ids or []):
-            v = ts_map.get(n, "—")
-            lines.append(f"{n}: {float(v):.1f}" if isinstance(v, (int, float)) else f"{n}: —")
-        return "\n".join(lines)
     note_sections.append("\n偏差値（風・ライン込み）")
-    note_sections.append(_fmt_hen_lines(race_t, USED_IDS))
+    note_sections.append(_fmt_hen_lines_safe(race_t, USED_IDS))
     note_sections.append("\n")
 except Exception:
     note_sections.append("偏差値データなし\n")
+
 
 
 
