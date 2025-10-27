@@ -3785,21 +3785,20 @@ def _t369_decide_label(flow_res):
     )
     return "推奨" if (gate_main and not is_ken_flag) else "参考"
 
+# === 見出しの【…】を必ず剥がして → 【推奨/参考】を付け直す ===
 def t369_apply_auto_label(header_text: str, flow_res) -> str:
-    """
-    '展開評価：優位【...】' の【...】を 【推奨】/【参考】に置換
-    """
     import re
-    label = _t369_decide_label(flow_res)
-    if re.search(r"(展開評価：[^\n]*?【)(?:Tesla|ケン|推奨|参考)(】)", header_text):
-        return re.sub(r"(展開評価：[^\n]*?【)(?:Tesla|ケン|推奨|参考)(】)",
-                      r"\1" + label + r"\2", header_text)
-    m = re.match(r"^(.*?)(\n*)$", header_text, flags=re.DOTALL)
-    if m:
-        base, tails = m.group(1), m.group(2)
-        if "展開評価：" in base and "【" not in base:
-            return f"{base}{tails}"
+    if not isinstance(header_text, str):
+        return header_text
+    label = _t369_decide_label(flow_res)  # "推奨" or "参考"
+    # 既存の【…】は種類を問わず全て除去
+    s = re.sub(r"【[^】]*】", "", header_text).rstrip()
+    # 「展開評価：」を含んでいれば必ず付け直す
+    if "展開評価：" in s:
+        return f"{s}"
+    # 見出しでない行はそのまま返す
     return header_text
+
 
 
 # -------------------------------------
@@ -3812,7 +3811,7 @@ try:
     if not _lines_list:
         note_sections.append("【流れ未循環】ライン不明 → ケン")
     else:
-        # flow を安全に取得
+        # ---- flow を安全に取得 ----
         try:
             _flow_raw = compute_flow_indicators(lines_str, marks, scores)
             _flow = _flow_raw if isinstance(_flow_raw, dict) else {}
@@ -3820,24 +3819,50 @@ try:
             _flow = {}
             note_sections.append(f"⚠ compute_flow_indicatorsエラー: {type(e).__name__}: {e}")
 
-        # 見出しの【推奨/参考】付与（直近の「展開評価：」行を後ろから検索）
+        # ---- 見出しの【推奨/参考】を“必ず付け直す” ----
+        import re as _re2
+
+        def _apply_label_line(s: str, flow: dict) -> str:
+            # 既存の【…】を種類問わず全て剥がして末尾に【推奨/参考】を付け直す
+            base = _re2.sub(r"【[^】]*】", "", s).rstrip()
+            lb = _t369_decide_label(flow)  # "推奨" or "参考"
+            return f"{base}"
+
+        replaced = False
+        # 1) 末尾から「行頭が '展開評価：'」の行を探す（テンプレ通り想定）
         for i in range(len(note_sections) - 1, -1, -1):
             s = note_sections[i]
             if isinstance(s, str) and s.lstrip().startswith("展開評価："):
-                note_sections[i] = t369_apply_auto_label(s, _flow)
+                note_sections[i] = _apply_label_line(s, _flow)
+                replaced = True
                 break
 
-        # 流れ
+        # 2) 保険：どこかに「展開評価：」を含む行があればそこも対象に
+        if not replaced:
+            for i, s in enumerate(note_sections):
+                if isinstance(s, str) and ("展開評価：" in s):
+                    note_sections[i] = _apply_label_line(s, _flow)
+                    replaced = True
+                    break
+
+        # 3) さらに保険：見出し自体が無いなら、新規で先頭に挿入
+        if not replaced:
+            lb = _t369_decide_label(_flow)
+            note_sections.insert(0, f"展開評価：—")
+
+        # ---- 流れ（_flow['note'] があればそれを、無ければダミー）----
         note_sections.append(_flow.get("note", "【流れ】出力なし"))
 
-        # 買い目生成
+        # ---- 買い目生成（失敗してもノートに落とす）----
         try:
             _bets = generate_tesla_bets(_flow, lines_str, marks, scores)
         except Exception as e:
             _bets = {"note": f"⚠ generate_tesla_betsエラー: {type(e).__name__}: {e}"}
         note_sections.append(_bets.get("note", "【買い目】出力なし"))
+
 except Exception as _e:
     note_sections.append(f"⚠ Tesla369ランナーエラー: {type(_e).__name__}: {str(_e)}")
+
 
 
 # -------------------------------------
