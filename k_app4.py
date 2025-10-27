@@ -3634,13 +3634,16 @@ def generate_tesla_bets(flow_res, lines_str, marks, scores):
 
         # ================== ケン判定（最優先） ==================
         is_ken_flag = bool(flow_res.get("ken", False))  # 上流のケンを絶対尊重
-                # 数値ゲート（2ライン特例：VTXが立たなくても買い目を許可）
-        FR_MIN, VTX_MIN, VTX_MAX, U_MIN = 0.02, 0.50, 0.70, 0.10
-        n_lines = len([ln for ln in lines if ln])
-        if n_lines <= 2:
-            gate_main = (FRv >= FR_MIN) and (Uv >= U_MIN)           # VTX条件は無視
-        else:
-            gate_main = (FRv >= FR_MIN) and (VTX_MIN <= VTXv <= VTX_MAX) and (Uv >= U_MIN)
+
+        # 数値ゲート（ソフト版）
+        # FRがゼロでも VTX か U が立っていれば買い目を出す
+        FR_MIN, VTX_MIN, VTX_MAX, U_MIN = 0.00, 0.50, 0.75, 0.10
+        gate_main = (
+            ((FRv >= FR_MIN) or (VTXv >= 0.53) or (Uv >= 0.60))  # いずれか立っていればOK
+            and (VTX_MIN <= VTXv <= VTX_MAX)
+            and (Uv >= U_MIN)
+        )
+
 
 
         # ========= 三連複6点の組成（再編版） =========
