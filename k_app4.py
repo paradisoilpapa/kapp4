@@ -3237,12 +3237,13 @@ def compute_flow_indicators(lines_str, marks, scores):
 
     # FR
     ws, wn = waves.get(b_star, {}), waves.get(b_none, {})
-    def S_point(w): return 0.0 if not w else (lambda A,phi: A*math.exp(-0.12*1.0)*(2*math.pi*0.9*math.cos(2*math.pi*0.9*1.0+phi)-0.12*math.sin(2*math.pi*0.9*1.0+phi)))(w["A"],w["phi"])
-    blend_star = 0.6*S_point(ws) + 0.4*ws.get("S",0.0)
-    blend_none = 0.6*S_point(wn) + 0.4*wn.get("S",0.0)
+    def S_point(w): 
+        return 0.0 if not w else (lambda A,phi: A*math.exp(-0.12*1.0)*(2*math.pi*0.9*math.cos(2*math.pi*0.9*1.0+phi)-0.12*math.sin(2*math.pi*0.9*1.0+phi)))(w["A"],w["phi"])
     def sig(x,k=3.0):
         try: return 1.0/(1.0+math.exp(-k*x))
         except OverflowError: return 0.0 if x<0 else 1.0
+    blend_star = 0.6*S_point(ws) + 0.4*ws.get("S",0.0)
+    blend_none = 0.6*S_point(wn) + 0.4*wn.get("S",0.0)
     sd = max(0.0, (sig(-blend_star,3.0)-0.5)*2.0)
     nu = max(0.0, (sig( blend_none,3.0)-0.5)*2.0)
     FR = sd*nu
@@ -3295,7 +3296,6 @@ def _decide_label(flow):
     FR_MIN, VTX_MIN, VTX_MAX, U_MIN = 0.00, 0.50, 0.75, 0.10
     gate_main = (((FRv >= FR_MIN) or (VTXv >= 0.53) or (Uv >= 0.60))
                  and (VTX_MIN <= VTXv <= VTX_MAX) and (Uv >= U_MIN))
-    # ユーザー提示版（not ken）を尊重
     return "推奨" if (gate_main and not ken) else "参考"
 
 def _infer_eval(flow):
@@ -3347,26 +3347,37 @@ def _kill_garbage(s: str) -> bool:
     return ("狙いたいレース" in t) or ("三連複フォーメーション：" in t)
 note_sections = [s for s in note_sections if not _kill_garbage(s)]
 
-# ---------- 二重出力ガード ----------
+# ---------- 二重出力ガード（グローバルのみ。セッション跨ぎで残さない） ----------
 def _t369_build_render_key(lines_str, marks, scores) -> str:
-    payload = json.dumps({
-        "lines_str": str(lines_str),
-        "marks": {str(k): int(v) for k, v in (marks or {}).items()},
-        "scores": {str(k): float((scores or {}).get(k, 0.0)) for k in sorted((scores or {}).keys(), key=lambda x: int(x) if str(x).isdigit() else str(x))}
-    }, ensure_ascii=False, sort_keys=True)
-    return "t369:" + hashlib.md5(payload.encode("utf-8")).hexdigest()
+    try:
+        venue   = str(globals().get("track") or globals().get("place") or "").strip()
+        race_no = str(globals().get("race_no") or "").strip()
+        line_inputs = globals().get("line_inputs", [])
+        payload = {
+            "venue": venue,
+            "race_no": race_no,
+            "lines_str": str(lines_str),
+            "line_inputs": [str(x) for x in (line_inputs or [])],
+            "marks": {str(k): int(v) for k, v in (marks or {}).items()},
+            "scores": {str(k): float((scores or {}).get(k, 0.0))
+                       for k in sorted((scores or {}).keys(), key=lambda x: int(x) if str(x).isdigit() else str(x))}
+        }
+        blob = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+        return "t369:" + hashlib.md5(blob.encode("utf-8")).hexdigest()
+    except Exception:
+        import time, random
+        return f"t369:fallback:{time.time()}:{random.random()}"
 
 def _t369_render_once(key: str) -> bool:
-    try:
-        import streamlit as st
-        store = st.session_state.get("_t369_done_keys", set())
-        if key in store: return False
-        store.add(key); st.session_state["_t369_done_keys"] = store
-        return True
-    except Exception:
-        globals().setdefault("_t369_done_keys_fallback", set())
-        if key in globals()["_t369_done_keys_fallback"]: return False
-        globals()["_t369_done_keys_fallback"].add(key); return True
+    store_name = "_t369_done_keys_fallback"
+    store = globals().get(store_name)
+    if not isinstance(store, set):
+        store = set()
+        globals()[store_name] = store
+    if key in store:
+        return False
+    store.add(key)
+    return True
 
 # ---------- 環境取得 ----------
 lines_str = globals().get("lines_str", lines_str)  # 既存優先
@@ -3488,12 +3499,12 @@ if _t369_render_once(_render_key):
             )
     except Exception as _e:
         note_sections.append(f"⚠ Tesla369診断エラー: {type(_e).__name__}: {str(_e)}")
+else:
+    # 同一入力の重複呼び出し時は静かにスキップ（必要なら下記を有効化）
+    # note_sections.append("※同一入力のため出力省略（重複防止）")
+    pass
 
 # ===== /Tesla369｜出力統合・最終ブロック（安定版・重複なし） =====
-
-
-
-# === ここまで ===
 
 
 
