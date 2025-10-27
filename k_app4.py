@@ -3104,7 +3104,7 @@ def _decide_label(flow):
     FR_MIN, VTX_MIN, VTX_MAX, U_MIN = 0.00, 0.50, 0.75, 0.10
     gate_main = (((FRv >= FR_MIN) or (VTXv >= 0.53) or (Uv >= 0.60))
                  and (VTX_MIN <= VTXv <= VTX_MAX) and (Uv >= U_MIN))
-    return "推奨" if (gate_main and !ken) else "参考"
+    return "推奨" if (gate_main and not ken) else "参考"
 
 def _infer_eval(flow):
     FRv  = float((flow or {}).get("FR", 0.0))
