@@ -3217,24 +3217,15 @@ def compute_flow_indicators(lines_str, marks, scores):
         if not bi or not bj or bi not in waves or bj not in waves: return 0.0
         return math.cos(waves[bi]["phi"] - waves[bj]["phi"])
 
-    # --- ◎（順流）と 無（逆流）の決定 --- ここを強化 -----------------
+    # --- ◎（順流）と 無（逆流）の決定（被り防止＆上向き優先） ---
     b_star = bucket_of(star_id)
-
-    # 1) 明示の「無」があればそのバケット、なければ候補から選ぶ
     b_none = bucket_of(none_id)
-
-    # 1-α) 同一や未設定を避ける：平均スコアが低い順で◎以外を選択
     if (not b_none) or (b_none == b_star):
-        ranked = sorted(bucket_to_members.keys(),
-                        key=lambda bid: avg_score(bucket_to_members[bid]))
+        ranked = sorted(bucket_to_members.keys(), key=lambda bid: avg_score(bucket_to_members[bid]))
         b_none = next((bid for bid in ranked if bid != b_star), "")
-
-    # 2) それでも未決 or 下向きなら「S（終盤上向き）が最大」の◎以外を採用
     if (not b_none) or (waves.get(b_none, {}).get("S", -1e9) <= 0):
         cand = [(w["S"], bid) for bid, w in waves.items() if bid != b_star]
-        if cand:
-            b_none = max(cand)[1]
-    # -------------------------------------------------------------
+        if cand: b_none = max(cand)[1]
 
     # VTX（位相差×振幅）
     vtx_list = []
@@ -3281,11 +3272,172 @@ def compute_flow_indicators(lines_str, marks, scores):
     note = "\n".join([
         f"【順流】◎ライン {label(b_star)}：失速危険 {'高' if FR>=0.15 else ('中' if FR>=0.05 else '低')}",
         f"【渦】候補ライン：{label(VTX_bid)}（VTX={VTX:.2f}）",
-        f"【逆流】無ライン {label(b_none)}：U={U:.2f}（※{tag}）",
+        f"【逆流】無ライン {label(b_none)}：U={U:.2f}（※判定基準内）",
     ])
     dbg = {"blend_star":blend_star, "blend_none":blend_none, "sd":sd, "nu":nu, "vtx_hi":vtx_hi}
     return {"VTX":VTX, "FR":FR, "U":U, "note":note, "waves":waves, "vtx_bid":VTX_bid, "lines":lines, "dbg":dbg}
 
+
+# ---------- フォールバック：三連複（ゾーン方式・最大4点のみ） ----------
+try:
+    generate_tesla_bets  # 既に本実装があれば触らない
+except NameError:
+    def generate_tesla_bets(flow, lines_str, marks, scores):
+        """
+        三連複のみを出力（最大4点）。二車複/ワイドは出さない。
+        - ゾーン方式（優位/互角/混戦）でフォーム列を優先採用
+        - ゲート外 or ケン時は出力なし（—）
+        戻り: dict {FR_line,VTX_line,U_line,FRv,VTXv,Uv,trios,note}
+        """
+        flow   = flow or {}
+        lines  = list(flow.get("lines") or [])
+        scores = scores or {}
+        marks  = marks or {}
+        all_nums = sorted({n for ln in lines for n in ln})
+
+        def _avg(ln):
+            xs = [float(scores.get(n, 0.0)) for n in ln]
+            return sum(xs)/len(xs) if xs else -1e9
+
+        def _line_of(target):
+            try: t = int(target)
+            except Exception: return []
+            for ln in lines:
+                if t in ln: return ln[:]
+            return []
+
+        def _valid(a,b,c):
+            s = {a,b,c}
+            return (None not in (a,b,c)) and (len(s) == 3) and all(x in all_nums for x in s)
+
+        chosen = []
+        def _push(a,b,c):
+            if _valid(a,b,c):
+                t = tuple(sorted((a,b,c)))
+                if t not in chosen: chosen.append(t)
+
+        # ---- 指標・ゲート ----
+        FRv  = float(flow.get("FR", 0.0) or 0.0)
+        VTXv = float(flow.get("VTX", 0.0) or 0.0)
+        Uv   = float(flow.get("U", 0.0) or 0.0)
+        is_ken_flag = bool(flow.get("ken", False))
+        VTX_MIN, VTX_MAX = 0.50, 0.75
+        gate_main = (((FRv >= 0.00) or (VTXv >= 0.53) or (Uv >= 0.60))
+                     and (VTX_MIN <= VTXv <= VTX_MAX) and (Uv >= 0.10))
+
+        # ---- ライン抽出（FR/VTX/U） ----
+        axis    = marks.get('◎')
+        FR_line = _line_of(axis)
+
+        vtx_bid = str(flow.get("vtx_bid") or "")
+        VTX_line = []
+        for ln in lines:
+            if "".join(map(str, ln)) == vtx_bid:
+                VTX_line = ln[:]; break
+        if not VTX_line:
+            cand = sorted(lines, key=_avg, reverse=True)
+            VTX_line = cand[0] if cand else []
+            if VTX_line == FR_line and len(cand) >= 2:
+                VTX_line = cand[1]
+
+        none_id = marks.get('無')
+        U_line = _line_of(none_id) if none_id is not None else []
+        if not U_line:
+            singles = [ln for ln in lines if len(ln) == 1 and ln != FR_line]
+            if singles:
+                U_line = singles[0]
+            else:
+                others = [ln for ln in lines if ln != FR_line]
+                others.sort(key=_avg)  # 低スコア優先
+                U_line = others[0] if others else []
+
+        # ---- 軸・相手抽出 ----
+        axis_line = FR_line[:]
+        axis_mates = [n for n in axis_line if n != axis]
+        axis_mates_sorted = sorted(axis_mates, key=lambda n: scores.get(n, 0.0), reverse=True)
+        SL  = axis_mates_sorted[0] if len(axis_mates_sorted) >= 1 else None
+        SL2 = axis_mates_sorted[1] if len(axis_mates_sorted) >= 2 else None
+
+        u_cands = sorted([n for n in U_line   if n not in (None, axis, SL)], key=lambda n: scores.get(n, 0.0), reverse=True)
+        v_cands = sorted([n for n in VTX_line if n not in (None, axis, SL)], key=lambda n: scores.get(n, 0.0), reverse=True)
+        U1 = u_cands[0] if len(u_cands) >= 1 else None
+        U2 = u_cands[1] if len(u_cands) >= 2 else None
+        V1 = v_cands[0] if len(v_cands) >= 1 else None
+        V2 = v_cands[1] if len(v_cands) >= 2 else None
+
+        C = marks.get('〇')
+        A = marks.get('▲')
+        XA = None
+        for cand in [marks.get('無'), marks.get('α')]:
+            if isinstance(cand, int) and cand in all_nums and cand != axis:
+                XA = cand; break
+
+        # ---- ゾーン設定（最大4点） ----
+        N_PER_ZONE    = 4
+        ZONE_FORMS = {
+            "優位": [1, 2, 3, 4, 5, 6, 7, 8],
+            "互角": [5, 6, 7, 8, 1, 3, 9, 10],
+            "混戦": [9, 10, 11, 12, 5, 6, 7, 8],
+        }
+        _eval = globals().get("tenkai", globals().get("confidence", "")) or ""
+        def _zone_from_eval():
+            ev = str(_eval)
+            if "優位" in ev: return "優位"
+            if "互角" in ev: return "互角"
+            if "混戦" in ev: return "混戦"
+            if Uv >= 0.62:  return "混戦"
+            if VTXv >= 0.56: return "互角"
+            return "優位"
+
+        def _best_outside_axis():
+            others = [n for n in all_nums if n not in axis_line and n != axis]
+            return max(others, key=lambda n: scores.get(n, 0.0)) if others else None
+
+        def _emit_form(fid: int):
+            table = {
+                1:  (axis, SL,  U1),             # ◎-SL-U1
+                2:  (axis, SL,  V1),             # ◎-SL-V1
+                3:  (axis, U1,  V1),             # ◎-U1-V1
+                4:  (axis, SL,  (C or A)),       # ◎-SL-〇（なければ▲）
+                5:  (axis, U1,  U2),             # ◎-U1-U2
+                6:  (axis, SL,  U2),             # ◎-SL-U2
+                7:  (axis, V1,  V2),             # ◎-V1-V2
+                8:  (axis, SL,  None),           # ◎-SL-同ライン外最上位（後で埋める）
+                9:  (axis, U1,  XA),             # ◎-U1-無/α
+                10: (axis, V1,  XA),             # ◎-V1-無/α
+                11: (axis, SL,  XA),             # ◎-SL-無/α
+                12: (axis, U2,  V1),             # ◎-U2-V1
+            }
+            tri = list(table.get(fid, (None,None,None)))
+            if tri[2] is None and fid == 8:
+                tri[2] = _best_outside_axis()
+            a,b,c = tri
+            return tuple(sorted((a,b,c))) if _valid(a,b,c) else None
+
+        # ===== 実行：ゾーン優先（最大4点） =====
+        if gate_main and not is_ken_flag:
+            zone = _zone_from_eval()
+            order = ZONE_FORMS.get(zone, ZONE_FORMS["優位"])
+            seen = set()
+            for fid in order:
+                if len(chosen) >= N_PER_ZONE: break
+                t = _emit_form(fid)
+                if not t or t in seen: continue
+                seen.add(t); chosen.append(t)
+
+        # 出力整形（最大4点。条件外なら "—"）
+        tri_strs = [f"{t[0]}-{t[1]}-{t[2]}" for t in chosen]
+        note_lines = ["【買い目】"]
+        note_lines.append("三連複：" + ("—" if (not tri_strs) else ", ".join(tri_strs[:N_PER_ZONE])))
+
+        return {
+            "FR_line": _line_of(marks.get('◎')),
+            "VTX_line": VTX_line,
+            "U_line": U_line,
+            "FRv": FRv, "VTXv": VTXv, "Uv": Uv,
+            "trios": chosen[:N_PER_ZONE],
+            "note": "\n".join(note_lines),
+        }
 
 # ---------- 出力ヘルパ ----------
 def _safe_flow(lines_str, marks, scores):
@@ -3473,7 +3625,7 @@ if _t369_render_once(_render_key):
     else:
         note_sections.append(_flow.get("note", "【流れ】出力なし"))
 
-    # 買い目ノート
+    # 買い目ノート（最大4点の三連複のみ）
     note_sections.append(_bets.get("note", "【買い目】出力なし"))
 
     # 診断（最小）
