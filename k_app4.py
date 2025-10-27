@@ -3880,7 +3880,7 @@ try:
     if not _lines_list:
         note_sections.append("【流れ未循環】ライン不明 → ケン")
     else:
-        # ---- 安全に flow を取り出す（None や例外でも落ちない） ----
+        # ---- 安全に flow を取り出す（None や例外でも落ちない）----
         try:
             _flow_raw = compute_flow_indicators(lines_str, marks, scores)
             _flow = _flow_raw if isinstance(_flow_raw, dict) else {}
@@ -3888,22 +3888,21 @@ try:
             _flow = {}
             note_sections.append(f"⚠ compute_flow_indicatorsエラー: {type(e).__name__}: {e}")
 
-        # ←← ここで見出しに【推奨/参考】を付与（直近の「展開評価：」行を後ろから検索）
+        # ←← 見出しに【推奨/参考】を付与（直近の「展開評価：」行を後ろから検索）
         for i in range(len(note_sections) - 1, -1, -1):
             s = note_sections[i]
             if isinstance(s, str) and s.lstrip().startswith("展開評価："):
                 note_sections[i] = t369_apply_auto_label(s, _flow)
                 break
 
-        # 流れ（_flowが空でもデフォルト文言で出す）
+        # 流れ
         note_sections.append(_flow.get("note", "【流れ】出力なし"))
 
-        # 買い目生成（内部で防御しているが、念のため例外を吸収）
+        # 買い目生成（内部でも防御しているが念のため try で包む）
         try:
             _bets = generate_tesla_bets(_flow, lines_str, marks, scores)
         except Exception as e:
             _bets = {"note": f"⚠ generate_tesla_betsエラー: {type(e).__name__}: {e}"}
-
         note_sections.append(_bets.get("note", "【買い目】出力なし"))
 except Exception as _e:
     note_sections.append(f"⚠ Tesla369ランナーエラー: {type(_e).__name__}: {str(_e)}")
@@ -3916,7 +3915,15 @@ try:
     dbg_lines = _lines_list
     dbg_marks = marks
     dbg_scores_keys = sorted(scores.keys())
-    _flow_diag = compute_flow_indicators(lines_str, marks, scores)
+
+    # ここも安全化：None でも dict にして扱う
+    try:
+        _flow_diag_raw = compute_flow_indicators(lines_str, marks, scores)
+        _flow_diag = _flow_diag_raw if isinstance(_flow_diag_raw, dict) else {}
+    except Exception as e:
+        _flow_diag = {}
+        note_sections.append(f"⚠ compute_flow_indicators(診断)エラー: {type(e).__name__}: {e}")
+
     note_sections.append(
         "【Tesla369診断】"
         f"\nlines_str={lines_str or '—'}"
@@ -3928,8 +3935,9 @@ try:
         f"U={_flow_diag.get('U',0.0):.3f}"
         f"\n※どれかが '—' なら入力が読めていません。"
     )
-    _dbg = _flow_diag.get("dbg", {})
-    if _dbg:
+
+    _dbg = _flow_diag.get("dbg", {}) if isinstance(_flow_diag, dict) else {}
+    if isinstance(_dbg, dict) and _dbg:
         note_sections.append(
             f"[FR内訳] blend_star={_dbg.get('blend_star',0.0):.3f} "
             f"blend_none={_dbg.get('blend_none',0.0):.3f} "
