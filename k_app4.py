@@ -2370,7 +2370,7 @@ def _gen_anchor_trios_fallback(anchor_id: int, max_take: int = 12):
         pool = set()
 
     rows = []
-    for a, b, c in pool:
+    for a, b, c in pool:generate_tesla_bets
         s = _trio_score_safe(a, b, c)
         rows.append((int(a), int(b), int(c), float(s), "FB◎"))
     rows.sort(key=lambda t: (-t[3], t[0], t[1], t[2]))
@@ -3100,24 +3100,26 @@ def _decide_label(flow):
     FR_MIN, VTX_MIN, VTX_MAX, U_MIN = 0.00, 0.50, 0.75, 0.10
     gate_main = (((FRv >= FR_MIN) or (VTXv >= 0.53) or (Uv >= 0.60))
                  and (VTX_MIN <= VTXv <= VTX_MAX) and (Uv >= U_MIN))
-    return "推奨" if (gate_main and not ken) else "参考"
+    return "推奨" if (gate_main and !ken) else "参考"
 
 def _infer_eval(flow):
     FRv  = float((flow or {}).get("FR", 0.0))
     VTXv = float((flow or {}).get("VTX", 0.0))
     Uv   = float((flow or {}).get("U", 0.0))
     if (FRv >= 0.18 and 0.50 <= VTXv <= 0.70 and Uv >= 0.10): return "優位"
-    if (VTXv >= 0.56) or (Uv >= 0.62): return "互角"
+    if (VWXv := max(VTXv, Uv)) >= 0.56:  # ざっくり：渦or逆流が強ければ拮抗〜混戦寄せ
+        return "互角" if VTXv >= 0.56 and Uv < 0.62 else "混戦"
     return "混戦"
 
 def _fmt_rank_local(marks_dict: dict, used_ids: list) -> tuple[str, str]:
-    no_mark_ids = [int(i) for i in (used_ids or [])
-                   if isinstance(marks_dict, dict) and int(i) not in set(marks_dict.values())]
+    ids_set = set(used_ids or [])
+    marks_dict = marks_dict or {}
+    used_marks = set(marks_dict.values())
+    no_mark_ids = [int(i) for i in ids_set if int(i) not in used_marks]
     marks_str = ' '.join(
-        f'{m}{marks_dict[m]}' for m in ['◎','〇','▲','△','×','α']
-        if isinstance(marks_dict, dict) and m in marks_dict
+        f'{m}{marks_dict[m]}' for m in ['◎','〇','▲','△','×','α'] if m in marks_dict
     )
-    no_str = ' '.join(map(str, no_mark_ids)) if no_mark_ids else '—'
+    no_str = ' '.join(map(str, sorted(no_mark_ids))) if no_mark_ids else '—'
     return marks_str, f"無{no_str}"
 
 def _fmt_hen_lines(ts_map: dict, ids: list[int]) -> str:
@@ -3127,6 +3129,16 @@ def _fmt_hen_lines(ts_map: dict, ids: list[int]) -> str:
         v = ts_map.get(n, "—")
         lines.append(f"{n}: {float(v):.1f}" if isinstance(v, (int, float)) else f"{n}: —")
     return "\n".join(lines)
+
+def _fmt_nums(arr):
+    if isinstance(arr, list):
+        return "".join(str(x) for x in arr) if arr else "—"
+    return "—"
+
+def _risk_from_FRv(fr):
+    if fr >= 0.25: return "高"
+    if fr >= 0.10: return "中"
+    return "低"
 
 # --- note_sections 準備 ------------------------------------------
 if 'note_sections' not in globals() or not isinstance(note_sections, list):
@@ -3147,16 +3159,16 @@ _flow     = _safe_flow(lines_str, marks, scores)
 _bets     = _safe_generate(_flow, lines_str, marks, scores)
 
 # --- 見出し（会場＋R）＋展開評価＋推奨/参考 --------------------
-venue = str(globals().get("track") or globals().get("place") or "").strip()
+venue  = str(globals().get("track") or globals().get("place") or "").strip()
 race_no = str(globals().get("race_no") or "").strip()
 if venue or race_no:
     note_sections.append(f"{venue}{race_no}R")
 
 eval_word = _infer_eval(_flow)
-label = _decide_label(_flow)
-note_sections.append(f"展開評価：{eval_word}【{label}】")
+label     = _decide_label(_flow)
+note_sections.append(f"展開評価：{eval_word}")
 
-# --- 以降の標準出力部 -------------------------------------------
+# --- 基本情報 ----------------------------------------------------
 race_time  = globals().get('race_time', '')
 race_class = globals().get('race_class', '')
 note_sections.append(f"{race_time}　{race_class}")
@@ -3170,7 +3182,10 @@ except Exception:
 try:
     USED_IDS = list(globals().get('USED_IDS', []))
     xs_base_raw = globals().get('xs_base_raw', [])
-    note_sections.append(f"スコア順（SBなし）　{_format_rank_from_array(USED_IDS, xs_base_raw)}")
+    if '._format_rank_from_array' in globals():
+        note_sections.append(f"スコア順（SBなし）　{_format_rank_from_array(USED_IDS, xs_base_raw)}")
+    else:
+        raise NameError
 except Exception:
     USED_IDS = list(globals().get('USED_IDS', []))
     note_sections.append(f"スコア順（SBなし）　{' '.join(map(str, USED_IDS))}")
@@ -3192,11 +3207,24 @@ try:
 except Exception:
     note_sections.append("偏差値データなし\n")
 
-# 流れと買い目
-note_sections.append(_flow.get("note", "【流れ】出力なし"))
+# --- ヘッダ三行は“必ず _bets の値”で出す ----------------------
+_FR_line  = _bets.get("FR_line", _flow.get("FR_line"))
+_VTX_line = _bets.get("VTX_line", _flow.get("VTX_line"))
+_U_line   = _bets.get("U_line", _flow.get("U_line"))
+_FRv      = float(_bets.get("FRv",  _flow.get("FR", 0.0)) or 0.0)
+_VTXv     = float(_bets.get("VTXv", _flow.get("VTX", 0.0)) or 0.0)
+_Uv       = float(_bets.get("Uv",   _flow.get("U", 0.0)) or 0.0)
+
+if _FR_line is not None or _VTX_line is not None or _U_line is not None:
+    note_sections.append(f"【順流】◎ライン {_fmt_nums(_FR_line)}：失速危険 {_risk_from_FRv(_FRv)}")
+    note_sections.append(f"【渦】候補ライン：{_fmt_nums(_VTX_line)}（VTX={_VTXv:.2f}）")
+    note_sections.append(f"【逆流】無ライン {_fmt_nums(_U_line)}：U={_Uv:.2f}（※判定基準内）")
+else:
+    # フォールバック
+    note_sections.append(_flow.get("note", "【流れ】出力なし"))
+
+# --- フォーメーション＆買い目ノート本体 -------------------------
 note_sections.append(_bets.get("note", "【買い目】出力なし"))
-
-
 
 
 
