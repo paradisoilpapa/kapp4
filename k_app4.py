@@ -3359,16 +3359,17 @@ def compute_flow_indicators(lines_str, marks, scores):
     return {"VTX":VTX, "FR":FR, "U":U, "note":note, "waves":waves, "vtx_bid":VTX_bid, "lines":lines, "dbg":dbg}
 
 
-# ---------- フォールバック：三連複（ゾーン方式・最大4点のみ） ----------
+# ---------- フォールバック：三連複（ゾーン方式・最大4点・重複/被り防止込み） ----------
 try:
-    generate_tesla_bets  # 既に本実装があれば触らない
+    generate_tesla_bets  # 既存実装があれば触らない
 except NameError:
     def generate_tesla_bets(flow, lines_str, marks, scores):
         """
-        三連複のみを出力（最大4点）。二車複/ワイドは出さない。
-        - ゾーン方式（優位/互角/混戦）でフォーム列を優先採用
-        - ゲート外 or ケン時は出力なし（—）
-        戻り: dict {FR_line,,U_line,FRv,VTXv,Uv,trios,note}
+        三連複のみを出力（最大4点）。
+        ・FR/VTX/U の各ラインは相互に別ラインを保証
+        ・U1/V1 の車番被りを回避
+        ・“重み”で軸が切り替わる仕組みに対応（choose_axisフック or 簡易重み）
+        ・ゾーン方式で 4 点を優先充足 → 不足救済
         """
         flow   = flow or {}
         lines  = list(flow.get("lines") or [])
@@ -3376,6 +3377,7 @@ except NameError:
         marks  = marks or {}
         all_nums = sorted({n for ln in lines for n in ln})
 
+        # --- 小ヘルパ ---
         def _avg(ln):
             xs = [float(scores.get(n, 0.0)) for n in ln]
             return sum(xs)/len(xs) if xs else -1e9
@@ -3395,7 +3397,8 @@ except NameError:
         def _push(a,b,c):
             if _valid(a,b,c):
                 t = tuple(sorted((a,b,c)))
-                if t not in chosen: chosen.append(t)
+                if t not in chosen:
+                    chosen.append(t)
 
         # ---- 指標・ゲート ----
         FRv  = float(flow.get("FR", 0.0) or 0.0)
@@ -3406,25 +3409,22 @@ except NameError:
         gate_main = (((FRv >= 0.00) or (VTXv >= 0.53) or (Uv >= 0.60))
                      and (VTX_MIN <= VTXv <= VTX_MAX) and (Uv >= 0.10))
 
-        # ---- ライン抽出（FR/VTX/U） ----
-        # ここから置き換え開始：軸決定（重み切替フック対応）
+        # ---- 軸決定（重み切替・フック対応） ----
         def _default_axis_by_weight(marks, scores, lines):
-            # 候補：◎, 〇, ▲, α（無は除外）
-            cand_keys = ['◎', '〇', '▲', 'α']
+            cand_keys = ['◎', '〇', '▲', 'α']      # 無は除外
             weights   = {'◎': 1.00, '〇': 0.86, '▲': 0.74, 'α': 0.60}
             items = []
             for k in cand_keys:
                 n = marks.get(k)
                 if isinstance(n, int):
                     sc = float(scores.get(n, 0.0))
-                    # 同ライン平均で微補正（ライン強度 0.10 係数）
+                    # 同ライン平均の微補正（+0.10係数）
                     ln = next((L for L in lines if n in L), [])
-                    ln_mu = (sum(scores.get(x, 0.0) for x in ln) / len(ln)) if ln else 0.0
+                    ln_mu = (sum(scores.get(x, 0.0) for x in ln)/len(ln)) if ln else 0.0
                     adj = sc * weights.get(k, 0.0) + 0.10 * ln_mu
                     items.append((adj, n))
             return max(items)[1] if items else None
 
-        # 外部フックがあれば最優先
         axis = None
         _choose = globals().get('choose_axis', None)
         if callable(_choose):
@@ -3432,87 +3432,76 @@ except NameError:
                 axis = _choose(flow, marks, scores, lines)
             except Exception:
                 axis = None
-
-        # フォールバック：簡易重み
         if not isinstance(axis, int):
             axis = _default_axis_by_weight(marks, scores, lines)
-
-        # それでもNGなら従来どおり◎
         if not isinstance(axis, int):
             axis = marks.get('◎')
-
-        # ★最終フォールバック：それでも未決ならスコア最大
         if not isinstance(axis, int):
+            # 最終フォールバック：全体で最高スコア
             axis = max((n for ln in lines for n in ln), key=lambda n: scores.get(n, 0.0), default=None)
 
         FR_line = _line_of(axis)
-        # 置き換えここまで
 
+        # ---- VTX_line（FR/U と被らせない） ----
         vtx_bid = str(flow.get("vtx_bid") or "")
-         = []
+        VTX_line = []
         for ln in lines:
             if "".join(map(str, ln)) == vtx_bid:
-                 = ln[:]
-                break
-        if not :
+                VTX_line = ln[:]; break
+        if not VTX_line:
             cand = sorted(lines, key=_avg, reverse=True)
-             = cand[0] if cand else []
-            if  == FR_line and len(cand) >= 2:
-                 = cand[1]
+            # FR と異なる最上位
+            VTX_line = next((ln for ln in cand if ln != FR_line), (cand[0] if cand else []))
 
-        # ---- U_line（逆流）決定：FR_line と必ず分離 ----
+        # ---- U_line（無ライン）を FR/VTX と別に選定 ----
         none_id = marks.get('無')
-        U_line = _line_of(none_id) if isinstance(none_id, int) else []
+        U_line = _line_of(none_id) if none_id is not None else []
+        if (not U_line) or (U_line == FR_line) or (U_line == VTX_line):
+            # 単騎最優先（FR除外）
+            singles = [ln for ln in lines if len(ln) == 1 and ln not in (FR_line, VTX_line)]
+            if singles:
+                U_line = singles[0]
+            else:
+                others = [ln for ln in lines if ln not in (FR_line, VTX_line)]
+                # 低スコア優先（＝逆流側）
+                others.sort(key=_avg)
+                U_line = others[0] if others else []
 
-        # 候補群（◎ライン以外）
-        others = [ln for ln in lines if ln != FR_line]
+        # VTX と U がもし被っていたら、VTX を次点にずらす
+        if VTX_line == U_line:
+            cand = sorted(lines, key=_avg, reverse=True)
+            VTX_line = next((ln for ln in cand if ln not in (FR_line, U_line)), VTX_line)
 
-        # 1) 明示の「無」ラインが◎ラインと同一 or 不在 → 無効化して再選定
-        if (not U_line) or (U_line == FR_line):
-            U_line = []
-
-        # 2) S>0 の中で最大（◎ライン以外）
-        if not U_line and lines:
-            # waves は compute_flow_indicators 側の結果なので、ライン→bucket の対応でスコアする
-            # ここでは近似としてライン平均を使ってもOK（Sを直接参照できない環境を想定）
-            # → S未接続環境のため line 平均の低さで代用し、下の 3) と順序を入れ替え可
-            pass  # waves非共有ならスキップ（3) に進む）
-
-        # 3) 平均スコアが最も低いライン（◎ライン以外）
-        if not U_line and others:
-            others_sorted = sorted(others, key=_avg)  # 低スコア優先
-            U_line = others_sorted[0]
-
-        # 4) まだ未決なら、残りのどれか（先頭）を採用
-        if not U_line and others:
-            U_line = others[0]
-
-        # 5) 最終ガード：2本以上ラインがあるのに同一になりそうなら、次点に繰り上げ
-        if U_line == FR_line and len(others) >= 1:
-            # others は既に FR_line を除外済み。ここに来たら念のため先頭を使う
-            U_line = others[0]
-
-
-        # ---- 軸・相手抽出 ----
+        # ---- 軸ライン内の相棒/同ライン3番手 ----
         axis_line = FR_line[:]
         axis_mates = [n for n in axis_line if n != axis]
         axis_mates_sorted = sorted(axis_mates, key=lambda n: scores.get(n, 0.0), reverse=True)
         SL  = axis_mates_sorted[0] if len(axis_mates_sorted) >= 1 else None
-        SL2 = axis_mates_sorted[1] if len(axis_mates_sorted) >= 2 else None
+        SL2 = axis_mates_sorted[1] if len(axis_mates_sorted) >= 2 else None  # 3番手
 
-        u_cands = sorted([n for n in U_line   if n not in (None, axis, SL)], key=lambda n: scores.get(n, 0.0), reverse=True)
-        v_cands = sorted([n for n in  if n not in (None, axis, SL)], key=lambda n: scores.get(n, 0.0), reverse=True)
+        # ---- U側/VTX側の相手抽出（被り回避） ----
+        u_pool = [n for n in U_line   if n not in (None, axis, SL)]
+        v_pool = [n for n in VTX_line if n not in (None, axis, SL)]
+        u_cands = sorted(u_pool, key=lambda n: scores.get(n, 0.0), reverse=True)
+        v_cands = sorted(v_pool, key=lambda n: scores.get(n, 0.0), reverse=True)
         U1 = u_cands[0] if len(u_cands) >= 1 else None
         U2 = u_cands[1] if len(u_cands) >= 2 else None
-        V1 = v_cands[0] if len(v_cands) >= 1 else None
-        V2 = v_cands[1] if len(v_cands) >= 2 else None
+        V1 = None
+        for cand in v_cands:
+            if cand != U1:   # ★U1との重複回避
+                V1 = cand
+                break
+        V2 = next((n for n in v_cands if n not in (U1, V1)), None)
 
+        # メイン印
         C = marks.get('〇')
         A = marks.get('▲')
+        # 逆流側の“無/α”最上位（あれば採用）
         XA = None
         for cand in [marks.get('無'), marks.get('α')]:
             if isinstance(cand, int) and cand in all_nums and cand != axis:
-                XA = cand; break
+                XA = cand
+                break
 
         # ---- ゾーン設定（最大4点） ----
         N_PER_ZONE    = 4
@@ -3524,11 +3513,11 @@ except NameError:
         _eval = globals().get("tenkai", globals().get("confidence", "")) or ""
         def _zone_from_eval():
             ev = str(_eval)
-            if "優位" in ev: return "優位"
-            if "互角" in ev: return "互角"
-            if "混戦" in ev: return "混戦"
-            if Uv >= 0.62:  return "混戦"
-            if VTXv >= 0.56: return "互角"
+            if "優位" in ev:  return "優位"
+            if "互角" in ev:  return "互角"
+            if "混戦" in ev:  return "混戦"
+            if Uv >= 0.62:    return "混戦"
+            if VTXv >= 0.56:  return "互角"
             return "優位"
 
         def _best_outside_axis():
@@ -3551,12 +3540,13 @@ except NameError:
                 12: (axis, U2,  V1),             # ◎-U2-V1
             }
             tri = list(table.get(fid, (None,None,None)))
+            # (8) は“同ライン外スコア最上位”で埋める
             if tri[2] is None and fid == 8:
                 tri[2] = _best_outside_axis()
             a,b,c = tri
             return tuple(sorted((a,b,c))) if _valid(a,b,c) else None
 
-               # ===== 実行：ゾーン優先（最大4点） =====
+        # ===== 実行：ゾーン優先（最大4点） =====
         if gate_main and not is_ken_flag:
             zone = _zone_from_eval()
             order = ZONE_FORMS.get(zone, ZONE_FORMS["優位"])
@@ -3564,93 +3554,26 @@ except NameError:
 
             # 1) ゾーン優先で充足
             for fid in order:
-                if len(chosen) >= N_PER_ZONE:
-                    break
+                if len(chosen) >= N_PER_ZONE: break
                 t = _emit_form(fid)
-                if not t or t in seen:
-                    continue
-                seen.add(t)
-                chosen.append(t)
+                if not t or t in seen: continue
+                seen.add(t); chosen.append(t)
 
             # 2) 不足分の救済：無/α系（9,10,11,12）を優先
             if len(chosen) < N_PER_ZONE:
                 for fid in [9, 10, 11, 12]:
-                    if len(chosen) >= N_PER_ZONE:
-                        break
+                    if len(chosen) >= N_PER_ZONE: break
                     t = _emit_form(fid)
-                    if not t or t in seen:
-                        continue
-                    seen.add(t)
-                    chosen.append(t)
+                    if not t or t in seen: continue
+                    seen.add(t); chosen.append(t)
 
-            # 3) さらに不足：無 と α の“両順序”で直挿し補完（9/10/11の強化）
+            # 3) それでも足りなければ 1..12 を総当たりで充足
             if len(chosen) < N_PER_ZONE:
-                def _try_xa_priority(order_marks):
-                    nonlocal chosen
-                    for mk in order_marks:
-                        cand = marks.get(mk)
-                        if not isinstance(cand, int):
-                            continue
-                        for tri in [
-                            (axis, U1, cand),
-                            (axis, V1, cand),
-                            (axis, SL, cand),
-                        ]:
-                            if len(chosen) >= N_PER_ZONE:
-                                break
-                            a, b, c = tri
-                            if not _valid(a, b, c):
-                                continue
-                            t = tuple(sorted((a, b, c)))
-                            if t in seen:
-                                continue
-                            seen.add(t)
-                            chosen.append(t)
-
-                if len(chosen) < N_PER_ZONE:
-                    _try_xa_priority(['無', 'α'])
-                if len(chosen) < N_PER_ZONE:
-                    _try_xa_priority(['α', '無'])
-
-            # 4) それでも不足：SL2 や“同ライン外 次善候補”で補完
-            if len(chosen) < N_PER_ZONE:
-                others = [n for n in all_nums if n not in axis_line and n != axis]
-                others_sorted = sorted(others, key=lambda n: scores.get(n, 0.0), reverse=True)
-
-                alt_pool = []
-                if SL2:
-                    alt_pool += [(axis, SL2, U1), (axis, SL2, V1)]
-                    for z in others_sorted:
-                        alt_pool.append((axis, SL2, z))
-
-                for z in others_sorted:
-                    alt_pool.append((axis, SL, z))
-
-                for z in others_sorted:
-                    alt_pool.append((axis, U1, z))
-                    alt_pool.append((axis, V1, z))
-
-                for a, b, c in alt_pool:
-                    if len(chosen) >= N_PER_ZONE:
-                        break
-                    if not _valid(a, b, c):
-                        continue
-                    t = tuple(sorted((a, b, c)))
-                    if t in seen:
-                        continue
-                    seen.add(t)
-                    chosen.append(t)
-
-            # 5) 最終保険：1..12 を総当たりで充足
-            if len(chosen) < N_PER_ZONE:
-                for fid in range(1, 13):
-                    if len(chosen) >= N_PER_ZONE:
-                        break
+                for fid in range(1, 12+1):
+                    if len(chosen) >= N_PER_ZONE: break
                     t = _emit_form(fid)
-                    if not t or t in seen:
-                        continue
-                    seen.add(t)
-                    chosen.append(t)
+                    if not t or t in seen: continue
+                    seen.add(t); chosen.append(t)
 
         # 出力整形（最大4点。条件外なら "—"）
         tri_strs = [f"{t[0]}-{t[1]}-{t[2]}" for t in chosen]
@@ -3658,7 +3581,7 @@ except NameError:
         note_lines.append("三連複：" + ("—" if (not tri_strs) else ", ".join(tri_strs[:N_PER_ZONE])))
 
         return {
-            "FR_line": FR_line,          # ← 軸ベース
+            "FR_line": FR_line,
             "VTX_line": VTX_line,
             "U_line": U_line,
             "FRv": FRv, "VTXv": VTXv, "Uv": Uv,
