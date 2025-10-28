@@ -3373,7 +3373,9 @@ def compute_flow_indicators(lines_str, marks, scores):
             "trios": chosen[:N_PER_ZONE],
             "note": "\n".join(note_lines),
         }
-# ← ここで def generate_tesla_bets(...) のブロックが終了（この下はインデント無し）
+# ← ここで def generate_tesla_bets(...) が終わり。**この1行下**からはインデント無し（列0）
+
+
 
 # ---------- 出力ヘルパ ----------
 def _safe_flow(lines_str, marks, scores):
