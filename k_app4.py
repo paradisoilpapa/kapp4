@@ -3259,28 +3259,20 @@ def compute_flow_indicators(lines_str, marks, scores):
         if not bi or not bj or bi not in waves or bj not in waves: return 0.0
         return math.cos(waves[bi]["phi"] - waves[bj]["phi"])
 
-# --- ◎（順流）と 無（逆流）の決定（被り防止＆上向き優先・最終ガード付き） ---
-b_star = bucket_of(star_id)
-
-# ◎が未設定/特定不可なら、平均スコア最大のラインを順流に採用
-if not b_star:
-    try:
-        b_star = max(
-            bucket_to_members.keys(),
-            key=lambda bid: _t369_safe_mean(
-                [scores.get(n, 50.0) for n in bucket_to_members[bid]],
-                50.0
-            )
-        )
-    except Exception:
-        b_star = ""
-
-# 候補（◎以外）※ b_star 確定後に作る
-all_buckets = list(bucket_to_members.keys())
-cand_buckets = [bid for bid in all_buckets if bid != b_star]
-
     # --- ◎（順流）と 無（逆流）の決定（被り防止＆上向き優先・最終ガード付き） ---
     b_star = bucket_of(star_id)
+
+    # ◎が未設定/特定不可なら、平均スコア最大のラインを順流に採用
+    if not b_star:
+        try:
+            b_star = max(
+                bucket_to_members.keys(),
+                key=lambda bid: _t369_safe_mean(
+                    [scores.get(n, 50.0) for n in bucket_to_members[bid]], 50.0
+                )
+            )
+        except Exception:
+            b_star = ""
 
     # 候補（◎以外）
     all_buckets = list(bucket_to_members.keys())
@@ -3322,101 +3314,83 @@ cand_buckets = [bid for bid in all_buckets if bid != b_star]
     if (not b_none) or (b_none == b_star):
         b_none = cand_buckets[0] if cand_buckets else ""
 
+    # --- VTX（位相差×振幅） ---
+    vtx_list = []
+    for bid, mem in bucket_to_members.items():
+        if bid in (b_star, b_none):
+            continue
+        if waves.get(bid, {}).get("S", -1e9) < -0.02:
+            continue
+        wA = 0.5 + 0.5 * waves[bid]["A"]
+        v  = (0.6 * abs(I(bid, b_star)) + 0.4 * abs(I(bid, b_none))) * wA
+        vtx_list.append((v, bid))
 
-    # 3) 未決なら S が最大（符号不問）
-    if b_none is None:
-        anyS = [(waves.get(bid, {}).get("S", -1e9), bid) for bid in cand_buckets]
-        if anyS:
-            b_none = max(anyS)[1]
+    vtx_list.sort(reverse=True, key=lambda x: x[0])
+    VTX     = vtx_list[0][0] if vtx_list else 0.0
+    VTX_bid = vtx_list[0][1] if vtx_list else ""
 
-    # 4) 最終ガード：同一or未決なら候補先頭（FR≠Uを保証）
-    if (not b_none) or (b_none == b_star):
-        b_none = cand_buckets[0] if cand_buckets else ""
+    # --- FR（◎下向き×無上向き） ---
+    ws, wn = waves.get(b_star, {}), waves.get(b_none, {})
 
-# --- VTX（位相差×振幅） ---
-vtx_list = []
-for bid, mem in bucket_to_members.items():
-    if bid in (b_star, b_none): 
-        continue
-    if waves.get(bid, {}).get("S", -1e9) < -0.02:
-        continue
-    wA = 0.5 + 0.5*waves[bid]["A"]
-    v  = (0.6*abs(I(bid, b_star)) + 0.4*abs(I(bid, b_none))) * wA
-    vtx_list.append((v, bid))
+    # tを0.95にして極端値を抑制
+    def S_point(w, t=0.95, f=0.9, gamma=0.12):
+        if not w:
+            return 0.0
+        A, phi = w.get("A", 0.0), w.get("phi", 0.0)
+        return A * math.exp(-gamma * t) * (
+            2 * math.pi * f * math.cos(2 * math.pi * f * t + phi)
+            - gamma * math.sin(2 * math.pi * f * t + phi)
+        )
 
-vtx_list.sort(reverse=True, key=lambda x: x[0])
-VTX     = vtx_list[0][0] if vtx_list else 0.0
-VTX_bid = vtx_list[0][1] if vtx_list else ""
+    blend_star = 0.6 * S_point(ws) + 0.4 * ws.get("S", 0.0)
+    blend_none = 0.6 * S_point(wn) + 0.4 * wn.get("S", 0.0)
 
+    def sig(x, k=3.0):
+        try:
+            return 1.0 / (1.0 + math.exp(-k * x))
+        except OverflowError:
+            return 0.0 if x < 0 else 1.0
 
-# --- FR（◎下向き×無上向き） ---
-ws, wn = waves.get(b_star, {}), waves.get(b_none, {})
+    sd_raw = (sig(-blend_star, 3.0) - 0.5) * 2.0
+    nu_raw = (sig( blend_none, 3.0) - 0.5) * 2.0
+    sd = max(0.0, sd_raw)
+    nu = max(0.05, nu_raw)   # 下限0.05でゼロ張り付き回避
+    FR = sd * nu
 
-# tを0.95にして極端値を抑制
-def S_point(w, t=0.95, f=0.9, gamma=0.12):
-    if not w:
-        return 0.0
-    A, phi = w.get("A", 0.0), w.get("phi", 0.0)
-    return A * math.exp(-gamma * t) * (
-        2 * math.pi * f * math.cos(2 * math.pi * f * t + phi)
-        - gamma * math.sin(2 * math.pi * f * t + phi)
-    )
-
-blend_star = 0.6 * S_point(ws) + 0.4 * ws.get("S", 0.0)
-blend_none = 0.6 * S_point(wn) + 0.4 * wn.get("S", 0.0)
-
-def sig(x, k=3.0):
-    try:
-        return 1.0 / (1.0 + math.exp(-k * x))
-    except OverflowError:
-        return 0.0 if x < 0 else 1.0
-
-sd_raw = (sig(-blend_star, 3.0) - 0.5) * 2.0
-nu_raw = (sig( blend_none, 3.0) - 0.5) * 2.0
-sd = max(0.0, sd_raw)
-nu = max(0.05, nu_raw)   # 下限0.05でゼロ張り付き回避
-FR = sd * nu
-
-# U（逆流圧）
-vtx_vals = [v for v, _ in vtx_list] or [0.0]
-vtx_mu = _t369_safe_mean(vtx_vals, 0.0)
-vtx_sd = (_t369_safe_mean([(x - vtx_mu) ** 2 for x in vtx_vals], 0.0)) ** 0.5
-vtx_hi = max(0.60, vtx_mu + 0.35 * vtx_sd)
-VTX_high = 1.0 if VTX >= vtx_hi else 0.0
-FR_high  = 1.0 if FR  >= 0.12 else 0.0
-S_max = max(1e-6, max(abs(w["S"]) for w in waves.values()))
-S_noneN = max(0.0, wn.get("S", 0.0)) / S_max
-U_raw = sig(I(b_none, b_star), k=2.0)
-U = max(0.05, (0.6 * U_raw + 0.4 * S_noneN) * (1.0 if VTX_high > 0 else 0.8))
-
-    # （この上で U を計算し終わった直後）
+    # --- U（逆流圧） ---
+    vtx_vals = [v for v, _ in vtx_list] or [0.0]
+    vtx_mu = _t369_safe_mean(vtx_vals, 0.0)
+    vtx_sd = (_t369_safe_mean([(x - vtx_mu) ** 2 for x in vtx_vals], 0.0)) ** 0.5
+    vtx_hi = max(0.60, vtx_mu + 0.35 * vtx_sd)
+    VTX_high = 1.0 if VTX >= vtx_hi else 0.0
+    FR_high  = 1.0 if FR  >= 0.12 else 0.0
+    S_max = max(1e-6, max(abs(w["S"]) for w in waves.values()))
+    S_noneN = max(0.0, wn.get("S", 0.0)) / S_max
+    U_raw = sig(I(b_none, b_star), k=2.0)
+    U = max(0.05, (0.6 * U_raw + 0.4 * S_noneN) * (1.0 if VTX_high > 0 else 0.8))
 
     def label(bid):
         mem = bucket_to_members.get(bid, [])
         return "".join(map(str, mem)) if mem else "—"
 
     tag  = "点灯" if (VTX_high > 0 and FR_high > 0) else "判定基準内"
-note = "\n".join([
-    f"【順流】◎ライン {label(b_star)}：失速危険 {'高' if FR>=0.15 else ('中' if FR>=0.05 else '低')}",
-    f"【渦】候補ライン：{label()}（VTX={VTX:.2f}）",   # ← ここが NG（引数なし）
-    f"【逆流】無ライン {label(b_none)}：U={U:.2f}（※判定基準内）",
-])
-
+    note = "\n".join([
+        f"【順流】◎ライン {label(b_star)}：失速危険 {'高' if FR>=0.15 else ('中' if FR>=0.05 else '低')}",
+        f"【渦】候補ライン：{label(VTX_bid)}（VTX={VTX:.2f}）",
+        f"【逆流】無ライン {label(b_none)}：U={U:.2f}（※{tag}）",
+    ])
 
     dbg = {
         "blend_star": blend_star, "blend_none": blend_none,
         "sd": sd, "nu": nu, "vtx_hi": vtx_hi
     }
 
-return {
-    "VTX": VTX, "FR": FR, "U": U,
-    "note": note, "waves": waves,
-    "vtx_bid": VTX_bid,      # ← 'vtx_bid' にする
-    "lines": lines, "dbg": dbg,
-}
-
+    return {
+        "VTX": VTX, "FR": FR, "U": U,
+        "note": note, "waves": waves,
+        "vtx_bid": VTX_bid,   # ← キー名を統一
+        "lines": lines, "dbg": dbg,
     }
-
 
 
 # ---------- フォールバック：三連複（ゾーン方式・最大4点・重複/被り防止込み） ----------
