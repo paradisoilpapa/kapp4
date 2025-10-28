@@ -3475,6 +3475,31 @@ def generate_tesla_bets(flow, lines_str, marks, scores):
             fallback = [x for x in _topk(VTX_line, 2, scores) if x not in base]
         set4 = _uniq_fill4(base, prefer, fallback, scores, banned=banned)
     else:
+    # ---- 軸選定 ----
+    if fr_risk == "低":
+        axis = _topk(FR_line, 1, scores)[0] if FR_line else None
+    else:  # 中/高
+        axis = _topk(VTX_line, 1, scores)[0] if VTX_line else None
+
+    # ---- VTX3車のときは同ライン2相手を先置き ----
+    base = []
+    if axis in (VTX_line or []) and len(VTX_line) == 3:
+        base = [x for x in VTX_line if x != axis]  # 例: [4,3]
+
+    # ---- 4車集合（SET4） ----
+    banned = {axis} if axis is not None else set()
+
+    if len(FR_line) == 3:
+        base = list(FR_line)  # FR3車は必ず採用（位置ペナルティなし）
+        if fr_risk in ("低", "中"):
+            prefer = [x for x in _topk(VTX_line, 2, scores) if x not in base]
+            fallback = [x for x in _topk(U_line, 2, scores) if x not in base]
+        else:  # 高
+            prefer = [x for x in _topk(U_line, 2, scores) if x not in base]
+            fallback = [x for x in _topk(VTX_line, 2, scores) if x not in base]
+        set4 = _uniq_fill4(base, prefer, fallback, scores, banned=banned)
+
+    else:
         if fr_risk == "低":
             target = _topk(FR_line, 4, scores)
             set4 = _uniq_fill4(base, target, [], scores, banned=banned)
@@ -3485,24 +3510,6 @@ def generate_tesla_bets(flow, lines_str, marks, scores):
             target = _topk(VTX_line, 2, scores) + _topk(U_line, 2, scores)
             set4 = _uniq_fill4(base, target, [], scores, banned=banned)
 
-        base = list(FR_line)  # FR3車は必ず採用（位置ペナルティなし）
-        if fr_risk in ("低", "中"):
-            prefer = [x for x in _topk(VTX_line, 2, scores) if x not in base]
-            fallback = [x for x in _topk(U_line, 2, scores) if x not in base]
-        else:  # 高
-            prefer = [x for x in _topk(U_line, 2, scores) if x not in base]
-            fallback = [x for x in _topk(VTX_line, 2, scores) if x not in base]
-        set4 = _uniq_fill4(base, prefer, fallback, scores, banned=banned)
-    else:
-        if fr_risk == "低":
-            target = _topk(FR_line, 4, scores)
-            set4 = _uniq_fill4([], target, [], scores, banned=banned)
-        elif fr_risk == "中":
-            target = _topk(FR_line, 2, scores) + _topk(VTX_line, 2, scores)
-            set4 = _uniq_fill4([], target, [], scores, banned=banned)
-        else:  # 高
-            target = _topk(VTX_line, 2, scores) + _topk(U_line, 2, scores)
-            set4 = _uniq_fill4([], target, [], scores, banned=banned)
 
     # ---- 三連複6点（軸-4-4） ----
     from itertools import combinations
