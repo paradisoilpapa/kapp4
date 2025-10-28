@@ -3502,34 +3502,32 @@ except NameError:
             others.sort(key=_avg)
             U_line = others[0] if others else []
 
-# --- ラインの一意化ガード（FR/VTX/U は互いに別にする） ---
-def _line_avg(ln):
-    return _avg(ln) if ln else -1e9
+        # --- ラインの一意化ガード（FR/VTX/U は互いに別にする） ---
+        def _line_avg(ln):
+            return _avg(ln) if ln else -1e9
 
-# VTX_line が FR_line と同じ or U_line と同じなら、次点候補に差し替え
-if VTX_line:
-    cand = sorted(
-        [ln for ln in lines if ln not in (FR_line, VTX_line, U_line)],
-        key=_line_avg, reverse=True
-    )
-    if (VTX_line == FR_line) or (VTX_line == U_line):
-        VTX_line = cand[0] if cand else VTX_line
+        # VTX_line が FR_line と同じ or U_line と同じなら、次点候補に差し替え
+        if VTX_line:
+            cand = sorted(
+                [ln for ln in lines if ln not in (FR_line, VTX_line, U_line)],
+                key=_line_avg, reverse=True
+            )
+            if (VTX_line == FR_line) or (VTX_line == U_line):
+                VTX_line = cand[0] if cand else VTX_line
 
-# U_line が FR_line と同じ or VTX_line と同じなら、次点候補に差し替え（※低スコア優先）
-if U_line:
-    cand_low = sorted(
-        [ln for ln in lines if ln not in (FR_line, VTX_line, U_line)],
-        key=_line_avg  # 昇順＝低スコア優先
-    )
-    if (U_line == FR_line) or (U_line == VTX_line):
-        U_line = cand_low[0] if cand_low else U_line
+        # U_line が FR_line と同じ or VTX_line と同じなら、次点候補に差し替え（※低スコア優先）
+        if U_line:
+            cand_low = sorted(
+                [ln for ln in lines if ln not in (FR_line, VTX_line, U_line)],
+                key=_line_avg  # 昇順＝低スコア優先
+            )
+            if (U_line == FR_line) or (U_line == VTX_line):
+                U_line = cand_low[0] if cand_low else U_line
 
-# VTX と U が被っていたら、VTX を次点にずらす（FR は守る）
-if VTX_line == U_line:
-    cand = sorted(lines, key=_avg, reverse=True)
-    VTX_line = next((ln for ln in cand if ln not in (FR_line, U_line)), VTX_line)
-
-
+        # VTX と U が被っていたら、VTX を次点にずらす（FR は守る）
+        if VTX_line == U_line:
+            cand = sorted(lines, key=_avg, reverse=True)
+            VTX_line = next((ln for ln in cand if ln not in (FR_line, U_line)), VTX_line)
 
         # ---- 軸ライン内の相棒/同ライン3番手 ----
         axis_line = FR_line[:]
@@ -3545,11 +3543,7 @@ if VTX_line == U_line:
         v_cands = sorted(v_pool, key=lambda n: scores.get(n, 0.0), reverse=True)
         U1 = u_cands[0] if len(u_cands) >= 1 else None
         U2 = u_cands[1] if len(u_cands) >= 2 else None
-        V1 = None
-        for cand in v_cands:
-            if cand != U1:   # ★U1との重複回避
-                V1 = cand
-                break
+        V1 = next((n for n in v_cands if n != U1), None)  # ★U1との重複回避
         V2 = next((n for n in v_cands if n not in (U1, V1)), None)
 
         # メイン印
@@ -3611,8 +3605,6 @@ if VTX_line == U_line:
             a, b, c = tri
             return tuple(sorted((a, b, c))) if _valid(a, b, c) else None
 
-
-
         # ===== 実行：ゾーン優先（最大4点） =====
         if gate_main and not is_ken_flag:
             zone = _zone_from_eval()
@@ -3645,7 +3637,6 @@ if VTX_line == U_line:
                     seen.add(t)
                     chosen.append(t)
 
-
         # 出力整形（最大4点。条件外なら "—"）
         tri_strs = [f"{t[0]}-{t[1]}-{t[2]}" for t in chosen]
         note_lines = ["【買い目】"]
@@ -3659,97 +3650,6 @@ if VTX_line == U_line:
             "trios": chosen[:N_PER_ZONE],
             "note": "\n".join(note_lines),
         }
-
-            # 3) それでも足りなければ 1..12 を総当たりで充足
-            if len(chosen) < N_PER_ZONE:
-                for fid in range(1, 12+1):
-                    if len(chosen) >= N_PER_ZONE: break
-                    t = _emit_form(fid)
-                    if not t or t in seen: continue
-                    seen.add(t); chosen.append(t)
-
-            # ---- 追加：15通りランキングで不足充足（最大4点まで）-----------------
-            if gate_main and not is_ken_flag and len(chosen) < N_PER_ZONE and isinstance(axis, int):
-                # 軸固定：残り6人から2人を選ぶ全組合せ（最大15）
-                rest = [n for n in all_nums if n != axis]
-                rest = sorted(rest, key=lambda n: scores.get(n, 0.0), reverse=True)
-
-                # 役割判定ヘルパ
-                axis_set = set(FR_line or [])
-                u_set    = set(U_line or [])
-                vtx_set  = set(VTX_line or [])
-                is_SL   = lambda n: (n in axis_set and n != axis)
-                is_SL2  = lambda n: (n in axis_set and n != axis and n != (SL or -1))
-                is_U1   = lambda n: (U1 is not None and n == U1)
-                is_U2   = lambda n: (U2 is not None and n == U2)
-                is_V1   = lambda n: (V1 is not None and n == V1)
-                is_V2   = lambda n: (V2 is not None and n == V2)
-                is_C    = lambda n: (C  is not None and n == C)
-                is_A    = lambda n: (A  is not None and n == A)
-                is_XA   = lambda n: (XA is not None and n == XA)
-
-                # ゾーンごとの重み（フォーム序列の意図を点数化）
-                zone = _zone_from_eval()
-                if zone == "優位":
-                    W = dict(base=1.00, SL=0.60, SL2=0.25, U1=0.55, U2=0.35, V1=0.50, V2=0.30, C=0.40, A=0.25, XA=0.10)
-                elif zone == "互角":
-                    W = dict(base=1.00, SL=0.45, SL2=0.20, U1=0.50, U2=0.35, V1=0.50, V2=0.35, C=0.35, A=0.25, XA=0.25)
-                else:  # 混戦
-                    W = dict(base=1.00, SL=0.35, SL2=0.15, U1=0.55, U2=0.40, V1=0.45, V2=0.35, C=0.30, A=0.25, XA=0.40)
-
-                def _bonus(n):
-                    b = 0.0
-                    if is_SL(n):  b += W["SL"]
-                    if is_SL2(n): b += W["SL2"]
-                    if is_U1(n):  b += W["U1"]
-                    if is_U2(n):  b += W["U2"]
-                    if is_V1(n):  b += W["V1"]
-                    if is_V2(n):  b += W["V2"]
-                    if is_C(n):   b += W["C"]
-                    if is_A(n):   b += W["A"]
-                    if is_XA(n):  b += W["XA"]
-                    return b
-
-                def _score_trio(a, b):
-                    base = scores.get(axis, 0.0) + scores.get(a, 0.0) + scores.get(b, 0.0)
-                    bonus = _bonus(a) + _bonus(b)
-                    same_axis = (a in axis_set) + (b in axis_set)
-                    form_bias = (0.12 if zone == "優位" else (0.08 if zone == "互角" else 0.04)) * same_axis
-                    mix_uv = ((a in u_set or b in u_set) and (a in vtx_set or b in vtx_set))
-                    mix_bonus = 0.12 if (zone == "互角" and mix_uv) else (0.06 if mix_uv else 0.0)
-                    return W["base"] * base + 100.0 * (bonus + form_bias + mix_bonus)
-
-                from itertools import combinations
-                universe = []
-                for a, b in combinations(rest, 2):
-                    t = tuple(sorted((axis, a, b)))
-                    if _valid(*t):
-                        sc = _score_trio(a, b)
-                        universe.append((sc, t))
-
-                # 既存候補を除いて上位から補完
-                seen_all = set(chosen)
-                for sc, t in sorted(universe, key=lambda x: x[0], reverse=True):
-                    if len(chosen) >= N_PER_ZONE: break
-                    if t not in seen_all:
-                        seen_all.add(t)
-                        chosen.append(t)
-            # ----------------------------------------------------------------------
-
-        # 出力整形（最大4点。条件外なら "—"）
-        tri_strs = [f"{t[0]}-{t[1]}-{t[2]}" for t in chosen]
-        note_lines = ["【買い目】"]
-        note_lines.append("三連複：" + ("—" if (not tri_strs) else ", ".join(tri_strs[:N_PER_ZONE])))
-
-        return {
-            "FR_line": FR_line,
-            "VTX_line": VTX_line,
-            "U_line": U_line,
-            "FRv": FRv, "VTXv": VTXv, "Uv": Uv,
-            "trios": chosen[:N_PER_ZONE],
-            "note": "\n".join(note_lines),
-        }
-
 
 # ---------- 出力ヘルパ ----------
 def _safe_flow(lines_str, marks, scores):
