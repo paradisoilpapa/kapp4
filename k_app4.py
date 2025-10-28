@@ -3311,19 +3311,21 @@ cand_buckets = [bid for bid in all_buckets if bid != b_star]
     if (not b_none) or (b_none == b_star):
         b_none = cand_buckets[0] if cand_buckets else ""
 
-   # VTX（位相差×振幅）
+# --- VTX（位相差×振幅） ---
 vtx_list = []
 for bid, mem in bucket_to_members.items():
-    if bid in (b_star, b_none):
+    if bid in (b_star, b_none): 
         continue
     if waves.get(bid, {}).get("S", -1e9) < -0.02:
         continue
-    wA = 0.5 + 0.5 * waves[bid]["A"]
-    v  = (0.6 * abs(I(bid, b_star)) + 0.4 * abs(I(bid, b_none))) * wA
+    wA = 0.5 + 0.5*waves[bid]["A"]
+    v  = (0.6*abs(I(bid, b_star)) + 0.4*abs(I(bid, b_none))) * wA
     vtx_list.append((v, bid))
+
 vtx_list.sort(reverse=True, key=lambda x: x[0])
-VTX = vtx_list[0][0] if vtx_list else 0.0
+VTX     = vtx_list[0][0] if vtx_list else 0.0
 VTX_bid = vtx_list[0][1] if vtx_list else ""
+
 
 # --- FR（◎下向き×無上向き） ---
 ws, wn = waves.get(b_star, {}), waves.get(b_none, {})
@@ -3372,26 +3374,25 @@ U = max(0.05, (0.6 * U_raw + 0.4 * S_noneN) * (1.0 if VTX_high > 0 else 0.8))
         return "".join(map(str, mem)) if mem else "—"
 
     tag  = "点灯" if (VTX_high > 0 and FR_high > 0) else "判定基準内"
-    note = "\n".join([
-        f"【順流】◎ライン {label(b_star)}：失速危険 {'高' if FR >= 0.15 else ('中' if FR >= 0.05 else '低')}",
-        f"【渦】候補ライン：{label(VTX_bid)}（VTX={VTX:.2f}）",   # ← VTX_bid を表示
-        f"【逆流】無ライン {label(b_none)}：U={U:.2f}（※判定基準内）",
-    ])
+note = "\n".join([
+    f"【順流】◎ライン {label(b_star)}：失速危険 {'高' if FR>=0.15 else ('中' if FR>=0.05 else '低')}",
+    f"【渦】候補ライン：{label()}（VTX={VTX:.2f}）",   # ← ここが NG（引数なし）
+    f"【逆流】無ライン {label(b_none)}：U={U:.2f}（※判定基準内）",
+])
+
 
     dbg = {
         "blend_star": blend_star, "blend_none": blend_none,
         "sd": sd, "nu": nu, "vtx_hi": vtx_hi
     }
 
-    return {
-        "VTX": VTX,
-        "FR": FR,
-        "U": U,
-        "note": note,
-        "waves": waves,
-        "vtx_bid": VTX_bid,   # ← 空キーのtypoを修正
-        "lines": lines,
-        "dbg": dbg
+return {
+    "VTX": VTX, "FR": FR, "U": U,
+    "note": note, "waves": waves,
+    "vtx_bid": VTX_bid,      # ← 'vtx_bid' にする
+    "lines": lines, "dbg": dbg,
+}
+
     }
 
 
