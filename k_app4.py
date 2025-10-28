@@ -3279,6 +3279,12 @@ if not b_star:
 all_buckets = list(bucket_to_members.keys())
 cand_buckets = [bid for bid in all_buckets if bid != b_star]
 
+    # --- ◎（順流）と 無（逆流）の決定（被り防止＆上向き優先・最終ガード付き） ---
+    b_star = bucket_of(star_id)
+
+    # 候補（◎以外）
+    all_buckets = list(bucket_to_members.keys())
+    cand_buckets = [bid for bid in all_buckets if bid != b_star]
 
     # 0) 明示の「無」バケット（存在＆◎と別）を第一候補に
     b_none = bucket_of(none_id)
@@ -3287,8 +3293,11 @@ cand_buckets = [bid for bid in all_buckets if bid != b_star]
 
     # 1) S>0 の中で最大
     if b_none is None:
-        posS = [(waves.get(bid, {}).get("S", -1e9), bid) for bid in cand_buckets
-                if waves.get(bid, {}).get("S", -1e9) > 0]
+        posS = [
+            (waves.get(bid, {}).get("S", -1e9), bid)
+            for bid in cand_buckets
+            if waves.get(bid, {}).get("S", -1e9) > 0
+        ]
         if posS:
             b_none = max(posS)[1]
 
@@ -3296,10 +3305,23 @@ cand_buckets = [bid for bid in all_buckets if bid != b_star]
     if b_none is None:
         low_mu = sorted(
             cand_buckets,
-            key=lambda bid: _t369_safe_mean([scores.get(n, 50.0) for n in bucket_to_members[bid]], 50.0)
+            key=lambda bid: _t369_safe_mean(
+                [scores.get(n, 50.0) for n in bucket_to_members[bid]], 50.0
+            )
         )
         if low_mu:
             b_none = low_mu[0]
+
+    # 3) まだ未決なら S が最大（正負は問わない）
+    if b_none is None:
+        anyS = [(waves.get(bid, {}).get("S", -1e9), bid) for bid in cand_buckets]
+        if anyS:
+            b_none = max(anyS)[1]
+
+    # 4) 最終ガード：同一or未決なら候補の先頭を採用（FR_line ≠ U_line を保証）
+    if (not b_none) or (b_none == b_star):
+        b_none = cand_buckets[0] if cand_buckets else ""
+
 
     # 3) 未決なら S が最大（符号不問）
     if b_none is None:
