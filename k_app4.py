@@ -3373,6 +3373,7 @@ def compute_flow_indicators(lines_str, marks, scores):
             "trios": chosen[:N_PER_ZONE],
             "note": "\n".join(note_lines),
         }
+# ← ここで def generate_tesla_bets(...) のブロックが終了（この下はインデント無し）
 
 # ---------- 出力ヘルパ ----------
 def _safe_flow(lines_str, marks, scores):
@@ -3437,6 +3438,7 @@ def _risk_from_FRv(fr):
     if fr >= 0.25: return "高"
     if fr >= 0.10: return "中"
     return "低"
+
 
 # ---------- note_sections 準備・掃除 ----------
 if 'note_sections' not in globals() or not isinstance(note_sections, list):
