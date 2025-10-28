@@ -3179,7 +3179,7 @@ def compute_flow_indicators(lines_str, marks, scores):
     parts = [_t369_norm(p) for p in str(lines_str).split() if _t369_norm(p)]
     lines = [[int(ch) for ch in p if ch.isdigit()] for p in parts if any(ch.isdigit() for ch in p)]
     if not lines:
-        return {"VTX":0.0,"FR":0.0,"U":0.0,"note":"【流れ未循環】ラインなし → ケン","waves":{}, "vtx_bid":"", "lines":[], "dbg":{}}
+        return {"VTX":0.0,"FR":0.0,"U":0.0,"note":"【流れ未循環】ラインなし → ケン","waves":{}, "":"", "lines":[], "dbg":{}}
 
     buckets = _t369_buckets(lines)
     bucket_to_members = {buckets[ln[0]]: ln for ln in lines}
@@ -3221,7 +3221,7 @@ def compute_flow_indicators(lines_str, marks, scores):
     parts = [_t369_norm(p) for p in str(lines_str).split() if _t369_norm(p)]
     lines = [[int(ch) for ch in p if ch.isdigit()] for p in parts if any(ch.isdigit() for ch in p)]
     if not lines:
-        return {"VTX":0.0,"FR":0.0,"U":0.0,"note":"【流れ未循環】ラインなし → ケン","waves":{}, "vtx_bid":"", "lines":[], "dbg":{}}
+        return {"VTX":0.0,"FR":0.0,"U":0.0,"note":"【流れ未循環】ラインなし → ケン","waves":{}, "":"", "lines":[], "dbg":{}}
 
     buckets = _t369_buckets(lines)
     bucket_to_members = {buckets[ln[0]]: ln for ln in lines}
@@ -3297,66 +3297,89 @@ def compute_flow_indicators(lines_str, marks, scores):
     if (not b_none) or (b_none == b_star):
         b_none = cand_buckets[0] if cand_buckets else ""
 
-    # VTX（位相差×振幅）
-    vtx_list = []
-    for bid, mem in bucket_to_members.items():
-        if bid in (b_star, b_none): continue
-        if waves.get(bid, {}).get("S", -1e9) < -0.02:  continue
-        wA = 0.5 + 0.5*waves[bid]["A"]
-        v  = (0.6*abs(I(bid,b_star)) + 0.4*abs(I(bid,b_none)))*wA
-        vtx_list.append((v,bid))
-    vtx_list.sort(reverse=True, key=lambda x:x[0])
-    VTX = vtx_list[0][0] if vtx_list else 0.0
-    VTX_bid = vtx_list[0][1] if vtx_list else ""
+   # VTX（位相差×振幅）
+vtx_list = []
+for bid, mem in bucket_to_members.items():
+    if bid in (b_star, b_none):
+        continue
+    if waves.get(bid, {}).get("S", -1e9) < -0.02:
+        continue
+    wA = 0.5 + 0.5 * waves[bid]["A"]
+    v  = (0.6 * abs(I(bid, b_star)) + 0.4 * abs(I(bid, b_none))) * wA
+    vtx_list.append((v, bid))
+vtx_list.sort(reverse=True, key=lambda x: x[0])
+VTX = vtx_list[0][0] if vtx_list else 0.0
+VTX_bid = vtx_list[0][1] if vtx_list else ""
 
-    # --- FR（◎下向き×無上向き） ---
-    ws, wn = waves.get(b_star, {}), waves.get(b_none, {})
+# --- FR（◎下向き×無上向き） ---
+ws, wn = waves.get(b_star, {}), waves.get(b_none, {})
 
-    # tを0.95にして極端値を抑制
-    def S_point(w, t=0.95, f=0.9, gamma=0.12):
-        if not w: return 0.0
-        A, phi = w.get("A", 0.0), w.get("phi", 0.0)
-        return A * math.exp(-gamma * t) * (
-            2*math.pi*f*math.cos(2*math.pi*f*t + phi) - gamma*math.sin(2*math.pi*f*t + phi)
-        )
+# tを0.95にして極端値を抑制
+def S_point(w, t=0.95, f=0.9, gamma=0.12):
+    if not w:
+        return 0.0
+    A, phi = w.get("A", 0.0), w.get("phi", 0.0)
+    return A * math.exp(-gamma * t) * (
+        2 * math.pi * f * math.cos(2 * math.pi * f * t + phi)
+        - gamma * math.sin(2 * math.pi * f * t + phi)
+    )
 
-    blend_star = 0.6 * S_point(ws) + 0.4 * ws.get("S", 0.0)
-    blend_none = 0.6 * S_point(wn) + 0.4 * wn.get("S", 0.0)
+blend_star = 0.6 * S_point(ws) + 0.4 * ws.get("S", 0.0)
+blend_none = 0.6 * S_point(wn) + 0.4 * wn.get("S", 0.0)
 
-    def sig(x, k=3.0):
-        try: return 1.0/(1.0+math.exp(-k*x))
-        except OverflowError: return 0.0 if x<0 else 1.0
+def sig(x, k=3.0):
+    try:
+        return 1.0 / (1.0 + math.exp(-k * x))
+    except OverflowError:
+        return 0.0 if x < 0 else 1.0
 
-    sd_raw = (sig(-blend_star, 3.0) - 0.5) * 2.0
-    nu_raw = (sig( blend_none, 3.0) - 0.5) * 2.0
-    sd = max(0.0, sd_raw)
-    nu = max(0.05, nu_raw)   # 下限0.05でゼロ張り付き回避
-    FR = sd * nu
+sd_raw = (sig(-blend_star, 3.0) - 0.5) * 2.0
+nu_raw = (sig( blend_none, 3.0) - 0.5) * 2.0
+sd = max(0.0, sd_raw)
+nu = max(0.05, nu_raw)   # 下限0.05でゼロ張り付き回避
+FR = sd * nu
 
-    # U（逆流圧）
-    vtx_vals = [v for v,_ in vtx_list] or [0.0]
-    vtx_mu = _t369_safe_mean(vtx_vals, 0.0)
-    vtx_sd = (_t369_safe_mean([(x-vtx_mu)**2 for x in vtx_vals], 0.0))**0.5
-    vtx_hi = max(0.60, vtx_mu + 0.35*vtx_sd)
-    VTX_high = 1.0 if VTX >= vtx_hi else 0.0
-    FR_high  = 1.0 if FR  >= 0.12 else 0.0
-    S_max = max(1e-6, max(abs(w["S"]) for w in waves.values()))
-    S_noneN = max(0.0, wn.get("S",0.0))/S_max
-    U_raw = sig(I(b_none,b_star), k=2.0)
-    U = max(0.05, (0.6*U_raw + 0.4*S_noneN) * (1.0 if VTX_high>0 else 0.8))
+# U（逆流圧）
+vtx_vals = [v for v, _ in vtx_list] or [0.0]
+vtx_mu = _t369_safe_mean(vtx_vals, 0.0)
+vtx_sd = (_t369_safe_mean([(x - vtx_mu) ** 2 for x in vtx_vals], 0.0)) ** 0.5
+vtx_hi = max(0.60, vtx_mu + 0.35 * vtx_sd)
+VTX_high = 1.0 if VTX >= vtx_hi else 0.0
+FR_high  = 1.0 if FR  >= 0.12 else 0.0
+S_max = max(1e-6, max(abs(w["S"]) for w in waves.values()))
+S_noneN = max(0.0, wn.get("S", 0.0)) / S_max
+U_raw = sig(I(b_none, b_star), k=2.0)
+U = max(0.05, (0.6 * U_raw + 0.4 * S_noneN) * (1.0 if VTX_high > 0 else 0.8))
+
+    # （この上で U を計算し終わった直後）
 
     def label(bid):
         mem = bucket_to_members.get(bid, [])
         return "".join(map(str, mem)) if mem else "—"
 
-    tag  = "点灯" if (VTX_high>0 and FR_high>0) else "判定基準内"
+    tag  = "点灯" if (VTX_high > 0 and FR_high > 0) else "判定基準内"
     note = "\n".join([
-        f"【順流】◎ライン {label(b_star)}：失速危険 {'高' if FR>=0.15 else ('中' if FR>=0.05 else '低')}",
-        f"【渦】候補ライン：{label(VTX_bid)}（VTX={VTX:.2f}）",
+        f"【順流】◎ライン {label(b_star)}：失速危険 {'高' if FR >= 0.15 else ('中' if FR >= 0.05 else '低')}",
+        f"【渦】候補ライン：{label(VTX_bid)}（VTX={VTX:.2f}）",   # ← VTX_bid を表示
         f"【逆流】無ライン {label(b_none)}：U={U:.2f}（※判定基準内）",
     ])
-    dbg = {"blend_star":blend_star, "blend_none":blend_none, "sd":sd, "nu":nu, "vtx_hi":vtx_hi}
-    return {"VTX":VTX, "FR":FR, "U":U, "note":note, "waves":waves, "vtx_bid":VTX_bid, "lines":lines, "dbg":dbg}
+
+    dbg = {
+        "blend_star": blend_star, "blend_none": blend_none,
+        "sd": sd, "nu": nu, "vtx_hi": vtx_hi
+    }
+
+    return {
+        "VTX": VTX,
+        "FR": FR,
+        "U": U,
+        "note": note,
+        "waves": waves,
+        "vtx_bid": VTX_bid,   # ← 空キーのtypoを修正
+        "lines": lines,
+        "dbg": dbg
+    }
+
 
 
 # ---------- フォールバック：三連複（ゾーン方式・最大4点・重複/被り防止込み） ----------
@@ -3442,35 +3465,59 @@ except NameError:
 
         FR_line = _line_of(axis)
 
-        # ---- VTX_line（FR/U と被らせない） ----
-        vtx_bid = str(flow.get("vtx_bid") or "")
-        VTX_line = []
-        for ln in lines:
-            if "".join(map(str, ln)) == vtx_bid:
-                VTX_line = ln[:]; break
-        if not VTX_line:
-            cand = sorted(lines, key=_avg, reverse=True)
-            # FR と異なる最上位
-            VTX_line = next((ln for ln in cand if ln != FR_line), (cand[0] if cand else []))
+    # ---- VTX_line（FR/U と被らせない） ----
+    vtx_bid = str(flow.get("vtx_bid") or "")
+    VTX_line = []
+    for ln in lines:
+        if "".join(map(str, ln)) == vtx_bid:
+            VTX_line = ln[:]
+            break
+    if not VTX_line:
+        cand = sorted(lines, key=_avg, reverse=True)
+        # FR と異なる最上位
+        VTX_line = next((ln for ln in cand if ln != FR_line), (cand[0] if cand else []))
 
-        # ---- U_line（無ライン）を FR/VTX と別に選定 ----
-        none_id = marks.get('無')
-        U_line = _line_of(none_id) if none_id is not None else []
-        if (not U_line) or (U_line == FR_line) or (U_line == VTX_line):
-            # 単騎最優先（FR除外）
-            singles = [ln for ln in lines if len(ln) == 1 and ln not in (FR_line, VTX_line)]
-            if singles:
-                U_line = singles[0]
-            else:
-                others = [ln for ln in lines if ln not in (FR_line, VTX_line)]
-                # 低スコア優先（＝逆流側）
-                others.sort(key=_avg)
-                U_line = others[0] if others else []
+    # ---- U_line（無ライン）を FR/VTX と別に選定 ----
+    none_id = marks.get('無')
+    U_line = _line_of(none_id) if none_id is not None else []
+    if (not U_line) or (U_line == FR_line) or (U_line == VTX_line):
+        # 単騎最優先（FR/VTX 除外）
+        singles = [ln for ln in lines if len(ln) == 1 and ln not in (FR_line, VTX_line)]
+        if singles:
+            U_line = singles[0]
+        else:
+            others = [ln for ln in lines if ln not in (FR_line, VTX_line)]
+            # 低スコア優先（＝逆流側）
+            others.sort(key=_avg)
+            U_line = others[0] if others else []
 
-        # VTX と U がもし被っていたら、VTX を次点にずらす
-        if VTX_line == U_line:
-            cand = sorted(lines, key=_avg, reverse=True)
-            VTX_line = next((ln for ln in cand if ln not in (FR_line, U_line)), VTX_line)
+    # --- ラインの一意化ガード（FR/VTX/U は互いに別にする） ---
+    def _line_avg(ln):
+        return _avg(ln) if ln else -1e9
+
+    # VTX_line が FR_line と同じ or U_line と同じなら、次点候補に差し替え
+    if VTX_line:
+        cand = sorted(
+            [ln for ln in lines if ln not in (FR_line, VTX_line, U_line)],
+            key=_line_avg, reverse=True
+        )
+        if (VTX_line == FR_line) or (VTX_line == U_line):
+            VTX_line = cand[0] if cand else VTX_line
+
+    # U_line が FR_line と同じ or VTX_line と同じなら、次点候補に差し替え（※低スコア優先）
+    if U_line:
+        cand_low = sorted(
+            [ln for ln in lines if ln not in (FR_line, VTX_line, U_line)],
+            key=_line_avg  # 昇順＝低スコア優先
+        )
+        if (U_line == FR_line) or (U_line == VTX_line):
+            U_line = cand_low[0] if cand_low else U_line
+
+    # VTX と U が被っていたら、VTX を次点にずらす（FR は守る）
+    if VTX_line == U_line:
+        cand = sorted(lines, key=_avg, reverse=True)
+        VTX_line = next((ln for ln in cand if ln not in (FR_line, U_line)), VTX_line)
+
 
         # ---- 軸ライン内の相棒/同ライン3番手 ----
         axis_line = FR_line[:]
