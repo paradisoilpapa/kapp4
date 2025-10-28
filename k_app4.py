@@ -3217,6 +3217,48 @@ def compute_flow_indicators(lines_str, marks, scores):
         if not bi or not bj or bi not in waves or bj not in waves: return 0.0
         return math.cos(waves[bi]["phi"] - waves[bj]["phi"])
 
+def compute_flow_indicators(lines_str, marks, scores):
+    parts = [_t369_norm(p) for p in str(lines_str).split() if _t369_norm(p)]
+    lines = [[int(ch) for ch in p if ch.isdigit()] for p in parts if any(ch.isdigit() for ch in p)]
+    if not lines:
+        return {"VTX":0.0,"FR":0.0,"U":0.0,"note":"【流れ未循環】ラインなし → ケン","waves":{}, "vtx_bid":"", "lines":[], "dbg":{}}
+
+    buckets = _t369_buckets(lines)
+    bucket_to_members = {buckets[ln[0]]: ln for ln in lines}
+
+    def mean(xs, d=0.0):
+        try: return sum(xs)/len(xs) if xs else d
+        except Exception: return d
+    def avg_score(mem): return mean([scores.get(n,50.0) for n in mem], 50.0)
+
+    muA = mean([avg_score(ln) for ln in lines], 50.0)/100.0
+    star_id = marks.get("◎", -999)
+    none_id = marks.get("無", -999)
+
+    def est(mem):
+        A = max(10.0, min(avg_score(mem), 90.0))/100.0
+        if star_id in mem:   phi0, d = -0.8, +1
+        elif none_id in mem: phi0, d =  +0.8, -1
+        else:                phi0, d =  +0.2, +1
+        phi = phi0 + 1.2*(A - muA)
+        return A, phi, d
+
+    def S_end(A, phi, t=0.9, f=0.9, gamma=0.12):
+        return A*math.exp(-gamma*t)*(2*math.pi*f*math.cos(2*math.pi*f*t+phi) - gamma*math.sin(2*math.pi*f*t+phi))
+
+    waves = {}
+    for bid, mem in bucket_to_members.items():
+        A, phi, d = est(mem)
+        waves[bid] = {"A":A,"phi":phi,"d":d,"S":S_end(A,phi,t=0.9)}
+
+    def bucket_of(x):
+        try: return buckets.get(int(x), "")
+        except Exception: return ""
+
+    def I(bi, bj):
+        if not bi or not bj or bi not in waves or bj not in waves: return 0.0
+        return math.cos(waves[bi]["phi"] - waves[bj]["phi"])
+
     # --- ◎（順流）と 無（逆流）の決定（被り防止＆上向き優先・最終ガード付き） ---
     b_star = bucket_of(star_id)
 
@@ -3229,41 +3271,37 @@ def compute_flow_indicators(lines_str, marks, scores):
     if (not b_none) or (b_none == b_star):
         b_none = None
 
-    # 1) S（終盤傾き）が正のものの中で最大
+    # 1) S>0 の中で最大
     if b_none is None:
-        posS = [(waves[bid]["S"], bid) for bid in cand_buckets
+        posS = [(waves.get(bid, {}).get("S", -1e9), bid) for bid in cand_buckets
                 if waves.get(bid, {}).get("S", -1e9) > 0]
         if posS:
             b_none = max(posS)[1]
 
-    # 2) 平均スコアが最も低いバケット（◎以外）
+    # 2) 平均スコアが最も低い（◎以外）
     if b_none is None:
         low_mu = sorted(
             cand_buckets,
-            key=lambda bid: _t369_safe_mean(
-                [scores.get(n, 50.0) for n in bucket_to_members[bid]],
-                50.0
-            )
+            key=lambda bid: _t369_safe_mean([scores.get(n, 50.0) for n in bucket_to_members[bid]], 50.0)
         )
         if low_mu:
             b_none = low_mu[0]
 
-    # 3) まだ未決なら S が最大（非正も可）
+    # 3) 未決なら S が最大（符号不問）
     if b_none is None:
         anyS = [(waves.get(bid, {}).get("S", -1e9), bid) for bid in cand_buckets]
         if anyS:
             b_none = max(anyS)[1]
 
-    # 4) 最終ガード：同一or未決なら、候補の先頭を採用（FR_line ≠ U_line を保証）
+    # 4) 最終ガード：同一or未決なら候補先頭（FR≠Uを保証）
     if (not b_none) or (b_none == b_star):
         b_none = cand_buckets[0] if cand_buckets else ""
-
 
     # VTX（位相差×振幅）
     vtx_list = []
     for bid, mem in bucket_to_members.items():
         if bid in (b_star, b_none): continue
-        if waves[bid]["S"] < -0.02:  continue
+        if waves.get(bid, {}).get("S", -1e9) < -0.02:  continue
         wA = 0.5 + 0.5*waves[bid]["A"]
         v  = (0.6*abs(I(bid,b_star)) + 0.4*abs(I(bid,b_none)))*wA
         vtx_list.append((v,bid))
@@ -3274,35 +3312,26 @@ def compute_flow_indicators(lines_str, marks, scores):
     # --- FR（◎下向き×無上向き） ---
     ws, wn = waves.get(b_star, {}), waves.get(b_none, {})
 
-    # t を 0.95 にして極端値を抑制（1.0 だとゼロ張り付きが起きやすい）
+    # tを0.95にして極端値を抑制
     def S_point(w, t=0.95, f=0.9, gamma=0.12):
-        if not w:
-            return 0.0
+        if not w: return 0.0
         A, phi = w.get("A", 0.0), w.get("phi", 0.0)
         return A * math.exp(-gamma * t) * (
-            2 * math.pi * f * math.cos(2 * math.pi * f * t + phi)
-            - gamma * math.sin(2 * math.pi * f * t + phi)
+            2*math.pi*f*math.cos(2*math.pi*f*t + phi) - gamma*math.sin(2*math.pi*f*t + phi)
         )
 
-    # ブレンド（従来同等の重み）
     blend_star = 0.6 * S_point(ws) + 0.4 * ws.get("S", 0.0)
     blend_none = 0.6 * S_point(wn) + 0.4 * wn.get("S", 0.0)
 
     def sig(x, k=3.0):
-        try:
-            return 1.0 / (1.0 + math.exp(-k * x))
-        except OverflowError:
-            return 0.0 if x < 0 else 1.0
+        try: return 1.0/(1.0+math.exp(-k*x))
+        except OverflowError: return 0.0 if x<0 else 1.0
 
-    # “上向きゼロ”の張り付き対策：nu に下限 0.05 を設定
-    sd_raw = (sig(-blend_star, 3.0) - 0.5) * 2.0   # 下向き強さ（>=0）
-    nu_raw = (sig( blend_none, 3.0) - 0.5) * 2.0   # 上向き強さ（>=0）
-
+    sd_raw = (sig(-blend_star, 3.0) - 0.5) * 2.0
+    nu_raw = (sig( blend_none, 3.0) - 0.5) * 2.0
     sd = max(0.0, sd_raw)
-    nu = max(0.05, nu_raw)   # ★ 下限を 0.05 にクランプ
-
+    nu = max(0.05, nu_raw)   # 下限0.05でゼロ張り付き回避
     FR = sd * nu
-
 
     # U（逆流圧）
     vtx_vals = [v for v,_ in vtx_list] or [0.0]
@@ -3339,7 +3368,7 @@ except NameError:
         三連複のみを出力（最大4点）。二車複/ワイドは出さない。
         - ゾーン方式（優位/互角/混戦）でフォーム列を優先採用
         - ゲート外 or ケン時は出力なし（—）
-        戻り: dict {FR_line,VTX_line,U_line,FRv,VTXv,Uv,trios,note}
+        戻り: dict {FR_line,,U_line,FRv,VTXv,Uv,trios,note}
         """
         flow   = flow or {}
         lines  = list(flow.get("lines") or [])
@@ -3420,16 +3449,16 @@ except NameError:
         # 置き換えここまで
 
         vtx_bid = str(flow.get("vtx_bid") or "")
-        VTX_line = []
+         = []
         for ln in lines:
             if "".join(map(str, ln)) == vtx_bid:
-                VTX_line = ln[:]
+                 = ln[:]
                 break
-        if not VTX_line:
+        if not :
             cand = sorted(lines, key=_avg, reverse=True)
-            VTX_line = cand[0] if cand else []
-            if VTX_line == FR_line and len(cand) >= 2:
-                VTX_line = cand[1]
+             = cand[0] if cand else []
+            if  == FR_line and len(cand) >= 2:
+                 = cand[1]
 
         # ---- U_line（逆流）決定：FR_line と必ず分離 ----
         none_id = marks.get('無')
@@ -3472,7 +3501,7 @@ except NameError:
         SL2 = axis_mates_sorted[1] if len(axis_mates_sorted) >= 2 else None
 
         u_cands = sorted([n for n in U_line   if n not in (None, axis, SL)], key=lambda n: scores.get(n, 0.0), reverse=True)
-        v_cands = sorted([n for n in VTX_line if n not in (None, axis, SL)], key=lambda n: scores.get(n, 0.0), reverse=True)
+        v_cands = sorted([n for n in  if n not in (None, axis, SL)], key=lambda n: scores.get(n, 0.0), reverse=True)
         U1 = u_cands[0] if len(u_cands) >= 1 else None
         U2 = u_cands[1] if len(u_cands) >= 2 else None
         V1 = v_cands[0] if len(v_cands) >= 1 else None
