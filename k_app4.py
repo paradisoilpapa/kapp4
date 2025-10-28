@@ -3259,12 +3259,26 @@ def compute_flow_indicators(lines_str, marks, scores):
         if not bi or not bj or bi not in waves or bj not in waves: return 0.0
         return math.cos(waves[bi]["phi"] - waves[bj]["phi"])
 
-    # --- ◎（順流）と 無（逆流）の決定（被り防止＆上向き優先・最終ガード付き） ---
-    b_star = bucket_of(star_id)
+# --- ◎（順流）と 無（逆流）の決定（被り防止＆上向き優先・最終ガード付き） ---
+b_star = bucket_of(star_id)
 
-    # 候補（◎以外）
-    all_buckets = list(bucket_to_members.keys())
-    cand_buckets = [bid for bid in all_buckets if bid != b_star]
+# ◎が未設定/特定不可なら、平均スコア最大のラインを順流に採用
+if not b_star:
+    try:
+        b_star = max(
+            bucket_to_members.keys(),
+            key=lambda bid: _t369_safe_mean(
+                [scores.get(n, 50.0) for n in bucket_to_members[bid]],
+                50.0
+            )
+        )
+    except Exception:
+        b_star = ""
+
+# 候補（◎以外）※ b_star 確定後に作る
+all_buckets = list(bucket_to_members.keys())
+cand_buckets = [bid for bid in all_buckets if bid != b_star]
+
 
     # 0) 明示の「無」バケット（存在＆◎と別）を第一候補に
     b_none = bucket_of(none_id)
@@ -3491,32 +3505,33 @@ except NameError:
             others.sort(key=_avg)
             U_line = others[0] if others else []
 
-    # --- ラインの一意化ガード（FR/VTX/U は互いに別にする） ---
-    def _line_avg(ln):
-        return _avg(ln) if ln else -1e9
+# --- ラインの一意化ガード（FR/VTX/U は互いに別にする） ---
+def _line_avg(ln):
+    return _avg(ln) if ln else -1e9
 
-    # VTX_line が FR_line と同じ or U_line と同じなら、次点候補に差し替え
-    if VTX_line:
-        cand = sorted(
-            [ln for ln in lines if ln not in (FR_line, VTX_line, U_line)],
-            key=_line_avg, reverse=True
-        )
-        if (VTX_line == FR_line) or (VTX_line == U_line):
-            VTX_line = cand[0] if cand else VTX_line
+# VTX_line が FR_line と同じ or U_line と同じなら、次点候補に差し替え
+if VTX_line:
+    cand = sorted(
+        [ln for ln in lines if ln not in (FR_line, VTX_line, U_line)],
+        key=_line_avg, reverse=True
+    )
+    if (VTX_line == FR_line) or (VTX_line == U_line):
+        VTX_line = cand[0] if cand else VTX_line
 
-    # U_line が FR_line と同じ or VTX_line と同じなら、次点候補に差し替え（※低スコア優先）
-    if U_line:
-        cand_low = sorted(
-            [ln for ln in lines if ln not in (FR_line, VTX_line, U_line)],
-            key=_line_avg  # 昇順＝低スコア優先
-        )
-        if (U_line == FR_line) or (U_line == VTX_line):
-            U_line = cand_low[0] if cand_low else U_line
+# U_line が FR_line と同じ or VTX_line と同じなら、次点候補に差し替え（※低スコア優先）
+if U_line:
+    cand_low = sorted(
+        [ln for ln in lines if ln not in (FR_line, VTX_line, U_line)],
+        key=_line_avg  # 昇順＝低スコア優先
+    )
+    if (U_line == FR_line) or (U_line == VTX_line):
+        U_line = cand_low[0] if cand_low else U_line
 
-    # VTX と U が被っていたら、VTX を次点にずらす（FR は守る）
-    if VTX_line == U_line:
-        cand = sorted(lines, key=_avg, reverse=True)
-        VTX_line = next((ln for ln in cand if ln not in (FR_line, U_line)), VTX_line)
+# VTX と U が被っていたら、VTX を次点にずらす（FR は守る）
+if VTX_line == U_line:
+    cand = sorted(lines, key=_avg, reverse=True)
+    VTX_line = next((ln for ln in cand if ln not in (FR_line, U_line)), VTX_line)
+
 
 
         # ---- 軸ライン内の相棒/同ライン3番手 ----
@@ -3585,13 +3600,21 @@ except NameError:
                 10: (axis, V1,  XA),             # ◎-V1-無/α
                 11: (axis, SL,  XA),             # ◎-SL-無/α
                 12: (axis, U2,  V1),             # ◎-U2-V1
+                # ↓↓↓ ここから追加（同ライン3番手候補を拾う）
+                13: (axis, SL,  SL2),            # ◎-SL-同ライン3番手
+                14: (axis, SL2, V1),             # ◎-SL2-V1
+                15: (axis, SL2, U1),             # ◎-SL2-U1
             }
-            tri = list(table.get(fid, (None,None,None)))
-            # (8) は“同ライン外スコア最上位”で埋める
+            tri = list(table.get(fid, (None, None, None)))
             if tri[2] is None and fid == 8:
-                tri[2] = _best_outside_axis()
-            a,b,c = tri
-            return tuple(sorted((a,b,c))) if _valid(a,b,c) else None
+                # ◎-SL-同ライン外スコア最上位
+                others = [n for n in all_nums if n not in axis_line and n != axis]
+                if others:
+                    tri[2] = max(others, key=lambda n: scores.get(n, 0.0))
+            a, b, c = tri
+            return tuple(sorted((a, b, c))) if _valid(a, b, c) else None
+
+
 
         # ===== 実行：ゾーン優先（最大4点） =====
         if gate_main and not is_ken_flag:
@@ -3614,13 +3637,17 @@ except NameError:
                     if not t or t in seen: continue
                     seen.add(t); chosen.append(t)
 
-            # 3) それでも足りなければ 1..12 を総当たりで充足
+            # 3) それでも足りなければ 1..15 を総当たりで充足
             if len(chosen) < N_PER_ZONE:
-                for fid in range(1, 12+1):
-                    if len(chosen) >= N_PER_ZONE: break
+                for fid in range(1, 15+1):
+                    if len(chosen) >= N_PER_ZONE:
+                        break
                     t = _emit_form(fid)
-                    if not t or t in seen: continue
-                    seen.add(t); chosen.append(t)
+                    if not t or t in seen:
+                        continue
+                    seen.add(t)
+                    chosen.append(t)
+
 
         # 出力整形（最大4点。条件外なら "—"）
         tri_strs = [f"{t[0]}-{t[1]}-{t[2]}" for t in chosen]
