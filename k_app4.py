@@ -3361,11 +3361,11 @@ def compute_flow_indicators(lines_str, marks, scores):
 
 
         # 出力整形（最大4点。条件外なら "—"）
-        tri_strs = [f"{t[0]}-{t[1]}-{t[2]}" for t in chosen]
-        note_lines = ["【買い目】"]
-        note_lines.append("三連複：" + ("—" if (not tri_strs) else ", ".join(tri_strs[:N_PER_ZONE])))
+    tri_strs = [f"{t[0]}-{t[1]}-{t[2]}" for t in chosen]
+    note_lines = ["【買い目】"]
+    note_lines.append("三連複：" + ("—" if (not tri_strs) else ", ".join(tri_strs[:N_PER_ZONE])))
 
-        return {
+    return {
             "FR_line": FR_line,
             "VTX_line": VTX_line,
             "U_line": U_line,
@@ -3374,6 +3374,7 @@ def compute_flow_indicators(lines_str, marks, scores):
             "note": "\n".join(note_lines),
         }
 # ← ここで def generate_tesla_bets(...) が終わり。**この1行下**からはインデント無し（列0）
+
 
 
 
