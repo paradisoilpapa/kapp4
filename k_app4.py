@@ -3217,15 +3217,47 @@ def compute_flow_indicators(lines_str, marks, scores):
         if not bi or not bj or bi not in waves or bj not in waves: return 0.0
         return math.cos(waves[bi]["phi"] - waves[bj]["phi"])
 
-    # --- ◎（順流）と 無（逆流）の決定（被り防止＆上向き優先） ---
+    # --- ◎（順流）と 無（逆流）の決定（被り防止＆上向き優先・最終ガード付き） ---
     b_star = bucket_of(star_id)
+
+    # 候補（◎以外）
+    all_buckets = list(bucket_to_members.keys())
+    cand_buckets = [bid for bid in all_buckets if bid != b_star]
+
+    # 0) 明示の「無」バケット（存在＆◎と別）を第一候補に
     b_none = bucket_of(none_id)
     if (not b_none) or (b_none == b_star):
-        ranked = sorted(bucket_to_members.keys(), key=lambda bid: avg_score(bucket_to_members[bid]))
-        b_none = next((bid for bid in ranked if bid != b_star), "")
-    if (not b_none) or (waves.get(b_none, {}).get("S", -1e9) <= 0):
-        cand = [(w["S"], bid) for bid, w in waves.items() if bid != b_star]
-        if cand: b_none = max(cand)[1]
+        b_none = None
+
+    # 1) S（終盤傾き）が正のものの中で最大
+    if b_none is None:
+        posS = [(waves[bid]["S"], bid) for bid in cand_buckets
+                if waves.get(bid, {}).get("S", -1e9) > 0]
+        if posS:
+            b_none = max(posS)[1]
+
+    # 2) 平均スコアが最も低いバケット（◎以外）
+    if b_none is None:
+        low_mu = sorted(
+            cand_buckets,
+            key=lambda bid: _t369_safe_mean(
+                [scores.get(n, 50.0) for n in bucket_to_members[bid]],
+                50.0
+            )
+        )
+        if low_mu:
+            b_none = low_mu[0]
+
+    # 3) まだ未決なら S が最大（非正も可）
+    if b_none is None:
+        anyS = [(waves.get(bid, {}).get("S", -1e9), bid) for bid in cand_buckets]
+        if anyS:
+            b_none = max(anyS)[1]
+
+    # 4) 最終ガード：同一or未決なら、候補の先頭を採用（FR_line ≠ U_line を保証）
+    if (not b_none) or (b_none == b_star):
+        b_none = cand_buckets[0] if cand_buckets else ""
+
 
     # VTX（位相差×振幅）
     vtx_list = []
@@ -3379,16 +3411,38 @@ except NameError:
             if VTX_line == FR_line and len(cand) >= 2:
                 VTX_line = cand[1]
 
+        # ---- U_line（逆流）決定：FR_line と必ず分離 ----
         none_id = marks.get('無')
-        U_line = _line_of(none_id) if none_id is not None else []
-        if not U_line:
-            singles = [ln for ln in lines if len(ln) == 1 and ln != FR_line]
-            if singles:
-                U_line = singles[0]
-            else:
-                others = [ln for ln in lines if ln != FR_line]
-                others.sort(key=_avg)  # 低スコア優先
-                U_line = others[0] if others else []
+        U_line = _line_of(none_id) if isinstance(none_id, int) else []
+
+        # 候補群（◎ライン以外）
+        others = [ln for ln in lines if ln != FR_line]
+
+        # 1) 明示の「無」ラインが◎ラインと同一 or 不在 → 無効化して再選定
+        if (not U_line) or (U_line == FR_line):
+            U_line = []
+
+        # 2) S>0 の中で最大（◎ライン以外）
+        if not U_line and lines:
+            # waves は compute_flow_indicators 側の結果なので、ライン→bucket の対応でスコアする
+            # ここでは近似としてライン平均を使ってもOK（Sを直接参照できない環境を想定）
+            # → S未接続環境のため line 平均の低さで代用し、下の 3) と順序を入れ替え可
+            pass  # waves非共有ならスキップ（3) に進む）
+
+        # 3) 平均スコアが最も低いライン（◎ライン以外）
+        if not U_line and others:
+            others_sorted = sorted(others, key=_avg)  # 低スコア優先
+            U_line = others_sorted[0]
+
+        # 4) まだ未決なら、残りのどれか（先頭）を採用
+        if not U_line and others:
+            U_line = others[0]
+
+        # 5) 最終ガード：2本以上ラインがあるのに同一になりそうなら、次点に繰り上げ
+        if U_line == FR_line and len(others) >= 1:
+            # others は既に FR_line を除外済み。ここに来たら念のため先頭を使う
+            U_line = others[0]
+
 
         # ---- 軸・相手抽出 ----
         axis_line = FR_line[:]
