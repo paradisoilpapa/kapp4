@@ -3407,7 +3407,6 @@ def compute_flow_indicators(lines_str, marks, scores):
             "note": "\n".join(note_lines),
         }
 
-
 # ---------- 出力ヘルパ ----------
 def _safe_flow(lines_str, marks, scores):
     try:
