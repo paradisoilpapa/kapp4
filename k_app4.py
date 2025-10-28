@@ -1529,7 +1529,7 @@ import math
 import numpy as np
 import pandas as pd
 import streamlit as st
-from itertools import combinations
+
 
 # ===== しきい値（S＝偏差値Tの合算） =====
 S_TRIO_MIN_WIDE  = 158.0   # 三連複：手広く
@@ -1903,7 +1903,7 @@ import numpy as np
 import pandas as pd
 import math
 from statistics import mean, pstdev
-from itertools import combinations
+
 
 
 # ===== 基本データ =====
@@ -3487,36 +3487,44 @@ def generate_tesla_bets(flow, lines_str, marks, scores):
             set4 = _uniq_fill4(base, target, [], scores, banned=banned)
 
 
-    # ---- 表示フォーマット（圧縮表示 1-ABCD-ABCD に自動切替）----
+    # ---- 三連複6点（軸-4-4） ----
     from itertools import combinations
 
+    chosen = []
+    if isinstance(axis, int) and len(set4) >= 4:
+        for a, b in combinations(set4, 2):  # C(4,2)=6
+            tri = tuple(sorted([axis, a, b]))
+            if len(set(tri)) == 3 and all(x in all_nums for x in tri):
+                chosen.append(tri)
+
+    # 重複除去＆安定化
+    chosen = sorted(set(chosen))
+
+    # ---- 表示フォーマット（軸＋4車BOXなら 1-ABCD-ABCD に自動圧縮）----
     def _format_set_notation(trios):
         if not trios:
             return None
-        # すべての三連複に共通する番号（=軸候補）を探す
+        # すべての三連複に共通する番号＝軸候補
         common = set(trios[0])
         for t in trios[1:]:
             common &= set(t)
         for ax in sorted(common):
             others = sorted({x for t in trios for x in t if x != ax})
-            # 軸+4車BOX（C(4,2)=6通り）と完全一致するか検証
+            if len(others) != 4:
+                continue
             expect = {tuple(sorted((ax, a, b))) for a, b in combinations(others, 2)}
-            if set(trios) == expect and len(others) == 4:
+            if set(trios) == expect:
                 s = "".join(str(x) for x in others)
                 return f"{ax}-{s}-{s}"
         return None
 
     note_lines = ["【買い目】"]
     fmt = _format_set_notation(chosen)
-
     if fmt:
-        # 例：1-2347-2347
         note_lines.append(f"三連複：{fmt}")
     else:
-        # 従来の列挙表示（最大6点）
         tri_strs = [f"{t[0]}-{t[1]}-{t[2]}" for t in chosen]
         note_lines.append("三連複：" + ("—" if (not tri_strs) else ", ".join(tri_strs)))
-
 
     return {
         "FR_line": FR_line,
@@ -3526,6 +3534,7 @@ def generate_tesla_bets(flow, lines_str, marks, scores):
         "trios": chosen,
         "note": "\n".join(note_lines),
     }
+
 
 # ---------- 出力ヘルパ ----------
 def _safe_flow(lines_str, marks, scores):
