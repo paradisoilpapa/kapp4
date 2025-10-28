@@ -3510,7 +3510,6 @@ def generate_tesla_bets(flow, lines_str, marks, scores):
             target = _topk(VTX_line, 2, scores) + _topk(U_line, 2, scores)
             set4 = _uniq_fill4(base, target, [], scores, banned=banned)
 
-
     # ---- 三連複6点（軸-4-4） ----
     from itertools import combinations
     chosen = []
@@ -3523,6 +3522,7 @@ def generate_tesla_bets(flow, lines_str, marks, scores):
     tri_strs = [f"{t[0]}-{t[1]}-{t[2]}" for t in chosen]
     note_lines = ["【買い目】"]
     note_lines.append("三連複：" + ("—" if (not tri_strs) else ", ".join(tri_strs)))
+
     return {
         "FR_line": FR_line,
         "VTX_line": VTX_line,
