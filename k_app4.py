@@ -3271,18 +3271,38 @@ def compute_flow_indicators(lines_str, marks, scores):
     VTX = vtx_list[0][0] if vtx_list else 0.0
     VTX_bid = vtx_list[0][1] if vtx_list else ""
 
-    # FR（◎下向き×無上向き）
+    # --- FR（◎下向き×無上向き） ---
     ws, wn = waves.get(b_star, {}), waves.get(b_none, {})
-    def S_point(w): 
-        return 0.0 if not w else (lambda A,phi: A*math.exp(-0.12*1.0)*(2*math.pi*0.9*math.cos(2*math.pi*0.9*1.0+phi)-0.12*math.sin(2*math.pi*0.9*1.0+phi)))(w["A"],w["phi"])
-    def sig(x,k=3.0):
-        try: return 1.0/(1.0+math.exp(-k*x))
-        except OverflowError: return 0.0 if x<0 else 1.0
-    blend_star = 0.6*S_point(ws) + 0.4*ws.get("S",0.0)
-    blend_none = 0.6*S_point(wn) + 0.4*wn.get("S",0.0)
-    sd = max(0.0, (sig(-blend_star,3.0)-0.5)*2.0)
-    nu = max(0.0, (sig( blend_none,3.0)-0.5)*2.0)
-    FR = sd*nu
+
+    # t を 0.95 にして極端値を抑制（1.0 だとゼロ張り付きが起きやすい）
+    def S_point(w, t=0.95, f=0.9, gamma=0.12):
+        if not w:
+            return 0.0
+        A, phi = w.get("A", 0.0), w.get("phi", 0.0)
+        return A * math.exp(-gamma * t) * (
+            2 * math.pi * f * math.cos(2 * math.pi * f * t + phi)
+            - gamma * math.sin(2 * math.pi * f * t + phi)
+        )
+
+    # ブレンド（従来同等の重み）
+    blend_star = 0.6 * S_point(ws) + 0.4 * ws.get("S", 0.0)
+    blend_none = 0.6 * S_point(wn) + 0.4 * wn.get("S", 0.0)
+
+    def sig(x, k=3.0):
+        try:
+            return 1.0 / (1.0 + math.exp(-k * x))
+        except OverflowError:
+            return 0.0 if x < 0 else 1.0
+
+    # “上向きゼロ”の張り付き対策：nu に下限 0.05 を設定
+    sd_raw = (sig(-blend_star, 3.0) - 0.5) * 2.0   # 下向き強さ（>=0）
+    nu_raw = (sig( blend_none, 3.0) - 0.5) * 2.0   # 上向き強さ（>=0）
+
+    sd = max(0.0, sd_raw)
+    nu = max(0.05, nu_raw)   # ★ 下限を 0.05 にクランプ
+
+    FR = sd * nu
+
 
     # U（逆流圧）
     vtx_vals = [v for v,_ in vtx_list] or [0.0]
