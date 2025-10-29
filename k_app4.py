@@ -3331,7 +3331,7 @@ def compute_flow_indicators(lines_str, marks, scores):
     note = "\n".join([
         f"【順流】◎ライン {label(b_star)}：失速危険 {'高' if FR>=0.15 else ('中' if FR>=0.05 else '低')}",
         f"【渦】候補ライン：{label(VTX_bid)}（VTX={VTX:.2f}）",
-        f"【逆流】無ライン {label(b_none)}：U={U:.2f}（※{tag}）",
+        f"【逆流】無ライン {label(b_none)}：U={U:.2f}（※判定基準内）",
     ])
 
     dbg = {"blend_star": blend_star, "blend_none": blend_none, "sd": sd, "nu": nu, "vtx_hi": vtx_hi}
@@ -3486,10 +3486,15 @@ def select_tri_opponents_v2(
                 scores_local[x] += 0.35
 
     #   - 渦/FRが3車(以上)なら、そのラインの中核も少し厚め
+    #     FRの加点は失速ラベルで強弱（高なら控えめ）
     if vtx_group and len(vtx_group) >= 3:
         best_vtx = _t369p_best_in_group(vtx_group, hens, exclude=None)
         if best_vtx is not None and best_vtx in scores_local:
             scores_local[best_vtx] += 0.30
+    g_star  = marks.get("◎")
+    FR_line = _t369p_find_line_of(int(g_star), groups) if isinstance(g_star, int) else []
+    if not FR_line and groups:
+        FR_line = max(groups, key=lambda g: _t369p_line_avg(g, hens))
     if FR_line and len(FR_line) >= 3:
         add_fr = 0.30 if shissoku_label != "高" else 0.15
         for x in FR_line:
