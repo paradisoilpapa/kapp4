@@ -3541,6 +3541,247 @@ def format_tri_1x4(axis: int, opps: List[int]) -> str:
     opps_sorted = ''.join(str(x) for x in sorted(opps))
     return f"{axis}-{opps_sorted}-{opps_sorted}"
 
+# === PATCH（generate_tesla_bets の直前に挿入）==============================
+# ※ re は上で import 済みの想定。未インポートなら `import re` を先頭に追加。
+
+# 軸選定用（generate_tesla_bets から呼ばれる）
+def _topk(line, k, scores):
+    line = list(line or [])
+    return sorted(line, key=lambda x: (scores.get(x, -1.0), -int(x)), reverse=True)[:k]
+
+# ---- 相手4枠ロジック v2.3（3車厚め“強制保証”＋3列目ブースト＋U高域でも最大2枚許容）----
+from typing import List, Dict, Optional
+
+def _t369p_parse_groups(lines_str: str) -> List[List[int]]:
+    parts = re.findall(r'[0-9]+', str(lines_str or ""))
+    groups: List[List[int]] = []
+    for p in parts:
+        g = [int(ch) for ch in p]
+        if g: groups.append(g)
+    return groups
+
+def _t369p_find_line_of(num: int, groups: List[List[int]]) -> List[int]:
+    for g in groups:
+        if num in g:
+            return g
+    return []
+
+def _t369p_line_avg(g: List[int], hens: Dict[int, float]) -> float:
+    if not g: return -1e9
+    return sum(hens.get(x, 0.0) for x in g) / len(g)
+
+def _t369p_best_in_group(g: List[int], hens: Dict[int, float], exclude: Optional[int] = None) -> Optional[int]:
+    cand = [x for x in (g or []) if x != exclude]
+    if not cand: return None
+    return max(cand, key=lambda x: hens.get(x, 0.0), default=None)
+
+def select_tri_opponents_v2(
+    axis: int,
+    lines_str: str,
+    hens: Dict[int, float],              # 偏差値/スコアのマップ
+    vtx: float,                          # 渦の強さ（0〜1）
+    u: float,                            # 逆流の強さ（0〜1）
+    marks: Dict[str, int],               # 印（{'◎':5, ...}）
+    shissoku_label: str = "中",         # ◎ラインの「失速危険」：'低'/'中'/'高'
+    vtx_line_str: Optional[str] = None,  # 渦候補ライン（例 '375'）
+    u_line_str: Optional[str] = None,    # 逆流ライン（例 '63'）
+    n_opps: int = 4
+) -> List[int]:
+    # しきい値/ブースト（必要ならここだけ調整）
+    U_HIGH       = 0.90   # 逆流“代表1枚化”の発動しきい値（従来0.85→絞り込み）
+    THIRD_BOOST  = 0.18   # ★3列目（3車ラインの三番手）救済ブースト
+    THICK_BASE   = 0.25   # 3車(以上)ラインの基礎加点
+    AXIS_LINE_2P = 0.35   # 軸が3車以上のとき、相方以外の同ライン加点
+
+    groups     = _t369p_parse_groups(lines_str)
+    axis_line  = _t369p_find_line_of(int(axis), groups)
+    others_all = [x for g in groups for x in g if x != axis]
+
+    vtx_group = _t369p_parse_groups(vtx_line_str)[0] if vtx_line_str else []
+    u_group   = _t369p_parse_groups(u_line_str)[0]   if u_line_str   else []
+
+    # FRライン（◎のライン。なければ平均最大）
+    g_star  = marks.get("◎")
+    FR_line = _t369p_find_line_of(int(g_star), groups) if isinstance(g_star, int) else []
+    if not FR_line and groups:
+        FR_line = max(groups, key=lambda g: _t369p_line_avg(g, hens))
+
+    # 3車(以上)ライン群
+    thick_groups     = [g for g in groups if len(g) >= 3]
+    thick_others     = [g for g in thick_groups if g != (axis_line or [])]
+    best_thick_other = max(thick_others, key=lambda g: _t369p_line_avg(g, hens), default=None)
+
+    # 必須枠
+    picks_must: List[int] = []
+
+    # ① 軸相方（番手）
+    axis_partner = _t369p_best_in_group(axis_line, hens, exclude=axis) if axis_line else None
+    if axis_partner is not None:
+        picks_must.append(axis_partner)
+
+    # ② 対抗ライン代表（平均偏差最大ライン）
+    other_lines = [g for g in groups if g != axis_line]
+    best_other_line = max(other_lines, key=lambda g: _t369p_line_avg(g, hens), default=None)
+    opp_rep = _t369p_best_in_group(best_other_line, hens, exclude=None) if best_other_line else None
+    if opp_rep is not None:
+        picks_must.append(opp_rep)
+
+    # ③ 逆流代表（U高域のみ）。※3車u_groupは最大2枚まで許容
+    u_rep = None
+    if u >= U_HIGH:
+        if u_group:
+            u_rep = _t369p_best_in_group(u_group, hens, exclude=None)
+        else:
+            pool = [x for x in others_all if x not in (axis_line or [])]
+            u_rep = max(pool, key=lambda x: hens.get(x, 0.0), default=None) if pool else None
+        if u_rep is not None:
+            picks_must.append(u_rep)
+
+    # ④ スコアリング
+    scores_local: Dict[int, float] = {x: 0.0 for x in others_all}
+    for x in scores_local:
+        scores_local[x] += hens.get(x, 0.0) / 100.0  # 土台
+
+    # 軸ライン：相方を強化、同ライン他は控えめ
+    if axis_partner is not None and axis_partner in scores_local:
+        scores_local[axis_partner] += 1.50
+    for x in (axis_line or []):
+        if x not in (axis, axis_partner) and x in scores_local:
+            scores_local[x] += 0.20
+
+    # 対抗代表の底上げ
+    if opp_rep is not None and opp_rep in scores_local:
+        scores_local[opp_rep] += 1.20
+
+    # U高域：代表強化＋“2枚目抑制（3車はペナルティ緩和）”
+    if u >= U_HIGH and u_rep is not None and u_rep in scores_local:
+        scores_local[u_rep] += 1.00
+        if u_group:
+            penalty = 0.15 if len(u_group) >= 3 else 0.40
+            for x in u_group:
+                if x != u_rep and x in scores_local:
+                    scores_local[x] -= penalty
+
+    # VTX境界の調律
+    if vtx <= 0.55:
+        if opp_rep is not None and opp_rep in scores_local:
+            scores_local[opp_rep] += 0.40
+        for x in (vtx_group or []):
+            if x in scores_local:
+                scores_local[x] -= 0.20
+    elif vtx >= 0.60:
+        best_vtx = _t369p_best_in_group(vtx_group, hens, exclude=None) if vtx_group else None
+        if best_vtx is not None and best_vtx in scores_local:
+            scores_local[best_vtx] += 0.50
+
+    # ◎「失速=高」→ ◎より番手寄り
+    if isinstance(g_star, int) and shissoku_label == "高":
+        g_line = _t369p_find_line_of(g_star, groups)
+        g_ban  = _t369p_best_in_group(g_line, hens, exclude=g_star) if g_line else None
+        if g_star in scores_local: scores_local[g_star] -= 0.60
+        if g_ban is not None and g_ban in scores_local:
+            scores_local[g_ban] += 0.70
+
+    # ★ 3車(以上)ライン厚め：基礎加点＋“3列目”ブースト
+    for g3 in thick_groups:
+        for x in g3:
+            if x != axis and x in scores_local:
+                scores_local[x] += THICK_BASE
+        g_sorted = sorted(g3, key=lambda x: hens.get(x, 0.0), reverse=True)
+        if len(g_sorted) >= 3:
+            third = g_sorted[2]
+            if third != axis and third in scores_local:
+                scores_local[third] += THIRD_BOOST
+
+    # 軸が3車(以上)：同ライン2枚体制を強化
+    if axis_line and len(axis_line) >= 3:
+        for x in axis_line:
+            if x not in (axis, axis_partner) and x in scores_local:
+                scores_local[x] += AXIS_LINE_2P
+
+    # 渦/FRが3車(以上)：中核を少し厚め
+    if vtx_group and len(vtx_group) >= 3:
+        best_vtx = _t369p_best_in_group(vtx_group, hens, exclude=None)
+        if best_vtx is not None and best_vtx in scores_local:
+            scores_local[best_vtx] += 0.30
+    if FR_line and len(FR_line) >= 3:
+        add_fr = 0.30 if shissoku_label != "高" else 0.15
+        for x in FR_line:
+            if x != axis and x in scores_local:
+                scores_local[x] += add_fr
+
+    # 必須（順序維持）
+    def _unique_keep_order(xs: List[int]) -> List[int]:
+        seen, out = set(), []
+        for x in xs:
+            if x not in seen:
+                out.append(x); seen.add(x)
+        return out
+    picks = [x for x in _unique_keep_order(picks_must) if x in scores_local and x != axis]
+
+    # 補充：スコア順。U高域では u_group の人数上限（1 or 2）を守る
+    def _same_group(a: int, b: int, group: List[int]) -> bool:
+        return bool(group and a in group and b in group)
+
+    for x, _sc in sorted(scores_local.items(), key=lambda kv: kv[1], reverse=True):
+        if x in picks or x == axis:
+            continue
+        if u >= U_HIGH and u_group:
+            limit = 2 if len(u_group) >= 3 else 1
+            cnt_u = sum(1 for y in picks if y in u_group)
+            if cnt_u >= limit and any(_same_group(x, y, u_group) for y in picks):
+                continue
+        picks.append(x)
+        if len(picks) >= n_opps:
+            break
+
+    # ★ 強制保証１：軸が3車(以上)→相手4枠に同ライン2枚（相方＋もう1枚）を確保
+    if axis_line and len(axis_line) >= 3:
+        axis_members = [x for x in axis_line if x != axis]
+        present = [x for x in picks if x in axis_members]
+        if len(present) < 2 and len(axis_members) >= 2:
+            cand = max([x for x in axis_members if x not in picks], key=lambda x: hens.get(x, 0.0), default=None)
+            if cand is not None:
+                drop_cands = [x for x in picks if x not in axis_members]
+                if drop_cands:
+                    worst = min(drop_cands, key=lambda x: scores_local.get(x, -1e9))
+                    picks = [x for x in picks if x != worst] + [cand]
+
+    # ★ 強制保証２：軸以外で“最厚”の3車(以上)ライン→相手4枠に最低2枚を確保
+    if best_thick_other:
+        have = [x for x in picks if x in best_thick_other]
+        need = min(2, len(best_thick_other))
+        while len(have) < need and len(picks) > 0:
+            cand = max([x for x in best_thick_other if x not in picks and x != axis],
+                       key=lambda x: hens.get(x, 0.0), default=None)
+            if cand is None:
+                break
+            drop_cands = [x for x in picks if x not in best_thick_other]
+            if not drop_cands:
+                break
+            worst = min(drop_cands, key=lambda x: scores_local.get(x, -1e9))
+            if worst == cand:
+                break
+            picks = [x for x in picks if x != worst] + [cand]
+            have = [x for x in picks if x in best_thick_other]
+
+    # 最終保険
+    if len(picks) < n_opps:
+        rest = [x for x in others_all if x not in picks and x != axis]
+        rest_sorted = sorted(rest, key=lambda x: hens.get(x, 0.0), reverse=True)
+        for x in rest_sorted:
+            picks.append(x)
+            if len(picks) >= n_opps:
+                break
+
+    # ユニーク＆サイズ調整
+    seen = set()
+    picks = [x for x in picks if not (x in seen or seen.add(x))][:n_opps]
+    return picks
+# === /PATCH ==============================================================
+
+
+
 # ---------- 買い目ジェネレータ（6点固定：軸-4車-4車 / 相手配分は上記ロジック） ----------
 def generate_tesla_bets(flow, lines_str, marks, scores):
     """
