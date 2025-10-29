@@ -3782,18 +3782,26 @@ def select_tri_opponents_v2(
 
 
 
-# ---------- 買い目ジェネレータ（Axis Assurance 常用：A-CCC-CCC / A-KKK） ----------
+# ---------- 買い目ジェネレータ（最終版）Axis Assurance：A-CCC-CCC & A-KKK ----------
 def generate_tesla_bets(flow, lines_str, marks, scores):
     """
-    出力方針（オッズ不使用）：
-      - 軸：従来どおり FRリスクで FR/VTX を切替
-      - 三連複：Axis Assurance => A-CCC-CCC（Cは◎/▲優先＋候補内偏差値上位）
-      - ワイド：A-KKK（Kは全体から A と C を除いた偏差値上位3）
-      - 2車複：内部が強形（優位 or 互角強）でのみ表示（軸-〇/▲/△/×を優先）
-      - 判定：内部評価のみで Go/ケン
-      - 失速危険の減点は「軸ライン＝高」のときだけ適用（◎ラインの高は減点しない）
+    目的：
+      - オッズを一切見ず、内部指標のみで最終ブロックを構築
+      - 三連複：A-CCC-CCC（Cは◎/▲優先＋候補内の偏差値上位で合計3車）
+      - ワイド：A-KKK（Kは全体からAとCを除いた偏差値上位3）
+      - 二車複：内部が強形（優位 / 互角強）のときだけ表示（軸-〇/▲/△/×を優先）
+      - 【最終買い目】行に軸ベースの展開評価（優位/互角/混戦）を出力
+      - 失速危険の減点は「軸ラインが高の時のみ」適用（◎ラインが高でも軸が別ラインなら減点しない）
+
+    返り値：
+      {
+        "FR_line": [...], "VTX_line": [...], "U_line": [...],
+        "FRv": float, "VTXv": float, "Uv": float,
+        "trios": [ (a,b,c), ... ],   # 可視化用（三連複6通り）
+        "note": "最終出力の複数行テキスト"
+      }
     """
-    # しきい値
+    # ===== パラメータ（基準） =====
     VTX_GOOD_MAX = 0.62
     U_GOOD_MAX   = 0.72
 
@@ -3810,7 +3818,7 @@ def generate_tesla_bets(flow, lines_str, marks, scores):
     VTXv = float(flow.get("VTX", 0.0) or 0.0)
     Uv   = float(flow.get("U", 0.0) or 0.0)
 
-    # 小ヘルパ
+    # ===== ヘルパ =====
     def _avg(ln):
         xs = [float(scores.get(n, 0.0)) for n in (ln or [])]
         return sum(xs)/len(xs) if xs else -1e9
@@ -3828,13 +3836,15 @@ def generate_tesla_bets(flow, lines_str, marks, scores):
         order = sorted(scores.items(), key=lambda kv: (-kv[1], kv[0]))
         return {rid: i+1 for i, (rid, _) in enumerate(order)}
 
-    # FR危険ラベル
     def _risk_from_FRv(fr):
         if fr >= 0.25: return "高"
         if fr >= 0.10: return "中"
         return "低"
 
-    # ライン特定（既存踏襲）
+    def _flow_good(vtx, u):  # “良”の定義
+        return (vtx <= VTX_GOOD_MAX and u <= U_GOOD_MAX)
+
+    # ===== ライン特定（従来ルール踏襲）=====
     star_id = marks.get('◎')
     FR_line = _line_of(star_id) if isinstance(star_id, int) else []
     if not FR_line:
@@ -3858,10 +3868,10 @@ def generate_tesla_bets(flow, lines_str, marks, scores):
             U_line = singles[0]
         else:
             others = [ln for ln in lines if ln not in (FR_line, VTX_line)]
-            others.sort(key=_avg)
+            others.sort(key=_avg)  # 低スコアほど逆流寄り
             U_line = others[0] if others else []
 
-    # ライン衝突の整合（既存踏襲）
+    # ライン衝突の整合
     def _line_avg(ln): return _avg(ln) if ln else -1e9
     if VTX_line:
         cand = sorted([ln for ln in lines if ln not in (FR_line, VTX_line, U_line)], key=_line_avg, reverse=True)
@@ -3875,12 +3885,11 @@ def generate_tesla_bets(flow, lines_str, marks, scores):
         cand = sorted(lines, key=_avg, reverse=True)
         VTX_line = next((ln for ln in cand if ln not in (FR_line, U_line)), VTX_line)
 
-    # ---- 軸（従来どおり）----
+    # ===== 軸の決定（従来どおり）=====
     fr_risk = _risk_from_FRv(FRv)
-    if fr_risk == "低":
-        axis = max(FR_line, key=lambda x: scores.get(x, 0.0)) if FR_line else None
-    else:
-        axis = max(VTX_line, key=lambda x: scores.get(x, 0.0)) if VTX_line else None
+    def _top1(ln):  # 偏差値が最大の1名
+        return max(ln, key=lambda x: scores.get(x, -1e9)) if ln else None
+    axis = _top1(FR_line) if fr_risk == "低" else _top1(VTX_line)
 
     if not isinstance(axis, int) or not all_nums:
         return {
@@ -3889,9 +3898,10 @@ def generate_tesla_bets(flow, lines_str, marks, scores):
             "trios": [], "note": "【最終買い目】出力なし"
         }
 
-    # ===== 内部評価（軸ベース）=====
+    # ===== 軸評価（Sスコア → ラベル）=====
     ranks = _rank_map()
-    d = float(scores.get(axis, 0.0)) - max(scores[k] for k in all_nums if k != axis)
+    other_max = max(scores[k] for k in all_nums if k != axis)
+    d = float(scores.get(axis, 0.0)) - other_max
     # d加点
     if   d >= 6.0: s_d = 2
     elif d >= 3.0: s_d = 1
@@ -3899,16 +3909,16 @@ def generate_tesla_bets(flow, lines_str, marks, scores):
     elif d > -6.0: s_d = -1
     else:          s_d = -2
     # フロー加点
-    if VTXv <= VTX_GOOD_MAX and Uv <= U_GOOD_MAX: s_f = 2
-    elif (VTXv < 0.65 or Uv < 0.75):              s_f = 1
-    else:                                         s_f = -2
-    # ライン支援（相棒最上位の順位）
+    if _flow_good(VTXv, Uv): s_f = 2
+    elif (VTXv < 0.65 or Uv < 0.75): s_f = 1
+    else: s_f = -2
+    # ライン支援（軸ライン相棒の最上位順位）
     mates = [x for x in _line_of(axis) if x != axis]
     mate_rank = min((ranks.get(m, 99) for m in mates), default=99)
     if   mate_rank <= 2: s_l = 2
     elif mate_rank <= 5: s_l = 1
     else:                s_l = -1
-    # 失速危険（※軸ラインのみ）
+    # 失速危険（軸ラインのみ適用）
     axis_risk = _risk_from_FRv(FRv) if (axis in FR_line) else "—"
     s_r = -1 if axis_risk == "高" else 0
 
@@ -3917,49 +3927,51 @@ def generate_tesla_bets(flow, lines_str, marks, scores):
     elif S >= 1: label = "互角"
     else:        label = "混戦"
 
-    def _flow_good(vtx, u): return (vtx <= VTX_GOOD_MAX and u <= U_GOOD_MAX)
-    strong = (_flow_good(VTXv, Uv) and (d >= 1.0 or mate_rank <= 2))
+    strong = (_flow_good(VTXv, Uv) and (d >= 1.0 or mate_rank <= 2))  # 互角強の判定
 
-    # ===== Axis Assurance =====
-    # S2候補（従来の4枠選定を利用）
-    def _select_4():
-        vtx_line_str = "".join(map(str, VTX_line)) if VTX_line else None
-        u_line_str   = "".join(map(str, U_line))   if U_line   else None
+    # ===== C（コア3）・K（カバー3）=====
+    # S2候補は select_tri_opponents_v2 があれば利用（なければ偏差値上位で補完）
+    def _select_4_candidates():
         try:
+            vtx_line_str = "".join(map(str, VTX_line)) if VTX_line else None
+            u_line_str   = "".join(map(str, U_line))   if U_line   else None
             opps = select_tri_opponents_v2(
                 axis=axis, lines_str=lines_str, hens=scores,
                 vtx=VTXv, u=Uv, marks=marks,
                 shissoku_label=fr_risk,
-                vtx_line_str=vtx_line_str, u_line_str=u_line_str,
-                n_opps=4
+                vtx_line_str=vtx_line_str, u_line_str=u_line_str, n_opps=4
             ) or []
         except Exception:
             opps = []
+        if not opps:
+            opps = sorted([n for n in all_nums if n != axis],
+                          key=lambda r: (-scores.get(r, -1e9), r))[:4]
         return [x for x in opps if x != axis]
-    opps = _select_4()
 
-    # C：◎, ▲優先 → 残りは候補内の偏差値上位で3車
+    opps = _select_4_candidates()
+    # C：◎, ▲を優先 → 残りは候補内偏差値上位で3車
     core = []
-    for sym in ["◎", "▲"]:
+    for sym in ("◎", "▲"):
         v = marks.get(sym)
         if v and v in opps and v not in core:
             core.append(v)
-    remain = sorted([x for x in opps if x not in core], key=lambda r: (-scores.get(r, -1e9), r))
+    remain = sorted([x for x in opps if x not in core],
+                    key=lambda r: (-scores.get(r, -1e9), r))
     core = (core + remain)[:3]
-
     # K：全体 − {axis ∪ core} の偏差値上位3
     cover_pool = [n for n in all_nums if n not in [axis] + core]
     cover = sorted(cover_pool, key=lambda r: (-scores.get(r, -1e9), r))[:3]
 
-    # 判定＆表示フラグ
+    # ===== 券種セレクタ（オッズ不使用）=====
     if label == "混戦":
         verdict = "ケン"; show_wide = False; show_nifuku = False
     elif label == "優位":
-        verdict = "Go"; show_wide = True; show_nifuku = True
+        verdict = "Go";  show_wide = True;  show_nifuku = True
     else:  # 互角
-        verdict = "Go"; show_wide = True; show_nifuku = bool(strong)
+        verdict = "Go";  show_wide = True;  show_nifuku = bool(strong)
 
-    # 出力組み立て
+    # ===== 出力組み立て =====
+    # 三連複は A-CCC-CCC（圧縮表記）
     tri_ccc = f"{axis}-" + "".join(str(x) for x in core) + "-" + "".join(str(x) for x in core)
     wide_k  = " / ".join(f"{axis}-{x}" for x in cover)
 
@@ -3970,6 +3982,7 @@ def generate_tesla_bets(flow, lines_str, marks, scores):
         if show_wide and cover:
             lines_out.append(f"【防御（ワイド）】{wide_k}")
         if show_nifuku:
+            # 二車複は軸-〇/▲/△/×を優先、足りなければ偏差値で補充（最大4つ）
             order = ["〇","▲","△","×"]
             used = {axis}
             nifu = []
@@ -3978,7 +3991,8 @@ def generate_tesla_bets(flow, lines_str, marks, scores):
                 if v and v not in used:
                     nifu.append(f"{axis}-{v}"); used.add(v)
             if len(nifu) < 4:
-                rest = sorted([x for x in all_nums if x not in used], key=lambda r: (-scores.get(r, -1e9), r))
+                rest = sorted([x for x in all_nums if x not in used],
+                              key=lambda r: (-scores.get(r, -1e9), r))
                 for r in rest:
                     nifu.append(f"{axis}-{r}")
                     if len(nifu) >= 4: break
@@ -3987,7 +4001,7 @@ def generate_tesla_bets(flow, lines_str, marks, scores):
     else:
         lines_out.append("【判定】ケン")
 
-    # trios は可視化用（A×Cの6組）
+    # 可視化用：A×C(3)の6通りを trios に
     from itertools import combinations
     trios = sorted({tuple(sorted([axis, a, b])) for a, b in combinations(core, 2)})
 
@@ -3997,6 +4011,7 @@ def generate_tesla_bets(flow, lines_str, marks, scores):
         "trios": trios,
         "note": "\n".join(lines_out),
     }
+
 
 
 
