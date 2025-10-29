@@ -3782,15 +3782,32 @@ def select_tri_opponents_v2(
 
 
 
-# ---------- 買い目ジェネレータ（6点固定：軸-4車-4車 / 相手配分は上記ロジック） ----------
+# ---------- 買い目ジェネレータ（6点固定：軸-4車-4車 / 相手配分は上記ロジック＋逆張り1枠） ----------
 def generate_tesla_bets(flow, lines_str, marks, scores):
     """
     三連複：常に 6 点（軸-4車-4車）
-    軸の決め方（従来通り）：
+    軸の決め方（従来どおり）：
       - FRが「低」：FRライン上位1を軸
       - FRが「中/高」：VTXライン上位1を軸
     相手4枠は select_tri_opponents_v2 に一本化（3車ライン厚め必須、U高域/境界補正込み）。
+
+    ＋ 逆張り1枠ルール（配当狙いの軽い上振れ用）：
+      条件：
+        ① 3車ラインが無い
+        ② FR=「高」
+        ③ VTXが 0.56〜0.60（決めきれない帯）
+        ④ U < 0.90
+      動作：
+        - 最弱ラインの上位1名を“強制1枠”として相手4枠に入れる
+        - 代わりに、FR/VTX/U いずれにも紐づかない「中立枠」から
+          偏差差が HENS_DIFF_MAX 以内の者を1名だけ外す（なければ無理に入れ替えない）
     """
+    # ===== 調整可能パラメータ =====
+    VTX_LOWER = 0.56
+    VTX_UPPER = 0.60
+    U_CAP     = 0.90
+    HENS_DIFF_MAX = 8.0  # 外す相手との偏差差の許容（pt）
+
     flow   = flow or {}
     lines  = list(flow.get("lines") or [])
     scores = scores or {}
@@ -3869,7 +3886,7 @@ def generate_tesla_bets(flow, lines_str, marks, scores):
         cand = sorted(lines, key=_avg, reverse=True)
         VTX_line = next((ln for ln in cand if ln not in (FR_line, U_line)), VTX_line)
 
-    # ---- 軸（従来通り） ----
+    # ---- 軸（従来どおり） ----
     if fr_risk == "低":
         axis = _topk(FR_line, 1, scores)[0] if FR_line else None
     else:  # 中/高
@@ -3896,6 +3913,32 @@ def generate_tesla_bets(flow, lines_str, marks, scores):
         u_line_str=u_line_str,
         n_opps=4
     )
+
+    # ========== 逆張り1枠ルール（条件を満たすときだけ発動） ==========
+    has_3line = any(len(g) >= 3 for g in lines)
+    if (not has_3line) and (fr_risk == "高") and (VTX_LOWER <= VTXv <= VTX_UPPER) and (Uv < U_CAP):
+        # 最弱ライン（平均偏差が最も低いライン）を特定
+        try:
+            weak_line = min(lines, key=_avg)
+        except Exception:
+            weak_line = []
+        # 最弱ラインの上位1名
+        weak_cand = None
+        if weak_line:
+            weak_cand = max(weak_line, key=lambda x: scores.get(x, 0.0))
+        # 代替先（ドロップ候補）：FR/VTX/U いずれにも属さない中立枠
+        FRs, VTXs, Us = set(FR_line or []), set(VTX_line or []), set(U_line or [])
+        neutral_in_opps = [x for x in opps if (x not in FRs and x not in VTXs and x not in Us)]
+        # 入替実行条件
+        if isinstance(weak_cand, int) and (weak_cand != axis) and (weak_cand in all_nums) and (weak_cand not in opps) and neutral_in_opps:
+            # 偏差差がしきい値以内の中立だけを対象にする
+            ok_drops = [x for x in neutral_in_opps if abs(scores.get(x, 0.0) - scores.get(weak_cand, 0.0)) <= HENS_DIFF_MAX]
+            if ok_drops:
+                # 外すのは偏差が最も低い中立
+                drop = min(ok_drops, key=lambda x: scores.get(x, 0.0))
+                opps = [y for y in opps if y != drop] + [weak_cand]
+                # ユニーク＆サイズ調整（安全）
+                seen=set(); opps=[x for x in opps if not (x in seen or seen.add(x))][:4]
 
     # ---- 三連複6点（軸-4-4） ----
     from itertools import combinations
