@@ -3806,7 +3806,7 @@ def generate_tesla_bets(flow, lines_str, marks, scores):
     VTX_LOWER = 0.56
     VTX_UPPER = 0.60
     U_CAP     = 0.90
-    HENS_DIFF_MAX = 8.0  # 外す相手との偏差差の許容（pt）
+    HENS_DIFF_MAX = 8.5  # 外す相手との偏差差の許容（pt）
 
     flow   = flow or {}
     lines  = list(flow.get("lines") or [])
