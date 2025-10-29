@@ -3077,10 +3077,10 @@ st.caption("上の4表は既存候補と“しきい値クリア”の交差済�
 
 
 # =========================
-#  Tesla369｜出力統合・最終ブロック（安定版・重複なし）
+#  Tesla369｜出力統合・最終ブロック（安定版・重複なし / 3車ライン厚め対応）
 # =========================
 import re, json, hashlib, math
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 # ---------- 基本ヘルパ ----------
 def _t369_norm(s) -> str:
@@ -3339,40 +3339,229 @@ def compute_flow_indicators(lines_str, marks, scores):
             "vtx_bid": VTX_bid, "lines": lines, "dbg": dbg}
 
 
-# ======== 追加：軸-4車-4車 用ヘルパ ========
+# ======== 追加：相手4枠ロジック（3車ライン厚め必須 & U高域/境界補正） ========
 def _topk(line, k, scores):
     line = list(line or [])
     return sorted(line, key=lambda x: (scores.get(x, -1.0), -int(x)), reverse=True)[:k]
 
-def _uniq_fill4(base_list, prefer_pool, fallback_pool, scores, banned=None):
-    banned = set(banned or [])
-    picked = []
-    for x in base_list:
-        if x not in picked and x not in banned:
-            picked.append(x)
-    for pool in (prefer_pool, fallback_pool):
-        for x in _topk(pool, len(pool), scores):
-            if x not in picked and x not in banned:
-                picked.append(x)
-            if len(picked) >= 4:
-                return picked[:4]
-    # 全体補充（最後の保険）
-    all_sorted = sorted(scores.keys(), key=lambda x: (scores[x], -int(x)), reverse=True)
-    for x in all_sorted:
-        if x not in picked and x not in banned:
-            picked.append(x)
-        if len(picked) >= 4:
-            break
-    return picked[:4]
+def _t369p_parse_groups(lines_str: str) -> List[List[int]]:
+    parts = re.findall(r'[0-9]+', str(lines_str or ""))
+    groups: List[List[int]] = []
+    for p in parts:
+        g = [int(ch) for ch in p]
+        if g: groups.append(g)
+    return groups
 
-# ---------- 買い目ジェネレータ（常に6点：軸-4車-4車） ----------
+def _t369p_find_line_of(num: int, groups: List[List[int]]) -> List[int]:
+    for g in groups:
+        if num in g:
+            return g
+    return []
+
+def _t369p_line_avg(g: List[int], hens: Dict[int, float]) -> float:
+    if not g: return -1e9
+    return sum(hens.get(x, 0.0) for x in g) / len(g)
+
+def _t369p_best_in_group(g: List[int], hens: Dict[int, float], exclude: Optional[int] = None) -> Optional[int]:
+    cand = [x for x in (g or []) if x != exclude]
+    if not cand: return None
+    return max(cand, key=lambda x: hens.get(x, 0.0), default=None)
+
+def select_tri_opponents_v2(
+    axis: int,
+    lines_str: str,
+    hens: Dict[int, float],              # 偏差値/スコアのマップ
+    vtx: float,                          # 渦の強さ（0〜1）
+    u: float,                            # 逆流の強さ（0〜1）
+    marks: Dict[str, int],               # 印（{'◎':5, ...}）
+    shissoku_label: str = "中",         # ◎ラインの「失速危険」ラベル：'低'/'中'/'高'
+    vtx_line_str: Optional[str] = None,  # 渦候補ライン文字列（例 '375'）
+    u_line_str: Optional[str] = None,    # 逆流ライン文字列（例 '63'）
+    n_opps: int = 4
+) -> List[int]:
+    """
+    相手4枠のみを選定する強化ロジック。
+    ルール骨子：
+      A) U>=0.85 → 逆流は代表1枚に圧縮（“逆流2枚取り”を抑制）、対抗代表を優先
+      B) VTX<=0.55 → 準順流扱い（渦の過信↓、対抗代表↑）／VTX>=0.60 → 渦やや強（渦支点↑）
+      C) ◎「失速=高」→ ◎本人＜◎番手（番手残り↑）
+      D) ★ 3車(以上)ライン厚め：基礎加点＋軸が3車以上なら“同ライン2枚体制”を最低保証
+    """
+    groups     = _t369p_parse_groups(lines_str)
+    axis_line  = _t369p_find_line_of(int(axis), groups)
+    others_all = [x for g in groups for x in g if x != axis]
+
+    vtx_group = _t369p_parse_groups(vtx_line_str)[0] if vtx_line_str else []
+    u_group   = _t369p_parse_groups(u_line_str)[0]   if u_line_str   else []
+
+    # FRライン（◎のライン。なければ平均最大ライン）
+    g_star  = marks.get("◎")
+    FR_line = _t369p_find_line_of(int(g_star), groups) if isinstance(g_star, int) else []
+    if not FR_line and groups:
+        FR_line = max(groups, key=lambda g: _t369p_line_avg(g, hens))
+
+    thick_groups = [g for g in groups if len(g) >= 3]  # 3車(以上)ライン
+
+    # 必須候補
+    picks_must: List[int] = []
+
+    # ① 軸相方（番手）を強く採用
+    axis_partner = _t369p_best_in_group(axis_line, hens, exclude=axis) if axis_line else None
+    if axis_partner is not None:
+        picks_must.append(axis_partner)
+
+    # ② 対抗ライン代表（平均偏差最大ラインの代表）
+    other_lines = [g for g in groups if g != axis_line]
+    best_other_line = max(other_lines, key=lambda g: _t369p_line_avg(g, hens), default=None)
+    opp_rep = _t369p_best_in_group(best_other_line, hens, exclude=None) if best_other_line else None
+    if opp_rep is not None:
+        picks_must.append(opp_rep)
+
+    # ③ 逆流代表（U高域のみ“1枚だけ”）
+    u_rep = None
+    if u >= 0.85:
+        if u_group:
+            u_rep = _t369p_best_in_group(u_group, hens, exclude=None)
+        else:
+            pool = [x for x in others_all if x not in (axis_line or [])]
+            u_rep = max(pool, key=lambda x: hens.get(x, 0.0), default=None) if pool else None
+        if u_rep is not None:
+            picks_must.append(u_rep)
+
+    # ④ スコアリング（残り枠の配分）
+    scores_local: Dict[int, float] = {x: 0.0 for x in others_all}
+    # 土台：偏差
+    for x in scores_local:
+        scores_local[x] += hens.get(x, 0.0) / 100.0
+
+    # 軸ライン：相方を強く、その他は控えめ加点
+    if axis_partner is not None and axis_partner in scores_local:
+        scores_local[axis_partner] += 1.50
+    for x in (axis_line or []):
+        if x not in (axis, axis_partner) and x in scores_local:
+            scores_local[x] += 0.20
+
+    # 対抗代表を加点
+    if opp_rep is not None and opp_rep in scores_local:
+        scores_local[opp_rep] += 1.20
+
+    # 逆流代表＆“2枚取り”抑制（U高域）
+    if u >= 0.85 and u_rep is not None and u_rep in scores_local:
+        scores_local[u_rep] += 1.00
+        for x in (u_group or []):
+            if x != u_rep and x in scores_local:
+                scores_local[x] -= 0.40
+
+    # VTX境界の調律
+    if vtx <= 0.55:
+        if opp_rep is not None and opp_rep in scores_local:
+            scores_local[opp_rep] += 0.40
+        for x in (vtx_group or []):
+            if x in scores_local:
+                scores_local[x] -= 0.20
+    elif vtx >= 0.60:
+        best_vtx = _t369p_best_in_group(vtx_group, hens, exclude=None) if vtx_group else None
+        if best_vtx is not None and best_vtx in scores_local:
+            scores_local[best_vtx] += 0.50
+
+    # ◎「失速=高」→ ◎本人を減点・番手を加点
+    g = marks.get("◎")
+    if isinstance(g, int) and shissoku_label == "高":
+        g_line = _t369p_find_line_of(g, groups)
+        g_ban  = _t369p_best_in_group(g_line, hens, exclude=g) if g_line else None
+        if g in scores_local: scores_local[g] -= 0.60
+        if g_ban is not None and g_ban in scores_local:
+            scores_local[g_ban] += 0.70
+
+    # ★ 3車(以上)ラインは厚め（基礎加点）
+    for g3 in thick_groups:
+        for x in g3:
+            if x != axis and x in scores_local:
+                scores_local[x] += 0.25
+
+    #   - 軸が3車(以上)ラインのとき：同ライン“もう1枚”をさらに強化
+    if axis_line and len(axis_line) >= 3:
+        for x in axis_line:
+            if x not in (axis, axis_partner) and x in scores_local:
+                scores_local[x] += 0.35
+
+    #   - 渦/FRが3車(以上)なら、そのラインの中核も少し厚め
+    if vtx_group and len(vtx_group) >= 3:
+        best_vtx = _t369p_best_in_group(vtx_group, hens, exclude=None)
+        if best_vtx is not None and best_vtx in scores_local:
+            scores_local[best_vtx] += 0.30
+    if FR_line and len(FR_line) >= 3:
+        add_fr = 0.30 if shissoku_label != "高" else 0.15
+        for x in FR_line:
+            if x != axis and x in scores_local:
+                scores_local[x] += add_fr
+
+    # 必須を順序維持で
+    def _unique_keep_order(xs: List[int]) -> List[int]:
+        seen, out = set(), []
+        for x in xs:
+            if x not in seen:
+                out.append(x); seen.add(x)
+        return out
+    picks = [x for x in _unique_keep_order(picks_must) if x in scores_local and x != axis]
+
+    # U高域では逆流“2枚目”禁止しつつ、スコア順で補充
+    def _same_group(a: int, b: int, group: List[int]) -> bool:
+        return bool(group and a in group and b in group)
+
+    for x, _sc in sorted(scores_local.items(), key=lambda kv: kv[1], reverse=True):
+        if x in picks or x == axis:
+            continue
+        if u >= 0.85 and u_group:
+            if any(_same_group(x, y, u_group) for y in picks):
+                continue
+        picks.append(x)
+        if len(picks) >= n_opps:
+            break
+
+    # ★ 保障：軸ラインが3車(以上)なら、相手4枠に“同ライン2枚体制”を最低保証（相方＋もう1枚）
+    if axis_line and len(axis_line) >= 3:
+        axis_members = [x for x in axis_line if x != axis]
+        present = [x for x in picks if x in axis_members]
+        if len(present) < 2 and len(axis_members) >= 2:
+            # 追加候補（相方以外の最上位）
+            cand = None
+            rest_same = [x for x in axis_members if x not in picks]
+            if rest_same:
+                cand = max(rest_same, key=lambda x: hens.get(x, 0.0))
+            if cand is not None:
+                # 落とす枠＝同ライン外で最もスコアが低い1名
+                drop_cands = [x for x in picks if x not in axis_members]
+                if drop_cands:
+                    worst = min(drop_cands, key=lambda x: scores_local.get(x, -1e9))
+                    picks = [x for x in picks if x != worst] + [cand]
+                    # ユニーク＆サイズ調整
+                    seen = set()
+                    picks = [x for x in picks if not (x in seen or seen.add(x))][:n_opps]
+
+    # 最終保険
+    if len(picks) < n_opps:
+        rest = [x for x in others_all if x not in picks and x != axis]
+        rest_sorted = sorted(rest, key=lambda x: hens.get(x, 0.0), reverse=True)
+        for x in rest_sorted:
+            picks.append(x)
+            if len(picks) >= n_opps:
+                break
+
+    return picks[:n_opps]
+
+def format_tri_1x4(axis: int, opps: List[int]) -> str:
+    opps_sorted = ''.join(str(x) for x in sorted(opps))
+    return f"{axis}-{opps_sorted}-{opps_sorted}"
+
+# ---------- 買い目ジェネレータ（6点固定：軸-4車-4車 / 相手配分は上記ロジック） ----------
 def generate_tesla_bets(flow, lines_str, marks, scores):
     """
     三連複：常に 6 点（軸-4車-4車）
-    - 軸：FR=低→FR1、FR=中/高→VTX1
-    - FRが3車のときは必ずFRの3車を全採用（位置ペナルティなし）
-    - 4車集合はFR危険度で決定（ユニーク化・補充込み）
-    - 出力は「【買い目】三連複：a-b-c, ...」を必ず返す
+    軸の決め方（従来通り）：
+      - FRが「低」：FRライン上位1を軸
+      - FRが「中/高」：VTXライン上位1を軸
+    相手4枠は select_tri_opponents_v2 に一本化（3車ライン厚め必須、U高域/境界補正込み）。
     """
     flow   = flow or {}
     lines  = list(flow.get("lines") or [])
@@ -3380,7 +3569,12 @@ def generate_tesla_bets(flow, lines_str, marks, scores):
     marks  = marks or {}
 
     # 参加全車番
-    all_nums = sorted({n for ln in lines for n in ln})
+    all_nums = sorted({n for ln in lines for n in ln}) if lines else []
+
+    # 指標
+    FRv  = float(flow.get("FR", 0.0) or 0.0)
+    VTXv = float(flow.get("VTX", 0.0) or 0.0)
+    Uv   = float(flow.get("U", 0.0) or 0.0)
 
     # 小ヘルパ
     def _avg(ln):
@@ -3397,19 +3591,14 @@ def generate_tesla_bets(flow, lines_str, marks, scores):
                 return ln[:]
         return []
 
-    # 指標
-    FRv  = float(flow.get("FR", 0.0) or 0.0)
-    VTXv = float(flow.get("VTX", 0.0) or 0.0)
-    Uv   = float(flow.get("U", 0.0) or 0.0)
-
-    # FR危険度（既存の定義を使用）
+    # FR危険度ラベル
     def _risk_from_FRv(fr):
         if fr >= 0.25: return "高"
         if fr >= 0.10: return "中"
         return "低"
     fr_risk = _risk_from_FRv(FRv)
 
-    # ライン特定（FR/VTX/U を互いに別に）
+    # ライン特定
     star_id = marks.get('◎')
     FR_line = _line_of(star_id) if isinstance(star_id, int) else []
     if not FR_line:
@@ -3452,76 +3641,49 @@ def generate_tesla_bets(flow, lines_str, marks, scores):
         cand = sorted(lines, key=_avg, reverse=True)
         VTX_line = next((ln for ln in cand if ln not in (FR_line, U_line)), VTX_line)
 
-    # ---- 軸選定 ----
+    # ---- 軸（従来通り） ----
     if fr_risk == "低":
         axis = _topk(FR_line, 1, scores)[0] if FR_line else None
     else:  # 中/高
         axis = _topk(VTX_line, 1, scores)[0] if VTX_line else None
 
-    # ---- VTX3車のときは同ライン2相手を先置き ----
-    base = []
-    if axis in (VTX_line or []) and len(VTX_line) == 3:
-        base = [x for x in VTX_line if x != axis]  # 例: [4,3]
+    # ガード：軸 or 参加車が不成立なら出力なし
+    if not isinstance(axis, int) or not all_nums:
+        return {
+            "FR_line": FR_line, "VTX_line": VTX_line, "U_line": U_line,
+            "FRv": FRv, "VTXv": VTXv, "Uv": Uv,
+            "trios": [], "note": "【買い目】出力なし"
+        }
 
-    # ---- 4車集合（SET4） ----
-    banned = {axis} if axis is not None else set()
-
-    if len(FR_line) == 3:
-        base = list(FR_line)  # FR3車は必ず採用（位置ペナルティなし）
-        if fr_risk in ("低", "中"):
-            prefer = [x for x in _topk(VTX_line, 2, scores) if x not in base]
-            fallback = [x for x in _topk(U_line, 2, scores) if x not in base]
-        else:  # 高
-            prefer = [x for x in _topk(U_line, 2, scores) if x not in base]
-            fallback = [x for x in _topk(VTX_line, 2, scores) if x not in base]
-        set4 = _uniq_fill4(base, prefer, fallback, scores, banned=banned)
-    else:
-        if fr_risk == "低":
-            target = _topk(FR_line, 4, scores)
-            set4 = _uniq_fill4(base, target, [], scores, banned=banned)
-        elif fr_risk == "中":
-            target = _topk(FR_line, 2, scores) + _topk(VTX_line, 2, scores)
-            set4 = _uniq_fill4(base, target, [], scores, banned=banned)
-        else:  # 高
-            target = _topk(VTX_line, 2, scores) + _topk(U_line, 2, scores)
-            set4 = _uniq_fill4(base, target, [], scores, banned=banned)
-
+    # ---- 相手4枠（強化ロジック）----
+    vtx_line_str = "".join(map(str, VTX_line)) if VTX_line else None
+    u_line_str   = "".join(map(str, U_line))   if U_line   else None
+    opps = select_tri_opponents_v2(
+        axis=axis,
+        lines_str=lines_str,
+        hens=scores,
+        vtx=VTXv, u=Uv, marks=marks,
+        shissoku_label=fr_risk,
+        vtx_line_str=vtx_line_str,
+        u_line_str=u_line_str,
+        n_opps=4
+    )
 
     # ---- 三連複6点（軸-4-4） ----
     from itertools import combinations
-
     chosen = []
-    if isinstance(axis, int) and len(set4) >= 4:
-        for a, b in combinations(set4, 2):  # C(4,2)=6
+    if len(opps) >= 4:
+        for a, b in combinations(sorted(opps), 2):  # C(4,2)=6
             tri = tuple(sorted([axis, a, b]))
             if len(set(tri)) == 3 and all(x in all_nums for x in tri):
                 chosen.append(tri)
-
-    # 重複除去＆安定化
     chosen = sorted(set(chosen))
 
-    # ---- 表示フォーマット（軸＋4車BOXなら 1-ABCD-ABCD に自動圧縮）----
-    def _format_set_notation(trios):
-        if not trios:
-            return None
-        # すべての三連複に共通する番号＝軸候補
-        common = set(trios[0])
-        for t in trios[1:]:
-            common &= set(t)
-        for ax in sorted(common):
-            others = sorted({x for t in trios for x in t if x != ax})
-            if len(others) != 4:
-                continue
-            expect = {tuple(sorted((ax, a, b))) for a, b in combinations(others, 2)}
-            if set(trios) == expect:
-                s = "".join(str(x) for x in others)
-                return f"{ax}-{s}-{s}"
-        return None
-
+    # 圧縮表記
     note_lines = ["【買い目】"]
-    fmt = _format_set_notation(chosen)
-    if fmt:
-        note_lines.append(f"三連複：{fmt}")
+    if len(opps) >= 4 and chosen:
+        opps_sorted = ''.join(str(x) for x in sorted(opps))
+        note_lines.append(f"三連複：{axis}-{opps_sorted}-{opps_sorted}")
     else:
         tri_strs = [f"{t[0]}-{t[1]}-{t[2]}" for t in chosen]
         note_lines.append("三連複：" + ("—" if (not tri_strs) else ", ".join(tri_strs)))
@@ -3768,7 +3930,7 @@ else:
     # note_sections.append("※同一入力のため出力省略（重複防止）")
     pass
 
-# ===== /Tesla369｜出力統合・最終ブロック（安定版・重複なし） =====
+# ===== /Tesla369｜出力統合・最終ブロック（安定版・重複なし / 3車ライン厚め対応） =====
 
 
 
