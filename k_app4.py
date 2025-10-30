@@ -4044,11 +4044,22 @@ def _infer_eval(flow):
     FRv  = float((flow or {}).get("FR", 0.0))
     VTXv = float((flow or {}).get("VTX", 0.0))
     Uv   = float((flow or {}).get("U", 0.0))
-    if (FRv >= 0.18 and 0.50 <= VTXv <= 0.70 and Uv >= 0.10):
+
+    # いちばん強いときだけ「優位」
+    # ・FRがかなり高い
+    # ・VTXが真ん中あたり（渦が効きすぎても効かなすぎても×）
+    # ・Uもそこそこある
+    if (FRv >= 0.40) and (0.54 <= VTXv <= 0.66) and (Uv >= 0.60):
         return "優位"
-    if (max(VTXv, Uv)) >= 0.56:
-        return "互角" if VTXv >= 0.56 and Uv < 0.62 else "混戦"
+
+    # そこまでではないが形になってるときは「互角」
+    # FRは中くらい、VTXはおおむね許容、Uも少しある
+    if (FRv >= 0.20) and (0.50 <= VTXv <= 0.72) and (Uv >= 0.50):
+        return "互角"
+
+    # それ以外は「混戦」
     return "混戦"
+
 
 def _fmt_rank_local(marks_dict: dict, used_ids: list) -> tuple[str, str]:
     ids_set = set(used_ids or [])
