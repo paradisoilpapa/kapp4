@@ -3782,32 +3782,41 @@ def select_tri_opponents_v2(
 
 
 
-# ---------- 買い目ジェネレータ（6点固定：軸-4車-4車 / 相手配分は上記ロジック＋逆張り1枠） ----------
+# ===== Tesla369｜出力統合・完全版（◎寄せ・3車緩和・6点固定・表示掃除） =====
+import json, hashlib
+
+# ---------- 買い目ジェネレータ（6点固定：軸-4車-4車 / 相手配分は select_tri_opponents_v2＋逆張り1枠） ----------
 def generate_tesla_bets(flow, lines_str, marks, scores):
     """
     三連複：常に 6 点（軸-4車-4車）
-    軸の決め方（従来どおり）：
-      - FRが「低」：FRライン上位1を軸
-      - FRが「中/高」：VTXライン上位1を軸
-    相手4枠は select_tri_opponents_v2 に一本化（3車ライン厚め必須、U高域/境界補正込み）。
 
-    ＋ 逆張り1枠ルール（配当狙いの軽い上振れ用）：
-      条件：
+    軸の決め方（今回の仕様）：
+      1) FRが「低」なら：◎がいる順流ラインの中で一番スコアが高い車を使う
+      2) FRが「中 / 高」でも、FRが0.60以下 かつ ◎がレース内トップから3pt以内なら ◎をそのまま軸にする
+      3) それでも決まらないときだけ 渦ライン(VTX)の中で一番スコアが高い車を使う
+
+    FRのラベルの付け方（今回の仕様）：
+      - ラインに3車がある日は「高」のしきい値を 0.55 に上げる（＝高が出にくくなる）
+      - ラインに3車がない日はこれまでに近い 0.45 / 0.20 の2段
+
+    相手4枠は select_tri_opponents_v2 に一本化
+      - 3車ライン厚め必須
+      - U高域/境界補正込み
+
+    ＋ 逆張り1枠ルール（あなたが戻したやつをそのまま残す）：
         ① 3車ラインが無い
-        ② FR=「高」
-        ③ VTXが 0.56〜0.60（決めきれない帯）
+        ② FRリスクが「高」
+        ③ VTXが 0.56〜0.60
         ④ U < 0.90
-      動作：
-        - 最弱ラインの上位1名を“強制1枠”として相手4枠に入れる
-        - 代わりに、FR/VTX/U いずれにも紐づかない「中立枠」から
-          偏差差が HENS_DIFF_MAX 以内の者を1名だけ外す（なければ無理に入れ替えない）
+       のときにだけ、最弱ラインの上位1名を1枠だけ相手にねじ込む
     """
-    # ===== 調整可能パラメータ =====
+    # ===== 調整パラメータ（あなたが前に使ってた値をそのまま） =====
     VTX_LOWER = 0.56
     VTX_UPPER = 0.60
     U_CAP     = 0.90
-    HENS_DIFF_MAX = 8.5  # 外す相手との偏差差の許容（pt）
+    HENS_DIFF_MAX = 8.5  # 逆張り時に中立と入れ替えるときの許容差
 
+    # ===== 入力の正規化 =====
     flow   = flow or {}
     lines  = list(flow.get("lines") or [])
     scores = scores or {}
@@ -3824,7 +3833,7 @@ def generate_tesla_bets(flow, lines_str, marks, scores):
     # 小ヘルパ
     def _avg(ln):
         xs = [float(scores.get(n, 0.0)) for n in (ln or [])]
-        return sum(xs)/len(xs) if xs else -1e9
+        return (sum(xs) / len(xs)) if xs else -1e9
 
     def _line_of(target):
         try:
@@ -3836,102 +3845,150 @@ def generate_tesla_bets(flow, lines_str, marks, scores):
                 return ln[:]
         return []
 
-        # --- FR→危険度ラベル（3車ある日はちょっと緩める＋◎を通しやすく） ---
-    def _risk_from_FRv_local(fr, lines):
+    # --- FR→危険度ラベル（3車ある日はちょっと緩める＋◎を通しやすく） ---
+    def _risk_from_FRv_local(fr, lines_local):
         fr = 0.0 if fr is None else float(fr)
-        has_3line = any(len(g) >= 3 for g in (lines or []))
+        has_3line = any(len(g) >= 3 for g in (lines_local or []))
 
         if has_3line:
-            # 3車ラインがあるときは “高” のハードルを少し上げる
+            # 3車ラインがある日は“高”を出にくくする
             if fr >= 0.55:
                 return "高"
             if fr >= 0.25:
                 return "中"
             return "低"
         else:
-            # 3車がないときは今までどおりに近いしきい値
+            # 3車がない日はこれまでに近いしきい値
             if fr >= 0.45:
                 return "高"
-            if fr >= 0.20:   # ← 0.12 → 0.20 に上げたところ
+            if fr >= 0.20:
                 return "中"
             return "低"
 
+    # ---------- ライン特定 ----------
+    star_id = marks.get('◎')
+    FR_line = _line_of(star_id) if isinstance(star_id, int) else []
+    if not FR_line:
+        cand = sorted(lines, key=_avg, reverse=True)
+        FR_line = cand[0] if cand else []
+
+    vtx_bid = str(flow.get("vtx_bid") or "")
+    VTX_line = []
+    for ln in lines:
+        if "".join(map(str, ln)) == vtx_bid:
+            VTX_line = ln[:]
+            break
+    if not VTX_line:
+        cand = sorted([ln for ln in lines if ln != FR_line], key=_avg, reverse=True)
+        VTX_line = cand[0] if cand else []
+
+    none_id = marks.get('無')
+    U_line = _line_of(none_id) if isinstance(none_id, int) else []
+    if (not U_line) or (U_line == FR_line) or (U_line == VTX_line):
+        singles = [ln for ln in lines if len(ln) == 1 and ln not in (FR_line, VTX_line)]
+        if singles:
+            U_line = singles[0]
+        else:
+            others = [ln for ln in lines if ln not in (FR_line, VTX_line)]
+            others.sort(key=_avg)  # 低スコア優先＝逆流寄り
+            U_line = others[0] if others else []
+
+    # 互いに別ラインガード
+    def _line_avg(ln): return _avg(ln) if ln else -1e9
+
+    if VTX_line:
+        cand = sorted([ln for ln in lines if ln not in (FR_line, VTX_line, U_line)],
+                      key=_line_avg, reverse=True)
+        if (VTX_line == FR_line) or (VTX_line == U_line):
+            VTX_line = cand[0] if cand else VTX_line
+
+    if U_line:
+        cand_low = sorted([ln for ln in lines if ln not in (FR_line, VTX_line, U_line)],
+                          key=_line_avg)
+        if (U_line == FR_line) or (U_line == VTX_line):
+            U_line = cand_low[0] if cand_low else U_line
+
+    if VTX_line == U_line:
+        cand = sorted(lines, key=_avg, reverse=True)
+        VTX_line = next((ln for ln in cand if ln not in (FR_line, U_line)), VTX_line)
+
+    # ---------- ここから今回の“◎をもう少し通す” ----------
     fr_risk = _risk_from_FRv_local(FRv, lines)
-
-    # ---- 軸（◎を通すけど、FRが爆上がりしてるときは止める3段ロジック） ----
     axis = None
-    MAX_FR_FOR_FORCE_STAR = 0.60  # FRがこれより上なら“◎が3pt以内でも”無理に軸にしない
+    MAX_FR_FOR_FORCE_STAR = 0.60  # FRがこれより上のときは◎が3pt以内でも無理に通さない
 
-    # 1) FRが「低」なら、まず順流（◎がいる）ラインの中で一番スコア高いのを軸
+    # 1) FRが「低」なら◎ラインの中で一番スコア高いの
     if fr_risk == "低" and FR_line:
         axis = max(FR_line, key=lambda x: float(scores.get(x, 0.0)))
 
-    # 2) FRが「中/高」でも、FRがまだ0.60以下で、◎がトップから3pt以内なら◎をそのまま軸
+    # 2) FRが「中/高」でも、FRが0.60以下で◎がトップから3pt以内なら◎をそのまま軸
     if axis is None and FRv <= MAX_FR_FOR_FORCE_STAR:
-        star_id = marks.get('◎')
         if isinstance(star_id, int) and star_id in scores and all_nums:
             top_score = max(float(scores.get(n, 0.0)) for n in all_nums)
             my_score  = float(scores.get(star_id, 0.0))
             if (top_score - my_score) <= 3.0:
                 axis = star_id
 
-    # 3) それでも決まらなかったら渦ラインのいちばん強いのに譲る
+    # 3) まだ決まらないなら渦ラインで一番スコア高いの
     if axis is None and VTX_line:
         axis = max(VTX_line, key=lambda x: float(scores.get(x, 0.0)))
 
+    # ---------- ガード ----------
+    if not isinstance(axis, int) or not all_nums:
+        return {
+            "FR_line": FR_line, "VTX_line": VTX_line, "U_line": U_line,
+            "FRv": FRv, "VTXv": VTXv, "Uv": Uv,
+            "trios": [], "note": "【買い目】出力なし"
+        }
 
-
-    # ---- 相手4枠（強化ロジック）----
+    # ---------- 相手4枠（強化ロジック） ----------
     vtx_line_str = "".join(map(str, VTX_line)) if VTX_line else None
     u_line_str   = "".join(map(str, U_line))   if U_line   else None
     opps = select_tri_opponents_v2(
         axis=axis,
         lines_str=lines_str,
         hens=scores,
-        vtx=VTXv, u=Uv, marks=marks,
+        vtx=VTXv,
+        u=Uv,
+        marks=marks,
         shissoku_label=fr_risk,
         vtx_line_str=vtx_line_str,
         u_line_str=u_line_str,
         n_opps=4
     )
 
-    # ========== 逆張り1枠ルール（条件を満たすときだけ発動） ==========
+    # ---------- 逆張り1枠（あなたが戻したやつ） ----------
     has_3line = any(len(g) >= 3 for g in lines)
     if (not has_3line) and (fr_risk == "高") and (VTX_LOWER <= VTXv <= VTX_UPPER) and (Uv < U_CAP):
-        # 最弱ライン（平均偏差が最も低いライン）を特定
         try:
             weak_line = min(lines, key=_avg)
         except Exception:
             weak_line = []
-        # 最弱ラインの上位1名
         weak_cand = None
         if weak_line:
             weak_cand = max(weak_line, key=lambda x: scores.get(x, 0.0))
-        # 代替先（ドロップ候補）：FR/VTX/U いずれにも属さない中立枠
+
         FRs, VTXs, Us = set(FR_line or []), set(VTX_line or []), set(U_line or [])
         neutral_in_opps = [x for x in opps if (x not in FRs and x not in VTXs and x not in Us)]
-        # 入替実行条件
+
         if isinstance(weak_cand, int) and (weak_cand != axis) and (weak_cand in all_nums) and (weak_cand not in opps) and neutral_in_opps:
-            # 偏差差がしきい値以内の中立だけを対象にする
             ok_drops = [x for x in neutral_in_opps if abs(scores.get(x, 0.0) - scores.get(weak_cand, 0.0)) <= HENS_DIFF_MAX]
             if ok_drops:
-                # 外すのは偏差が最も低い中立
                 drop = min(ok_drops, key=lambda x: scores.get(x, 0.0))
                 opps = [y for y in opps if y != drop] + [weak_cand]
-                # ユニーク＆サイズ調整（安全）
-                seen=set(); opps=[x for x in opps if not (x in seen or seen.add(x))][:4]
+                seen = set()
+                opps = [x for x in opps if not (x in seen or seen.add(x))][:4]
 
-    # ---- 三連複6点（軸-4-4） ----
+    # ---------- 三連複6点（軸-4-4） ----------
     from itertools import combinations
     chosen = []
     if len(opps) >= 4:
-        for a, b in combinations(sorted(opps), 2):  # C(4,2)=6
+        for a, b in combinations(sorted(opps), 2):  # 4C2 = 6
             tri = tuple(sorted([axis, a, b]))
             if len(set(tri)) == 3 and all(x in all_nums for x in tri):
                 chosen.append(tri)
     chosen = sorted(set(chosen))
 
-    # 圧縮表記
     note_lines = ["【買い目】"]
     if len(opps) >= 4 and chosen:
         opps_sorted = ''.join(str(x) for x in sorted(opps))
@@ -3979,8 +4036,9 @@ def _infer_eval(flow):
     FRv  = float((flow or {}).get("FR", 0.0))
     VTXv = float((flow or {}).get("VTX", 0.0))
     Uv   = float((flow or {}).get("U", 0.0))
-    if (FRv >= 0.18 and 0.50 <= VTXv <= 0.70 and Uv >= 0.10): return "優位"
-    if (VWXv := max(VTXv, Uv)) >= 0.56:
+    if (FRv >= 0.18 and 0.50 <= VTXv <= 0.70 and Uv >= 0.10):
+        return "優位"
+    if (max(VTXv, Uv)) >= 0.56:
         return "互角" if VTXv >= 0.56 and Uv < 0.62 else "混戦"
     return "混戦"
 
@@ -4006,26 +4064,23 @@ def _fmt_hen_lines(ts_map: dict, ids) -> str:
     return "\n".join(lines)
 
 def _fmt_nums(arr):
-    if isinstance(arr, list): return "".join(str(x) for x in arr) if arr else "—"
+    if isinstance(arr, list):
+        return "".join(str(x) for x in arr) if arr else "—"
     return "—"
-
-def _risk_from_FRv(fr):
-    if fr >= 0.25: return "高"
-    if fr >= 0.10: return "中"
-    return "低"
-
 
 # ---------- note_sections 準備・掃除 ----------
 if 'note_sections' not in globals() or not isinstance(note_sections, list):
     note_sections = []
 
 def _kill_garbage(s: str) -> bool:
-    if not isinstance(s, str): return False
+    if not isinstance(s, str):
+        return False
     t = s.strip()
     return ("狙いたいレース" in t) or ("三連複フォーメーション：" in t)
+
 note_sections = [s for s in note_sections if not _kill_garbage(s)]
 
-# ---------- 二重出力ガード（グローバルのみ。セッション跨ぎで残さない） ----------
+# ---------- 二重出力ガード ----------
 def _t369_build_render_key(lines_str, marks, scores) -> str:
     try:
         venue   = str(globals().get("track") or globals().get("place") or "").strip()
@@ -4058,29 +4113,26 @@ def _t369_render_once(key: str) -> bool:
     return True
 
 # ---------- 環境取得 ----------
-lines_str = globals().get("lines_str", lines_str)  # 既存優先
+lines_str = globals().get("lines_str", lines_str)
 marks     = globals().get("marks", marks)
 scores    = globals().get("scores", scores)
 
-# ---------- 出力本体（ワンショット） ----------
+# ---------- 出力本体 ----------
 _render_key = _t369_build_render_key(lines_str, marks, scores)
 if _t369_render_once(_render_key):
 
     _flow = _safe_flow(lines_str, marks, scores)
     _bets = _safe_generate(_flow, lines_str, marks, scores)
 
-    # 見出し
     venue   = str(globals().get("track") or globals().get("place") or "").strip()
     race_no = str(globals().get("race_no") or "").strip()
     if venue or race_no:
         _rn = race_no if (race_no.endswith("R") or race_no == "") else f"{race_no}R"
         note_sections.append(f"{venue}{_rn}")
 
-    # 展開評価
     eval_word = _infer_eval(_flow)
     note_sections.append(f"展開評価：{eval_word}")
 
-    # 基本情報
     race_time  = globals().get('race_time', '')
     race_class = globals().get('race_class', '')
     note_sections.append(f"{race_time}　{race_class}".strip())
@@ -4104,16 +4156,15 @@ if _t369_render_once(_render_key):
         USED_IDS = list(globals().get('USED_IDS', []))
         note_sections.append(f"スコア順（SBなし）　{' '.join(map(str, USED_IDS))}")
 
-    # 印
     try:
         result_marks = globals().get('result_marks', {})
         marks_str, no_str = _fmt_rank_local(result_marks, USED_IDS)
         mline = f"{marks_str} {no_str}".strip()
-        if mline: note_sections.append(mline)
+        if mline:
+            note_sections.append(mline)
     except Exception:
         pass
 
-    # 偏差値
     try:
         race_t = dict(globals().get('race_t', {}))
         note_sections.append("\n偏差値（風・ライン込み）")
@@ -4122,7 +4173,6 @@ if _t369_render_once(_render_key):
     except Exception:
         note_sections.append("偏差値データなし\n")
 
-    # ヘッダ三行は _bets 優先
     _FR_line  = _bets.get("FR_line", _flow.get("FR_line"))
     _VTX_line = _bets.get("VTX_line", _flow.get("VTX_line"))
     _U_line   = _bets.get("U_line",  _flow.get("U_line"))
@@ -4130,17 +4180,23 @@ if _t369_render_once(_render_key):
     _VTXv     = float(_bets.get("VTXv", _flow.get("VTX", 0.0)) or 0.0)
     _Uv       = float(_bets.get("Uv",   _flow.get("U", 0.0)) or 0.0)
 
+    # ここは新しい危険度（3車緩和）じゃなく、出力はいつもの文言でいい
+    def _risk_out(fr):
+        if fr >= 0.55:
+            return "高"
+        if fr >= 0.25:
+            return "中"
+        return "低"
+
     if (_FR_line is not None) or (_VTX_line is not None) or (_U_line is not None):
-        note_sections.append(f"【順流】◎ライン {_fmt_nums(_FR_line)}：失速危険 {_risk_from_FRv(_FRv)}")
+        note_sections.append(f"【順流】◎ライン {_fmt_nums(_FR_line)}：失速危険 {_risk_out(_FRv)}")
         note_sections.append(f"【渦】候補ライン：{_fmt_nums(_VTX_line)}（VTX={_VTXv:.2f}）")
         note_sections.append(f"【逆流】無ライン {_fmt_nums(_U_line)}：U={_Uv:.2f}（※判定基準内）")
     else:
         note_sections.append(_flow.get("note", "【流れ】出力なし"))
 
-    # 買い目ノート（6点固定の三連複）
     note_sections.append(_bets.get("note", "【買い目】出力なし"))
 
-    # 診断（最小）
     try:
         dbg_lines = globals().get('_lines_list') or globals().get('lines_list') or '—'
         dbg_marks = marks or '—'
@@ -4178,11 +4234,9 @@ if _t369_render_once(_render_key):
     except Exception as _e:
         note_sections.append(f"⚠ Tesla369診断エラー: {type(_e).__name__}: {str(_e)}")
 else:
-    # 同一入力の重複呼び出し時は静かにスキップ（必要なら下記を有効化）
-    # note_sections.append("※同一入力のため出力省略（重複防止）")
     pass
 
-# ===== /Tesla369｜出力統合・最終ブロック（安定版・重複なし / 3車ライン厚め対応） =====
+# ===== /Tesla369｜出力統合・完全版 =====
 
 
 
