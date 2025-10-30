@@ -3838,9 +3838,12 @@ def generate_tesla_bets(flow, lines_str, marks, scores):
 
     # FR危険度ラベル
     def _risk_from_FRv(fr):
-        if fr >= 0.25: return "高"
-        if fr >= 0.10: return "中"
-        return "低"
+    if fr >= 0.45:
+        return "高"
+    if fr >= 0.12:
+        return "中"
+    return "低"
+
     fr_risk = _risk_from_FRv(FRv)
 
     # ライン特定
@@ -4029,9 +4032,12 @@ def _fmt_nums(arr):
     return "—"
 
 def _risk_from_FRv(fr):
-    if fr >= 0.25: return "高"
-    if fr >= 0.10: return "中"
+    if fr >= 0.45:
+        return "高"
+    if fr >= 0.12:
+        return "中"
     return "低"
+
 
 
 # ---------- note_sections 準備・掃除 ----------
@@ -4150,7 +4156,10 @@ if _t369_render_once(_render_key):
     _Uv       = float(_bets.get("Uv",   _flow.get("U", 0.0)) or 0.0)
 
     if (_FR_line is not None) or (_VTX_line is not None) or (_U_line is not None):
-        note_sections.append(f"【順流】◎ライン {_fmt_nums(_FR_line)}：失速危険 {_risk_from_FRv(_FRv)}")
+        note_sections.append(
+    f"【順流】◎ライン {_fmt_nums(_FR_line)}：失速危険 {_risk_from_FRv(_FRv)}"
+)
+
         note_sections.append(f"【渦】候補ライン：{_fmt_nums(_VTX_line)}（VTX={_VTXv:.2f}）")
         note_sections.append(f"【逆流】無ライン {_fmt_nums(_U_line)}：U={_Uv:.2f}（※判定基準内）")
     else:
