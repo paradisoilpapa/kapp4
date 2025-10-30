@@ -3907,27 +3907,29 @@ def generate_tesla_bets(flow, lines_str, marks, scores):
     # ※ここは FRv です。FRv は上で作ってるやつをそのまま使う
     fr_risk = _risk_from_FRv(FRv if False else FRv)
 
-       # ---- 軸（◎優先の3段ロジック） ----
+           # ---- 軸（◎優先の3段ロジック） ----
     axis = None
+    MAX_FR_FOR_FORCE_STAR = 0.60   # ← ここだけ新しく足す。FRがこれ超えたら②は発動させない
 
     # 1) FRが「低」なら、まずは◎のいる順流ラインの中で一番スコアが高い車を使う
     if fr_risk == "低":
         if FR_line:
             axis = max(FR_line, key=lambda x: float(scores.get(x, 0.0)))
 
-    # 2) FRが「中/高」でも、◎がレース内トップから3pt以内なら◎をそのまま軸にする
-    if axis is None:
+    # 2) FRが「中/高」でも、FRが0.60以下のときだけ＆◎がトップから3pt以内なら◎をそのまま軸にする
+    if axis is None and FRv <= MAX_FR_FOR_FORCE_STAR:
         star_id = marks.get('◎')
         if isinstance(star_id, int) and star_id in scores and all_nums:
             top_score = max(float(scores.get(n, 0.0)) for n in all_nums)
             my_score  = float(scores.get(star_id, 0.0))
-            if (top_score - my_score) <= 3.0:   # ←ここが“どれだけ◎を通すか”のノブ
+            if (top_score - my_score) <= 3.0:   # ← ここはあなたのまま
                 axis = star_id
 
     # 3) それでも軸が決まらなかったら、渦ラインの中で一番スコアが高いやつに譲る
     if axis is None:
         if VTX_line:
             axis = max(VTX_line, key=lambda x: float(scores.get(x, 0.0)))
+
 
 
     # ---- 相手4枠（強化ロジック）----
