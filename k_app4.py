@@ -3836,99 +3836,48 @@ def generate_tesla_bets(flow, lines_str, marks, scores):
                 return ln[:]
         return []
 
-    # --- FR→危険度ラベル（◎をもうちょっと通す） ---
-    def _risk_from_FRv(fr):
-        if fr is None:
+        # --- FR→危険度ラベル（3車ある日はちょっと緩める＋◎を通しやすく） ---
+    def _risk_from_FRv_local(fr, lines):
+        fr = 0.0 if fr is None else float(fr)
+        has_3line = any(len(g) >= 3 for g in (lines or []))
+
+        if has_3line:
+            # 3車ラインがあるときは “高” のハードルを少し上げる
+            if fr >= 0.55:
+                return "高"
+            if fr >= 0.25:
+                return "中"
             return "低"
-        fr = float(fr)
-        if fr >= 0.45:
-            return "高"
-        if fr >= 0.20:   # ← 0.12 → 0.20 に上げる
-            return "中"
-        return "低"
-
-    # ※ここは FRv です。FRv は上で作ってるやつをそのまま使う
-    fr_risk = _risk_from_FRv(FRv if False else FRv)
-
-    # ライン特定
-    star_id = marks.get('◎')
-    FR_line = _line_of(star_id) if isinstance(star_id, int) else []
-    if not FR_line:
-        cand = sorted(lines, key=_avg, reverse=True)
-        FR_line = cand[0] if cand else []
-
-    vtx_bid = str(flow.get("vtx_bid") or "")
-    VTX_line = []
-    for ln in lines:
-        if "".join(map(str, ln)) == vtx_bid:
-            VTX_line = ln[:]; break
-    if not VTX_line:
-        cand = sorted([ln for ln in lines if ln != FR_line], key=_avg, reverse=True)
-        VTX_line = cand[0] if cand else []
-
-    none_id = marks.get('無')
-    U_line = _line_of(none_id) if isinstance(none_id, int) else []
-    if (not U_line) or (U_line == FR_line) or (U_line == VTX_line):
-        singles = [ln for ln in lines if len(ln) == 1 and ln not in (FR_line, VTX_line)]
-        if singles:
-            U_line = singles[0]
         else:
-            others = [ln for ln in lines if ln not in (FR_line, VTX_line)]
-            others.sort(key=_avg)  # 低スコア優先＝逆流寄り
-            U_line = others[0] if others else []
-
-    # 互いに別ラインガード
-    def _line_avg(ln): return _avg(ln) if ln else -1e9
-    if VTX_line:
-        cand = sorted([ln for ln in lines if ln not in (FR_line, VTX_line, U_line)],
-                      key=_line_avg, reverse=True)
-        if (VTX_line == FR_line) or (VTX_line == U_line):
-            VTX_line = cand[0] if cand else VTX_line
-    if U_line:
-        cand_low = sorted([ln for ln in lines if ln not in (FR_line, VTX_line, U_line)],
-                          key=_line_avg)
-        if (U_line == FR_line) or (U_line == VTX_line):
-            U_line = cand_low[0] if cand_low else U_line
-    if VTX_line == U_line:
-        cand = sorted(lines, key=_avg, reverse=True)
-        VTX_line = next((ln for ln in cand if ln not in (FR_line, U_line)), VTX_line)
-
-        # --- FR→危険度ラベル（◎をもうちょっと通す） ---
-    def _risk_from_FRv(fr):
-        if fr is None:
+            # 3車がないときは今までどおりに近いしきい値
+            if fr >= 0.45:
+                return "高"
+            if fr >= 0.20:   # ← 0.12 → 0.20 に上げたところ
+                return "中"
             return "低"
-        fr = float(fr)
-        if fr >= 0.45:
-            return "高"
-        if fr >= 0.20:   # ← 0.12 → 0.20 に上げる
-            return "中"
-        return "低"
 
-    # ※ここは FRv です。FRv は上で作ってるやつをそのまま使う
-    fr_risk = _risk_from_FRv(FRv if False else FRv)
+    fr_risk = _risk_from_FRv_local(FRv, lines)
 
-           # ---- 軸（◎優先の3段ロジック） ----
+    # ---- 軸（◎を通すけど、FRが爆上がりしてるときは止める3段ロジック） ----
     axis = None
-    MAX_FR_FOR_FORCE_STAR = 0.60   # ← ここだけ新しく足す。FRがこれ超えたら②は発動させない
+    MAX_FR_FOR_FORCE_STAR = 0.60  # FRがこれより上なら“◎が3pt以内でも”無理に軸にしない
 
-    # 1) FRが「低」なら、まずは◎のいる順流ラインの中で一番スコアが高い車を使う
-    if fr_risk == "低":
-        if FR_line:
-            axis = max(FR_line, key=lambda x: float(scores.get(x, 0.0)))
+    # 1) FRが「低」なら、まず順流（◎がいる）ラインの中で一番スコア高いのを軸
+    if fr_risk == "低" and FR_line:
+        axis = max(FR_line, key=lambda x: float(scores.get(x, 0.0)))
 
-    # 2) FRが「中/高」でも、FRが0.60以下のときだけ＆◎がトップから3pt以内なら◎をそのまま軸にする
+    # 2) FRが「中/高」でも、FRがまだ0.60以下で、◎がトップから3pt以内なら◎をそのまま軸
     if axis is None and FRv <= MAX_FR_FOR_FORCE_STAR:
         star_id = marks.get('◎')
         if isinstance(star_id, int) and star_id in scores and all_nums:
             top_score = max(float(scores.get(n, 0.0)) for n in all_nums)
             my_score  = float(scores.get(star_id, 0.0))
-            if (top_score - my_score) <= 3.0:   # ← ここはあなたのまま
+            if (top_score - my_score) <= 3.0:
                 axis = star_id
 
-    # 3) それでも軸が決まらなかったら、渦ラインの中で一番スコアが高いやつに譲る
-    if axis is None:
-        if VTX_line:
-            axis = max(VTX_line, key=lambda x: float(scores.get(x, 0.0)))
+    # 3) それでも決まらなかったら渦ラインのいちばん強いのに譲る
+    if axis is None and VTX_line:
+        axis = max(VTX_line, key=lambda x: float(scores.get(x, 0.0)))
 
 
 
