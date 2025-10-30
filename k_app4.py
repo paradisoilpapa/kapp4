@@ -3838,13 +3838,14 @@ def generate_tesla_bets(flow, lines_str, marks, scores):
 
     # FR危険度ラベル
     def _risk_from_FRv(fr):
-    if fr >= 0.45:
-        return "高"
-    if fr >= 0.12:
-        return "中"
-    return "低"
+        if fr >= 0.45:
+            return "高"
+        if fr >= 0.12:
+            return "中"
+        return "低"
 
     fr_risk = _risk_from_FRv(FRv)
+
 
     # ライン特定
     star_id = marks.get('◎')
