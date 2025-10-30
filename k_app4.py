@@ -3838,11 +3838,12 @@ def generate_tesla_bets(flow, lines_str, marks, scores):
 
     # FR危険度ラベル
     def _risk_from_FRv(fr):
-        if fr >= 0.45:
-            return "高"
-        if fr >= 0.12:
-            return "中"
-        return "低"
+    if fr >= 0.45:
+        return "高"
+    if fr >= 0.20:   # ← ここを0.20に上げる
+        return "中"
+    return "低"
+
 
     fr_risk = _risk_from_FRv(FRv)
 
@@ -3892,9 +3893,10 @@ def generate_tesla_bets(flow, lines_str, marks, scores):
 
     # ---- 軸（従来どおり） ----
     if fr_risk == "低":
-        axis = _topk(FR_line, 1, scores)[0] if FR_line else None
-    else:  # 中/高
-        axis = _topk(VTX_line, 1, scores)[0] if VTX_line else None
+    axis = max(FR_line, key=lambda x: float(scores.get(x, 0.0)))  if FR_line else None
+else:
+    axis = max(VTX_line, key=lambda x: float(scores.get(x, 0.0))) if VTX_line else None
+
 
     # ガード：軸 or 参加車が不成立なら出力なし
     if not isinstance(axis, int) or not all_nums:
