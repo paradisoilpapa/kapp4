@@ -3912,24 +3912,32 @@ def generate_tesla_bets(flow, lines_str, marks, scores):
         cand = sorted(lines, key=_avg, reverse=True)
         VTX_line = next((ln for ln in cand if ln not in (FR_line, U_line)), VTX_line)
 
-    # ---------- ここから今回の“◎をもう少し通す” ----------
+        # ---------- ここから今回の“◎をもう少し通す” ----------
+    # 3車の順流ラインがあって、VTXが0.60未満のときは “まず順流を見ろ” を最優先にする
+    force_fr_axis = (len(FR_line) >= 3 and VTXv < 0.60)
+
     fr_risk = _risk_from_FRv_local(FRv, lines)
     axis = None
-    MAX_FR_FOR_FORCE_STAR = 0.60  # FRがこれより上のときは◎が3pt以内でも無理に通さない
+    MAX_FR_FOR_FORCE_STAR = 0.60  # FRがこれより上なら②は使わない
+
+    # 0) まず「3車＋VTX弱い」なら順流ラインから取る
+    if force_fr_axis and FR_line:
+        axis = max(FR_line, key=lambda x: float(scores.get(x, 0.0)))
 
     # 1) FRが「低」なら◎ラインの中で一番スコア高いの
-    if fr_risk == "低" and FR_line:
+    elif fr_risk == "低" and FR_line:
         axis = max(FR_line, key=lambda x: float(scores.get(x, 0.0)))
 
     # 2) FRが「中/高」でも、FRが0.60以下で◎がトップから3pt以内なら◎をそのまま軸
     if axis is None and FRv <= MAX_FR_FOR_FORCE_STAR:
+        star_id = marks.get('◎')
         if isinstance(star_id, int) and star_id in scores and all_nums:
             top_score = max(float(scores.get(n, 0.0)) for n in all_nums)
             my_score  = float(scores.get(star_id, 0.0))
             if (top_score - my_score) <= 3.0:
                 axis = star_id
 
-    # 3) まだ決まらないなら渦ラインで一番スコア高いの
+    # 3) それでも決まらなかったら渦ラインのいちばん強いのに譲る
     if axis is None and VTX_line:
         axis = max(VTX_line, key=lambda x: float(scores.get(x, 0.0)))
 
