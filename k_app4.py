@@ -458,7 +458,7 @@ def compute_lineSB_bonus(line_def, S, B, line_factor=1.0, exclude=None, cap=0.06
     if not enable or not line_def:
         return ({g: 0.0 for g in line_def.keys()} if line_def else {}), {}
 
-    # --- 33かどうかの自動推定 ---
+    # 33かどうかの自動推定
     try:
         bank_len = st.session_state.get("bank_length", st.session_state.get("track_length", None))
     except Exception:
@@ -485,8 +485,9 @@ def compute_lineSB_bonus(line_def, S, B, line_factor=1.0, exclude=None, cap=0.06
         'single':    0.34,
     }
 
-    # --- ラインごとのS/B集計 ---
-    Sg, Bg = {}, {}
+    # ラインごとのS/B集計
+    Sg = {}
+    Bg = {}
     for g, mem in line_def.items():
         s = 0.0
         b = 0.0
@@ -500,7 +501,7 @@ def compute_lineSB_bonus(line_def, S, B, line_factor=1.0, exclude=None, cap=0.06
         Sg[g] = s
         Bg[g] = b
 
-    # --- ラインごとの“強さ”スコア作成 ---
+    # ここ！！ ← この行からまた4スペースでOK
     raw = {}
     for g in line_def.keys():
         s = Sg[g]
@@ -508,7 +509,6 @@ def compute_lineSB_bonus(line_def, S, B, line_factor=1.0, exclude=None, cap=0.06
         ratioS = s / (s + b + 1e-6)
         raw[g] = (0.6 * b + 0.4 * s) * (0.6 + 0.4 * ratioS)
 
-    # --- z化してボーナスにする ---
     zz = zscore_list(list(raw.values())) if raw else []
     bonus = {}
     for i, g in enumerate(raw.keys()):
