@@ -858,7 +858,7 @@ else:
     st.session_state["race_no_main"] = int(race_no_input)
 race_no = int(st.session_state["race_no_main"])
 
-st.subheader("ライン構成（最大7：単騎も1ライン）")
+# ライン構成（最大7：単騎も1ライン）
 line_inputs = [
     st.text_input("ライン1（例：317）", key="line_1", max_chars=9),
     st.text_input("ライン2（例：6）", key="line_2", max_chars=9),
@@ -873,9 +873,24 @@ lines = [extract_car_list(x, n_cars) for x in line_inputs if str(x).strip()]
 line_def, car_to_group = build_line_maps(lines)
 active_cars = sorted({c for lst in lines for c in lst}) if lines else list(range(1, n_cars+1))
 
+# ←←← ここに入れる
+import re, unicodedata
+def input_float_text(label: str, key: str, placeholder: str = "") -> float | None:
+    s = st.text_input(label, value=st.session_state.get(key, ""), key=key, placeholder=placeholder)
+    ss = unicodedata.normalize("NFKC", str(s)).replace(",", "").strip()
+    if ss == "":
+        return None
+    if not re.fullmatch(r"[+-]?\d+(\.\d+)?", ss):
+        st.warning(f"{label} は数値で入力してください（入力値: {s}）")
+        return None
+    return float(ss)
+# →→→ ここまで
+
 st.subheader("個人データ（直近4か月：回数）")
 cols = st.columns(n_cars)
 ratings, S, B = {}, {}, {}
+...
+
 k_esc, k_mak, k_sashi, k_mark = {}, {}, {}, {}
 x1, x2, x3, x_out = {}, {}, {}, {}
 
