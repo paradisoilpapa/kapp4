@@ -234,8 +234,9 @@ FALLBACK_DIST = RANK_STATS.get(RANK_FALLBACK_MARK, {"p1": 0.15, "pTop2": 0.30, "
 # KO(勝ち上がり)関連
 KO_GIRLS_SCALE = 0.0
 KO_HEADCOUNT_SCALE = {5:0.6, 6:0.8, 7:1.0, 8:1.0, 9:1.0}
-KO_GAP_DELTA = 0.010
-KO_STEP_SIGMA = 0.4
+KO_GAP_DELTA = 0.007   # 0.010 → 0.007
+KO_STEP_SIGMA = 0.35   # 0.4 → 0.35
+
 
 # ◎ライン格上げ
 LINE_BONUS_ON_TENKAI = {"優位"}
@@ -302,9 +303,21 @@ def role_in_line(car, line_def):
             return ['head','second','thirdplus'][idx] if idx<3 else 'thirdplus'
     return 'single'
 
+# 単騎を全体的に抑える共通係数（あとでいじれるようにする）
+SINGLE_NERF = float(globals().get("SINGLE_NERF", 0.85))  # 0.80〜0.88くらいで調整
+
 def pos_coeff(role, line_factor):
-    base = {'head':1.0,'second':0.7,'thirdplus':0.5,'single':0.9}.get(role,0.9)
+    base_map = {
+        'head':      1.00,
+        'second':    0.72,   # 0.70→0.72に少し上げてライン2番手をちゃんと評価
+        'thirdplus': 0.55,
+        'single':    0.52,   # 0.90 → 0.52 にドンと落とす
+    }
+    base = base_map.get(role, 0.52)
+    if role == 'single':
+        base *= SINGLE_NERF      # ここでさらに細かく落とせる
     return base * line_factor
+
 
 def tenscore_correction(tenscores):
     n = len(tenscores)
@@ -469,7 +482,14 @@ def compute_lineSB_bonus(line_def, S, B, line_factor=1.0, exclude=None, cap=0.06
         except Exception:
             pass
 
-    w_pos_base = {'head':1.0,'second':0.4,'thirdplus':0.2,'single':0.7}
+    # 33m系の半減はそのまま生かす前提
+w_pos_base = {
+    'head':      1.00,
+    'second':    0.55,   # 0.4 → 0.55 にして番手をちゃんと生かす
+    'thirdplus': 0.38,   # 0.2 → 0.38 で3番手も無視しない
+    'single':    0.34,   # 0.7 → 0.34 にガッツリ落とす（3番手よりわずかに下）
+}
+
     Sg, Bg = {}, {}
     for g, mem in line_def.items():
         s=b=0.0
@@ -504,7 +524,14 @@ def _role_of(car, mem):
 
 def _line_strength_raw(line_def, S, B, line_factor=1.0):
     if not line_def: return {}
-    w_pos = {'head':1.0,'second':0.4,'thirdplus':0.2,'single':0.7}
+   # 33m系の半減はそのまま生かす前提
+w_pos_base = {
+    'head':      1.00,
+    'second':    0.55,   # 0.4 → 0.55 にして番手をちゃんと生かす
+    'thirdplus': 0.38,   # 0.2 → 0.38 で3番手も無視しない
+    'single':    0.34,   # 0.7 → 0.34 にガッツリ落とす（3番手よりわずかに下）
+}
+
     raw={}
     for g, mem in line_def.items():
         s=b=0.0
