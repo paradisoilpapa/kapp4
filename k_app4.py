@@ -451,9 +451,9 @@ def bank_length_adjust(bank_length, prof_oikomi):
 
 def compute_lineSB_bonus(line_def, S, B, line_factor=1.0, exclude=None, cap=0.06, enable=True):
     """
-    33m系（<=340）では自動で効きを半減：
-      - LINE_SB_33_MULT（既定0.5）を line_factor に乗算
-      - LINE_SB_CAP_33_MULT（既定0.5）を cap に乗算
+    33m系（<=340）では自動で効きを半減:
+      - LINE_SB_33_MULT を line_factor に乗算
+      - LINE_SB_CAP_33_MULT を cap に乗算
     """
     if not enable or not line_def:
         return ({g: 0.0 for g in line_def.keys()} if line_def else {}), {}
@@ -477,12 +477,12 @@ def compute_lineSB_bonus(line_def, S, B, line_factor=1.0, exclude=None, cap=0.06
         except Exception:
             pass
 
-    # ここを今回の新しい重みで統一
+    # ライン内の位置による重み（単騎をかなり落とす）
     w_pos_base = {
-        'head':      1.00,
-        'second':    0.55,
-        'thirdplus': 0.38,
-        'single':    0.34,
+        "head":      1.00,
+        "second":    0.55,
+        "thirdplus": 0.38,
+        "single":    0.34,
     }
 
     # ラインごとのS/B集計
@@ -501,7 +501,7 @@ def compute_lineSB_bonus(line_def, S, B, line_factor=1.0, exclude=None, cap=0.06
         Sg[g] = s
         Bg[g] = b
 
-    # ここ！！ ← この行からまた4スペースでOK
+    # ラインごとの“強さ”スコア
     raw = {}
     for g in line_def.keys():
         s = Sg[g]
@@ -509,13 +509,13 @@ def compute_lineSB_bonus(line_def, S, B, line_factor=1.0, exclude=None, cap=0.06
         ratioS = s / (s + b + 1e-6)
         raw[g] = (0.6 * b + 0.4 * s) * (0.6 + 0.4 * ratioS)
 
+    # z化してボーナス
     zz = zscore_list(list(raw.values())) if raw else []
     bonus = {}
     for i, g in enumerate(raw.keys()):
         bonus[g] = clamp(0.02 * float(zz[i]), -eff_cap, eff_cap)
 
     return bonus, raw
-
 
 
 
