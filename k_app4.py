@@ -482,7 +482,7 @@ def compute_lineSB_bonus(line_def, S, B, line_factor=1.0, exclude=None, cap=0.06
         except Exception:
             pass
 
-    # 33m系の半減はそのまま生かす前提
+# 33m系の半減はそのまま生かす前提
 w_pos_base = {
     'head':      1.00,
     'second':    0.55,   # 0.4 → 0.55 にして番手をちゃんと生かす
@@ -490,15 +490,19 @@ w_pos_base = {
     'single':    0.34,   # 0.7 → 0.34 にガッツリ落とす（3番手よりわずかに下）
 }
 
-    Sg, Bg = {}, {}
-    for g, mem in line_def.items():
-        s=b=0.0
-        for car in mem:
-            if exclude is not None and car==exclude: continue
-            w = w_pos_base[role_in_line(car, line_def)] * eff_line_factor
-            s += w*float(S.get(car,0)); b += w*float(B.get(car,0))
-        Sg[g]=s; Bg[g]=b
-    raw={}
+Sg, Bg = {}, {}
+for g, mem in line_def.items():
+    s = b = 0.0
+    for car in mem:
+        if exclude is not None and car == exclude:
+            continue
+        w = w_pos_base[role_in_line(car, line_def)] * eff_line_factor
+        s += w * float(S.get(car, 0))
+        b += w * float(B.get(car, 0))
+    Sg[g] = s
+    Bg[g] = b
+raw = {}
+
     for g in line_def.keys():
         s, b = Sg[g], Bg[g]
         ratioS = s/(s+b+1e-6)
