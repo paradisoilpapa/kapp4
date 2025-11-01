@@ -477,7 +477,7 @@ def compute_lineSB_bonus(line_def, S, B, line_factor=1.0, exclude=None, cap=0.06
         except Exception:
             pass
 
-    # ライン内の位置による重み（単騎をかなり落とす）
+    # 位置重み（単騎を落とす）
     w_pos_base = {
         "head":      1.00,
         "second":    0.55,
@@ -501,7 +501,7 @@ def compute_lineSB_bonus(line_def, S, B, line_factor=1.0, exclude=None, cap=0.06
         Sg[g] = s
         Bg[g] = b
 
-    # ラインごとの“強さ”スコア
+    # ラインごとの“強さ”
     raw = {}
     for g in line_def.keys():
         s = Sg[g]
@@ -517,35 +517,6 @@ def compute_lineSB_bonus(line_def, S, B, line_factor=1.0, exclude=None, cap=0.06
 
     return bonus, raw
 
-
-
-def input_float_text(label: str, key: str, placeholder: str = "") -> float | None:
-    s = st.text_input(label, value=st.session_state.get(key, ""), key=key, placeholder=placeholder)
-    ss = unicodedata.normalize("NFKC", str(s)).replace(",", "").strip()
-    if ss == "": return None
-    if not re.fullmatch(r"[+-]?\d+(\.\d+)?", ss):
-        st.warning(f"{label} は数値で入力してください（入力値: {s}）")
-        return None
-    return float(ss)
-
-# KO Utilities
-def _role_of(car, mem):
-    if len(mem)==1: return 'single'
-    i = mem.index(car)
-    return ['head','second','thirdplus'][i] if i<3 else 'thirdplus'
-
-def _line_strength_raw(line_def, S, B, line_factor=1.0):
-    if not line_def: return {}
-   # 33m系の半減はそのまま生かす前提
-w_pos_base = {
-    'head':      1.00,
-    'second':    0.55,   # 0.4 → 0.55 にして番手をちゃんと生かす
-    'thirdplus': 0.38,   # 0.2 → 0.38 で3番手も無視しない
-    'single':    0.34,   # 0.7 → 0.34 にガッツリ落とす（3番手よりわずかに下）
-}
-
-
-    raw={}
     for g, mem in line_def.items():
         s=b=0.0
         for c in mem:
