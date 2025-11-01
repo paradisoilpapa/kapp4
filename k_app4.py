@@ -544,7 +544,7 @@ w_pos_base = {
     'single':    0.34,   # 0.7 → 0.34 にガッツリ落とす（3番手よりわずかに下）
 }
 
-    raw={}
+  raw={}
     for g, mem in line_def.items():
         s=b=0.0
         for c in mem:
