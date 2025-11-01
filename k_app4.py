@@ -501,9 +501,9 @@ for g, mem in line_def.items():
         b += w * float(B.get(car, 0))
     Sg[g] = s
     Bg[g] = b
-raw = {}
 
-    for g in line_def.keys():
+raw = {}
+for g in line_def.keys():
     s, b = Sg[g], Bg[g]
     ratioS = s / (s + b + 1e-6)
     raw[g] = (0.6 * b + 0.4 * s) * (0.6 + 0.4 * ratioS)
@@ -514,6 +514,7 @@ bonus = {
     for i, g in enumerate(raw.keys())
 }
 return bonus, raw
+
 
 
 def input_float_text(label: str, key: str, placeholder: str = "") -> float | None:
