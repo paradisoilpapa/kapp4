@@ -526,6 +526,41 @@ def compute_lineSB_bonus(line_def, S, B, line_factor=1.0, exclude=None, cap=0.06
         raw[g] = (0.6*b + 0.4*s) * (0.6 + 0.4*ratioS)
     return raw
 
+# ラインの生の強さを計算（KOや_top2_linesから呼ばれるやつ）
+LINE_W_POS = {
+    "head":      1.00,
+    "second":    0.55,
+    "thirdplus": 0.38,
+    "single":    0.34,
+}
+
+def _line_strength_raw(line_def, S, B, line_factor: float = 1.0) -> dict:
+    """
+    line_def: {"A":[1,3,5], "B":[7,2], ...} みたいなやつ
+    S, B: 車番→回数
+    line_factor: 33mで半減させたいときなどに上からかける係数
+    """
+    if not line_def:
+        return {}
+
+    # 位置ごとの実効重み
+    w_pos = {k: v * float(line_factor) for k, v in LINE_W_POS.items()}
+
+    raw: dict[str, float] = {}
+    for g, mem in line_def.items():
+        s = 0.0
+        b = 0.0
+        for c in mem:
+            role = _role_of(c, mem)   # ← あなたのコードにもうあるやつ
+            w = w_pos.get(role, 0.34)
+            s += w * float(S.get(c, 0))
+            b += w * float(B.get(c, 0))
+        ratioS = s / (s + b + 1e-6)
+        # compute_lineSB_bonus と式を合わせておく
+        raw[g] = (0.6 * b + 0.4 * s) * (0.6 + 0.4 * ratioS)
+    return raw
+
+
 def _top2_lines(line_def, S, B, line_factor=1.0):
     raw = _line_strength_raw(line_def, S, B, line_factor)
     order = sorted(raw.keys(), key=lambda g: raw[g], reverse=True)
