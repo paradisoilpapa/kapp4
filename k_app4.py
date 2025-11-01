@@ -454,16 +454,11 @@ def compute_lineSB_bonus(line_def, S, B, line_factor=1.0, exclude=None, cap=0.06
     33m系（<=340）では自動で効きを半減：
       - LINE_SB_33_MULT（既定0.5）を line_factor に乗算
       - LINE_SB_CAP_33_MULT（既定0.5）を cap に乗算
-    bank_length は以下で推定：
-      - st.session_state['bank_length'] or ['track_length'] があれば使用
-      - なければ globals()['BANK_LENGTH'] があれば使用
-      - いずれも無ければ通常通り
     """
     if not enable or not line_def:
-        return ({g:0.0 for g in line_def.keys()} if line_def else {}), {}
+        return ({g: 0.0 for g in line_def.keys()} if line_def else {}), {}
 
-    # === 33かどうかの自動推定 ===
-    bank_len = None
+    # --- 33かどうかの自動推定 ---
     try:
         bank_len = st.session_state.get("bank_length", st.session_state.get("track_length", None))
     except Exception:
@@ -482,38 +477,45 @@ def compute_lineSB_bonus(line_def, S, B, line_factor=1.0, exclude=None, cap=0.06
         except Exception:
             pass
 
-# 33m系の半減はそのまま生かす前提
-w_pos_base = {
-    'head':      1.00,
-    'second':    0.55,   # 0.4 → 0.55 にして番手をちゃんと生かす
-    'thirdplus': 0.38,   # 0.2 → 0.38 で3番手も無視しない
-    'single':    0.34,   # 0.7 → 0.34 にガッツリ落とす（3番手よりわずかに下）
-}
+    # ここを今回の新しい重みで統一
+    w_pos_base = {
+        'head':      1.00,
+        'second':    0.55,
+        'thirdplus': 0.38,
+        'single':    0.34,
+    }
 
-Sg, Bg = {}, {}
-for g, mem in line_def.items():
-    s = b = 0.0
-    for car in mem:
-        if exclude is not None and car == exclude:
-            continue
-        w = w_pos_base[role_in_line(car, line_def)] * eff_line_factor
-        s += w * float(S.get(car, 0))
-        b += w * float(B.get(car, 0))
-    Sg[g] = s
-    Bg[g] = b
+    # --- ラインごとのS/B集計 ---
+    Sg, Bg = {}, {}
+    for g, mem in line_def.items():
+        s = 0.0
+        b = 0.0
+        for car in mem:
+            if exclude is not None and car == exclude:
+                continue
+            role = role_in_line(car, line_def)
+            w = w_pos_base[role] * eff_line_factor
+            s += w * float(S.get(car, 0))
+            b += w * float(B.get(car, 0))
+        Sg[g] = s
+        Bg[g] = b
 
-raw = {}
-for g in line_def.keys():
-    s, b = Sg[g], Bg[g]
-    ratioS = s / (s + b + 1e-6)
-    raw[g] = (0.6 * b + 0.4 * s) * (0.6 + 0.4 * ratioS)
+    # --- ラインごとの“強さ”スコア作成 ---
+    raw = {}
+    for g in line_def.keys():
+        s = Sg[g]
+        b = Bg[g]
+        ratioS = s / (s + b + 1e-6)
+        raw[g] = (0.6 * b + 0.4 * s) * (0.6 + 0.4 * ratioS)
 
-zz = zscore_list(list(raw.values())) if raw else []
-bonus = {
-    g: clamp(0.02 * float(zz[i]), -eff_cap, eff_cap)
-    for i, g in enumerate(raw.keys())
-}
-return bonus, raw
+    # --- z化してボーナスにする ---
+    zz = zscore_list(list(raw.values())) if raw else []
+    bonus = {}
+    for i, g in enumerate(raw.keys()):
+        bonus[g] = clamp(0.02 * float(zz[i]), -eff_cap, eff_cap)
+
+    return bonus, raw
+
 
 
 
