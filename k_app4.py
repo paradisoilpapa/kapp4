@@ -449,11 +449,12 @@ def bank_length_adjust(bank_length, prof_oikomi):
     delta = clamp((float(bank_length)-411.0)/100.0, -0.05, 0.05)
     return round(delta*prof_oikomi, 3)
 
+# --- ラインSBボーナス（33mは自動で半減） --------------------
 def compute_lineSB_bonus(line_def, S, B, line_factor=1.0, exclude=None, cap=0.06, enable=True):
     """
     33m系（<=340）では自動で効きを半減:
-      - LINE_SB_33_MULT を line_factor に乗算
-      - LINE_SB_CAP_33_MULT を cap に乗算
+      - LINE_SB_33_MULT（既定0.5）を line_factor に乗算
+      - LINE_SB_CAP_33_MULT（既定0.5）を cap に乗算
     """
     if not enable or not line_def:
         return ({g: 0.0 for g in line_def.keys()} if line_def else {}), {}
@@ -477,7 +478,7 @@ def compute_lineSB_bonus(line_def, S, B, line_factor=1.0, exclude=None, cap=0.06
         except Exception:
             pass
 
-    # 位置重み（単騎を落とす）
+    # ライン内の位置重み（単騎を下げる）
     w_pos_base = {
         "head":      1.00,
         "second":    0.55,
@@ -501,7 +502,7 @@ def compute_lineSB_bonus(line_def, S, B, line_factor=1.0, exclude=None, cap=0.06
         Sg[g] = s
         Bg[g] = b
 
-    # ラインごとの“強さ”
+    # ラインごとの“強さ”スコア
     raw = {}
     for g in line_def.keys():
         s = Sg[g]
@@ -509,7 +510,7 @@ def compute_lineSB_bonus(line_def, S, B, line_factor=1.0, exclude=None, cap=0.06
         ratioS = s / (s + b + 1e-6)
         raw[g] = (0.6 * b + 0.4 * s) * (0.6 + 0.4 * ratioS)
 
-    # z化してボーナス
+    # z化してボーナス化
     zz = zscore_list(list(raw.values())) if raw else []
     bonus = {}
     for i, g in enumerate(raw.keys()):
@@ -517,16 +518,20 @@ def compute_lineSB_bonus(line_def, S, B, line_factor=1.0, exclude=None, cap=0.06
 
     return bonus, raw
 
-    for g, mem in line_def.items():
-        s=b=0.0
-        for c in mem:
-            w = w_pos[_role_of(c, mem)] * float(line_factor)
-            s += w*float(S.get(c,0)); b += w*float(B.get(c,0))
-        ratioS = s/(s+b+1e-6)
-        raw[g] = (0.6*b + 0.4*s) * (0.6 + 0.4*ratioS)
-    return raw
 
-# ラインの生の強さを計算（KOや_top2_linesから呼ばれるやつ）
+# ==============================
+# KO Utilities（ここから下を1かたまりで）
+# ==============================
+
+def _role_of(car, mem):
+    """ラインの中での役割を返す（head / second / thirdplus / single）"""
+    if len(mem) == 1:
+        return "single"
+    idx = mem.index(car)
+    return ["head", "second", "thirdplus"][idx] if idx < 3 else "thirdplus"
+
+
+# KOでも、ライン強度でも、同じ位置重みを使う
 LINE_W_POS = {
     "head":      1.00,
     "second":    0.55,
@@ -534,16 +539,15 @@ LINE_W_POS = {
     "single":    0.34,
 }
 
+
 def _line_strength_raw(line_def, S, B, line_factor: float = 1.0) -> dict:
     """
-    line_def: {"A":[1,3,5], "B":[7,2], ...} みたいなやつ
-    S, B: 車番→回数
-    line_factor: 33mで半減させたいときなどに上からかける係数
+    KOやトップ2ライン抽出で使う“生のライン強度”
+    compute_lineSB_bonus と式をそろえてある
     """
     if not line_def:
         return {}
 
-    # 位置ごとの実効重み
     w_pos = {k: v * float(line_factor) for k, v in LINE_W_POS.items()}
 
     raw: dict[str, float] = {}
@@ -551,80 +555,128 @@ def _line_strength_raw(line_def, S, B, line_factor: float = 1.0) -> dict:
         s = 0.0
         b = 0.0
         for c in mem:
-            role = _role_of(c, mem)   # ← あなたのコードにもうあるやつ
+            role = _role_of(c, mem)
             w = w_pos.get(role, 0.34)
             s += w * float(S.get(c, 0))
             b += w * float(B.get(c, 0))
         ratioS = s / (s + b + 1e-6)
-        # compute_lineSB_bonus と式を合わせておく
         raw[g] = (0.6 * b + 0.4 * s) * (0.6 + 0.4 * ratioS)
     return raw
 
 
 def _top2_lines(line_def, S, B, line_factor=1.0):
+    """ラインの中から強い2本を取る"""
     raw = _line_strength_raw(line_def, S, B, line_factor)
     order = sorted(raw.keys(), key=lambda g: raw[g], reverse=True)
-    return (order[0], order[1]) if len(order)>=2 else (order[0], None) if order else (None, None)
+    return (order[0], order[1]) if len(order) >= 2 else (order[0], None) if order else (None, None)
+
 
 def _extract_role_car(line_def, gid, role_name):
-    if gid is None or gid not in line_def: return None
+    """指定ラインのhead/secondを抜く"""
+    if gid is None or gid not in line_def:
+        return None
     mem = line_def[gid]
-    if role_name=='head':    return mem[0] if len(mem)>=1 else None
-    if role_name=='second':  return mem[1] if len(mem)>=2 else None
+    if role_name == "head":
+        return mem[0] if len(mem) >= 1 else None
+    if role_name == "second":
+        return mem[1] if len(mem) >= 2 else None
     return None
 
-def _ko_order(v_base_map, line_def, S, B, line_factor=1.0, gap_delta=0.010):
+
+def _ko_order(v_base_map,
+              line_def,
+              S,
+              B,
+              line_factor: float = 1.0,
+              gap_delta: float = 0.007):
+    """
+    KO用の並びを作る
+    1) 上2ラインのhead
+    2) 上2ラインのsecond
+    3) 残りのラインの残りをスコア順
+    4) その他の車番
+    同じライン内でスコア差が gap_delta 以内なら寄せる
+    """
     cars = list(v_base_map.keys())
-    if not line_def or len(line_def)<1:
-        return [c for c,_ in sorted(v_base_map.items(), key=lambda x:x[1], reverse=True)]
+
+    # ラインが無いときはふつうにスコア順
+    if not line_def or len(line_def) < 1:
+        return [c for c, _ in sorted(v_base_map.items(), key=lambda x: x[1], reverse=True)]
+
     g1, g2 = _top2_lines(line_def, S, B, line_factor)
-    head1 = _extract_role_car(line_def, g1, 'head');  head2 = _extract_role_car(line_def, g2, 'head')
-    sec1  = _extract_role_car(line_def, g1, 'second');sec2  = _extract_role_car(line_def, g2, 'second')
-    others=[]
+
+    head1 = _extract_role_car(line_def, g1, "head")
+    head2 = _extract_role_car(line_def, g2, "head")
+    sec1  = _extract_role_car(line_def, g1, "second")
+    sec2  = _extract_role_car(line_def, g2, "second")
+
+    others: list[int] = []
     if g1:
         mem = line_def[g1]
-        if len(mem)>=3: others += mem[2:]
+        if len(mem) >= 3:
+            others += mem[2:]
     if g2:
         mem = line_def[g2]
-        if len(mem)>=3: others += mem[2:]
+        if len(mem) >= 3:
+            others += mem[2:]
     for g, mem in line_def.items():
-        if g not in {g1,g2}:
+        if g not in {g1, g2}:
             others += mem
-    order = []
+
+    order: list[int] = []
+
+    # 1) headをスコア順で
     head_pair = [x for x in [head1, head2] if x is not None]
     order += sorted(head_pair, key=lambda c: v_base_map.get(c, -1e9), reverse=True)
+
+    # 2) secondをスコア順で
     sec_pair = [x for x in [sec1, sec2] if x is not None]
     order += sorted(sec_pair, key=lambda c: v_base_map.get(c, -1e9), reverse=True)
+
+    # 3) 残りラインの残り（重複を落とす）
     others = list(dict.fromkeys([c for c in others if c is not None]))
     others_sorted = sorted(others, key=lambda c: v_base_map.get(c, -1e9), reverse=True)
     order += [c for c in others_sorted if c not in order]
+
+    # 4) まだ出てない車を最後に
     for c in cars:
         if c not in order:
             order.append(c)
-    def _same_group(a,b):
-        if a is None or b is None: return False
-        ga = next((g for g,mem in line_def.items() if a in mem), None)
-        gb = next((g for g,mem in line_def.items() if b in mem), None)
-        return ga is not None and ga==gb
-    i=0
-    while i < len(order)-2:
-        a, b, c = order[i], order[i+1], order[i+2]
+
+    # ライン内の小差詰め
+    def _same_group(a, b):
+        if a is None or b is None:
+            return False
+        ga = next((g for g, mem in line_def.items() if a in mem), None)
+        gb = next((g for g, mem in line_def.items() if b in mem), None)
+        return ga is not None and ga == gb
+
+    i = 0
+    while i < len(order) - 2:
+        a, b, c = order[i], order[i + 1], order[i + 2]
         if _same_group(a, b):
-            vx = v_base_map.get(b,0.0) - v_base_map.get(c,0.0)
+            vx = v_base_map.get(b, 0.0) - v_base_map.get(c, 0.0)
             if vx >= -gap_delta:
-                order.pop(i+2)
-                order.insert(i+1, b)
+                order.pop(i + 2)
+                order.insert(i + 1, b)
         i += 1
+
     return order
+
 
 def _zone_from_p(p: float):
     needed = 1.0 / max(p, 1e-12)
-    return needed, needed*(1.0+E_MIN), needed*(1.0+E_MAX)
+    return needed, needed * (1.0 + E_MIN), needed * (1.0 + E_MAX)
 
-def apply_anchor_line_bonus(score_raw: dict[int,float], line_of: dict[int,int], role_map: dict[int,str], anchor: int, tenkai: str) -> dict[int,float]:
+
+def apply_anchor_line_bonus(score_raw: dict[int, float],
+                            line_of: dict[int, int],
+                            role_map: dict[int, str],
+                            anchor: int,
+                            tenkai: str) -> dict[int, float]:
     a_line = line_of.get(anchor, None)
     is_on = (tenkai in LINE_BONUS_ON_TENKAI) and (a_line is not None)
-    score_adj: dict[int,float] = {}
+    score_adj: dict[int, float] = {}
     for i, s in score_raw.items():
         bonus = 0.0
         if is_on and line_of.get(i) == a_line and i != anchor:
@@ -633,7 +685,8 @@ def apply_anchor_line_bonus(score_raw: dict[int,float], line_of: dict[int,int], 
         score_adj[i] = s + bonus
     return score_adj
 
-def format_rank_all(score_map: dict[int,float], P_floor_val: float | None = None) -> str:
+
+def format_rank_all(score_map: dict[int, float], P_floor_val: float | None = None) -> str:
     order = sorted(score_map.keys(), key=lambda k: (-score_map[k], k))
     rows = []
     for i in order:
@@ -642,6 +695,7 @@ def format_rank_all(score_map: dict[int,float], P_floor_val: float | None = None
         else:
             rows.append(f"{i}" if score_map[i] >= P_floor_val else f"{i}(P未満)")
     return " ".join(rows)
+
 
 
 # ==============================
