@@ -504,12 +504,17 @@ for g, mem in line_def.items():
 raw = {}
 
     for g in line_def.keys():
-        s, b = Sg[g], Bg[g]
-        ratioS = s/(s+b+1e-6)
-        raw[g] = (0.6*b + 0.4*s) * (0.6 + 0.4*ratioS)
-    zz = zscore_list(list(raw.values())) if raw else []
-    bonus={g: clamp(0.02*float(zz[i]), -eff_cap, eff_cap) for i,g in enumerate(raw.keys())}
-    return bonus, raw
+    s, b = Sg[g], Bg[g]
+    ratioS = s / (s + b + 1e-6)
+    raw[g] = (0.6 * b + 0.4 * s) * (0.6 + 0.4 * ratioS)
+
+zz = zscore_list(list(raw.values())) if raw else []
+bonus = {
+    g: clamp(0.02 * float(zz[i]), -eff_cap, eff_cap)
+    for i, g in enumerate(raw.keys())
+}
+return bonus, raw
+
 
 def input_float_text(label: str, key: str, placeholder: str = "") -> float | None:
     s = st.text_input(label, value=st.session_state.get(key, ""), key=key, placeholder=placeholder)
