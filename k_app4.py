@@ -1323,7 +1323,7 @@ for no in active_cars:
         )
     )
 
-# ❽ 三連複フォーメーション（本命−2−全）：1列目=有利脚質内の偏差値最大
+# ❽ フォーメーション（本命−2−全）：1列目=有利脚質内の偏差値最大
 def _pick_axis(riders: list[Rider], bank_str: str) -> Rider:
     fav = _favorable_styles(bank_str)
     cand = [r for r in riders if r.style in fav]
@@ -3346,6 +3346,48 @@ def compute_flow_indicators(lines_str, marks, scores):
             return 0.0
         return math.cos(waves[bi]["phi"] - waves[bj]["phi"])
 
+
+# ==== 三連複：自由組み＋補完だけを出力（6点固定） =========================
+def trio_free_completion(hens, marks_by_car, risk_label):
+    hens = dict(hens or {})
+    marks_by_car = dict(marks_by_car or {})
+    order = sorted(hens.keys(), key=lambda k: (hens.get(k, 0.0), k), reverse=True)
+    if not order:
+        return "—"
+    r = str(risk_label or "").strip()
+    if r.startswith("高"):
+        axis = order[1] if len(order) > 1 else order[0]
+    else:
+        axis = order[0]
+    base = [x for x in order if x != axis][:4]
+    while len(base) < 4 and order:
+        for x in order:
+            if x not in base and x != axis:
+                base.append(x)
+                if len(base) == 4:
+                    break
+    need_completion = (r.startswith("高") or r.startswith("中"))
+    if need_completion and len(base) == 4:
+        completion_pick = None
+        for k in sorted(hens.keys(), key=lambda x: (hens.get(x, 0.0), x)):
+            if k == axis or k in base:
+                continue
+            m = str(marks_by_car.get(k, "")).strip()
+            if m in ("α", "無", ""):
+                completion_pick = k
+                break
+        if completion_pick is None:
+            for k in reversed(order):
+                if k != axis and k not in base:
+                    completion_pick = k
+                    break
+        if completion_pick is not None:
+            base[-1] = completion_pick
+    group = "".join(str(x) for x in sorted(base))
+    return f"{axis}-{group}-{group}"
+# ============================================================================
+
+    
     # --- ◎（順流）と 無（逆流）の決定 ---
     b_star = bucket_of(star_id)
     if not b_star:
@@ -4329,7 +4371,19 @@ if _t369_render_once(_render_key):
     else:
         note_sections.append(_flow.get("note", "【流れ】出力なし"))
 
-    note_sections.append(_bets.get("note", "【買い目】出力なし"))
+    # 三連複は「自由組み＋補完」をメイン表示
+risk_label = _risk_out(_FRv)
+# result_marks が {記号:車番} / {車番:記号} どちらでも耐えるように整形
+try:
+    _rm = dict(globals().get('result_marks', {}))
+    marks_by_car = {int(k): str(v) for k, v in _rm.items()}  # {車番:記号}想定
+    if all(isinstance(v, int) for v in _rm.values()):
+        marks_by_car = {int(v): str(k) for k, v in _rm.items()}  # {記号:車番}→反転
+except Exception:
+    marks_by_car = {}
+trio_text = trio_free_completion(scores, marks_by_car, risk_label)
+note_sections.append(f"三連複（補完）：{trio_text}")
+
 
     try:
         dbg_lines = globals().get('_lines_list') or globals().get('lines_list') or '—'
