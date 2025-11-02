@@ -3897,50 +3897,67 @@ def select_tri_opponents_v2(
 
 # ==== 三連複：自由＋α補完（ライン完全無視・失速=高で◎外し） ====
 def trio_free_completion(hens, marks_any, risk_label, flow=None):
+    """
+    目的：
+        ライン構成を完全に無視して、純粋な偏差値順位＋危険度（FRリスク）だけで
+        三連複6点フォーメーションを自動構成する。
+        ・失速=高 → ◎を軸から外し、逆流・渦・αを拾う
+        ・失速=中/低 → 上位安定型
+    """
     hens = dict(hens or {})
     flow = dict(flow or {})
 
-    # marks_any は {印:車番} でも {車番:印} でもOKにする
+    # marks_any は {印:車番} でも {車番:印} でもOK
     marks_by_car = {}
     if all(isinstance(v, int) for v in (marks_any or {}).values()):
-        # {印: 車番}
         for k, v in (marks_any or {}).items():
-            try: marks_by_car[int(v)] = str(k)
-            except: pass
+            try:
+                marks_by_car[int(v)] = str(k)
+            except:
+                pass
     else:
-        # {車番: 印}
         for k, v in (marks_any or {}).items():
-            try: marks_by_car[int(k)] = str(v)
-            except: pass
+            try:
+                marks_by_car[int(k)] = str(v)
+            except:
+                pass
 
-    # リスク判定：引数が空なら flow.FR から復元
+    # リスク判定（引数優先）
     r = (str(risk_label) or "").strip()
     if not r:
         try:
-            r = "高" if float(flow.get("FR", 0.0)) >= 0.55 else ("中" if float(flow.get("FR",0.0)) >= 0.25 else "低")
+            frv = float(flow.get("FR", 0.0))
+            if frv >= 0.55:
+                r = "高"
+            elif frv >= 0.25:
+                r = "中"
+            else:
+                r = "低"
         except:
             r = "低"
 
     # ◎車番
     star_id = next((cid for cid, m in marks_by_car.items() if str(m).strip() == "◎"), None)
 
-    # 偏差値降順（純粋に数値だけ。ライン一切見ない）
+    # 偏差値降順（純粋に数値だけ。ライン無視）
     order = sorted(hens.keys(), key=lambda k: (hens.get(k, 0.0), k), reverse=True)
     if not order:
         return "—"
 
-    # 軸：失速「高」なら◎を外したうえでの上位（= 非◎トップ）、それ以外はトップ
+    # 軸選定
     if r.startswith("高") and (star_id in order) and len(order) >= 2:
+        # 失速「高」→◎を外したうえで上位（非◎トップ）
         axis = order[0] if order[0] != star_id else order[1]
     else:
         axis = order[0]
 
-        # 相手4枠：軸以外の偏差値上位4
+    # ==========================
+    # 相手選出ロジック
+    # ==========================
     base = [x for x in order if x != axis][:4]
 
-    # === 追加修正：失速=高のときは◎軸を外して再評価 ===
+    # --- 修正ポイント：失速=高では◎軸を軽視し、逆流・渦寄り・α優遇 ---
     if r.startswith("高"):
-        # 軸のスコアを軽く下げて中立・逆流側を拾いやすくする
         axis_score = hens.get(axis, 0.0)
         order2 = sorted(
             hens.keys(),
@@ -3953,7 +3970,7 @@ def trio_free_completion(hens, marks_any, risk_label, flow=None):
         )
         base = [x for x in order2 if x != axis][:4]
 
-    # α補完（失速=高のとき）：αが base/軸に居なければ、base最下位をαで置換（順序保持）
+    # α補完：αが base/軸に居なければ、最下位をαに置換
     if r.startswith("高"):
         alpha_cands = [cid for cid, m in marks_by_car.items()
                        if str(m).strip() == "α" and cid != axis and cid not in base and cid in hens]
@@ -3964,7 +3981,6 @@ def trio_free_completion(hens, marks_any, risk_label, flow=None):
 
     group = ''.join(str(x) for x in base)
     return f"{axis}-{group}-{group}"
-
 
 
 
