@@ -3895,7 +3895,7 @@ def select_tri_opponents_v2(
     return picks
 # === /PATCH ==============================================================
 
-# ==== 三連複：失速高→逆流・渦補完（5-2473-2473再現） ====
+# ==== 三連複：失速高→逆流・渦補完（α優先固定） ====
 def trio_free_completion(hens, marks_by_car, risk_label, flow=None):
     hens = dict(hens or {})
     marks_by_car = dict(marks_by_car or {})
@@ -3909,7 +3909,7 @@ def trio_free_completion(hens, marks_by_car, risk_label, flow=None):
     if not order:
         return "—"
 
-    # ◎特定
+    # ◎取得
     star_id = None
     for k, v in marks_by_car.items():
         if str(v).strip() == "◎":
@@ -3922,7 +3922,7 @@ def trio_free_completion(hens, marks_by_car, risk_label, flow=None):
 
     # --- 軸決定 ---
     if r.startswith("高"):
-        # 渦・逆流ライン上の最高偏差値車
+        # 渦または逆流ラインの最高偏差値車を軸
         cand = []
         for g in (VTX_line, U_line):
             for x in (g or []):
@@ -3936,37 +3936,31 @@ def trio_free_completion(hens, marks_by_car, risk_label, flow=None):
     else:
         axis = order[0]
 
-    # --- 相手選定（基本4枠） ---
+    # --- 相手4枠 ---
     base = [x for x in order if x != axis][:4]
 
-    # --- 失速「高」補完：逆流or渦ラインの代表を追加 ---
+    # --- 失速高：α補完優先 ---
     if r.startswith("高"):
-        pool = []
-        for g in (U_line, VTX_line):
-            for x in (g or []):
-                if x not in base and x != axis and x in hens:
-                    pool.append(x)
+        # α印を最優先
+        alpha_cands = [x for x, m in marks_by_car.items() if str(m).strip() == "α" and x not in base and x != axis]
+        if alpha_cands:
+            # baseの最下位をαで置換
+            drop = min(base, key=lambda x: hens.get(x, 0.0))
+            base = [x for x in base if x != drop] + [alpha_cands[0]]
+        else:
+            # αがいない場合：逆流or渦ラインから追加
+            pool = []
+            for g in (U_line, VTX_line):
+                for x in (g or []):
+                    if x not in base and x != axis and x in hens:
+                        pool.append(x)
+            if pool:
+                drop = min(base, key=lambda x: hens.get(x, 0.0))
+                pick = max(pool, key=lambda x: hens.get(x, 0.0))
+                base = [x for x in base if x != drop] + [pick]
 
-        # α印を優先、次に偏差値
-        def mark_prio(x):
-            m = str(marks_by_car.get(x, "")).strip()
-            return 2 if m in ("α", "無") else (1 if m in ("×", "") else 0)
-
-        pool = sorted(set(pool), key=lambda x: (mark_prio(x), hens.get(x, 0.0)), reverse=True)
-
-        # 追加（被りなしで1枠加える）
-        for pick in pool:
-            if pick not in base:
-                base.append(pick)
-                break
-
-    # 上位5枠から4枠に制限（保険）
-    base = sorted(base, key=lambda x: hens.get(x, 0.0), reverse=True)[:4]
-
-    # 出力整形
     group = ''.join(str(x) for x in sorted(base))
     return f"{axis}-{group}-{group}"
-
 
 
 
