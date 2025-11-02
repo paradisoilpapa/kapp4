@@ -3346,48 +3346,6 @@ def compute_flow_indicators(lines_str, marks, scores):
             return 0.0
         return math.cos(waves[bi]["phi"] - waves[bj]["phi"])
 
-
-# ==== 三連複：自由組み＋補完だけを出力（6点固定） =========================
-def trio_free_completion(hens, marks_by_car, risk_label):
-    hens = dict(hens or {})
-    marks_by_car = dict(marks_by_car or {})
-    order = sorted(hens.keys(), key=lambda k: (hens.get(k, 0.0), k), reverse=True)
-    if not order:
-        return "—"
-    r = str(risk_label or "").strip()
-    if r.startswith("高"):
-        axis = order[1] if len(order) > 1 else order[0]
-    else:
-        axis = order[0]
-    base = [x for x in order if x != axis][:4]
-    while len(base) < 4 and order:
-        for x in order:
-            if x not in base and x != axis:
-                base.append(x)
-                if len(base) == 4:
-                    break
-    need_completion = (r.startswith("高") or r.startswith("中"))
-    if need_completion and len(base) == 4:
-        completion_pick = None
-        for k in sorted(hens.keys(), key=lambda x: (hens.get(x, 0.0), x)):
-            if k == axis or k in base:
-                continue
-            m = str(marks_by_car.get(k, "")).strip()
-            if m in ("α", "無", ""):
-                completion_pick = k
-                break
-        if completion_pick is None:
-            for k in reversed(order):
-                if k != axis and k not in base:
-                    completion_pick = k
-                    break
-        if completion_pick is not None:
-            base[-1] = completion_pick
-    group = "".join(str(x) for x in sorted(base))
-    return f"{axis}-{group}-{group}"
-# ============================================================================
-
-    
     # --- ◎（順流）と 無（逆流）の決定 ---
     b_star = bucket_of(star_id)
     if not b_star:
@@ -3937,6 +3895,32 @@ def select_tri_opponents_v2(
     return picks
 # === /PATCH ==============================================================
 
+# ==== 三連複：補完のみを主表示（6点固定） ====
+def trio_free_completion(hens, marks_by_car, risk_label):
+    hens = dict(hens or {})
+    marks_by_car = dict(marks_by_car or {})
+    order = sorted(hens.keys(), key=lambda k: (hens.get(k, 0.0), k), reverse=True)
+    if not order:
+        return "—"
+    r = str(risk_label or "").strip()
+    axis = order[1] if (r.startswith("高") and len(order) > 1) else order[0]
+    base = [x for x in order if x != axis][:4]
+    while len(base) < 4 and order:
+        for x in order:
+            if x not in base and x != axis:
+                base.append(x)
+                if len(base) == 4:
+                    break
+    completion_pick = None
+    if len(base) == 4:
+        for k in sorted(hens.keys(), key=lambda x: (hens.get(x, 0.0), x)):
+            if k not in base and k != axis:
+                completion_pick = k
+                break
+    if completion_pick and completion_pick not in base:
+        base[-1] = completion_pick
+    opps_sorted = ''.join(str(x) for x in sorted(base))
+    return f"{axis}-{opps_sorted}-{opps_sorted}"
 
 
 # ===== Tesla369｜出力統合・完全版（◎寄せ・3車緩和・6点固定・表示掃除） =====
@@ -4155,12 +4139,9 @@ def generate_tesla_bets(flow, lines_str, marks, scores):
     chosen = sorted(set(chosen))
 
     note_lines = ["【買い目】"]
-    if len(opps) >= 4 and chosen:
-        opps_sorted = ''.join(str(x) for x in sorted(opps))
-        note_lines.append(f"三連複：{axis}-{opps_sorted}-{opps_sorted}")
-    else:
-        tri_strs = [f"{t[0]}-{t[1]}-{t[2]}" for t in chosen]
-        note_lines.append("三連複：" + ("—" if (not tri_strs) else ", ".join(tri_strs)))
+risk_label = fr_risk  # 直前で求めた「高/中/低」
+trio_text = trio_free_completion(scores, marks, risk_label)
+note_lines.append(f"三連複（補完）：{trio_text}")
 
     return {
         "FR_line": FR_line,
@@ -4341,43 +4322,74 @@ if _t369_render_once(_render_key):
     except Exception:
         pass
 
-try:
-    dbg_lines = globals().get('_lines_list') or globals().get('lines_list') or '—'
-    dbg_marks = marks or '—'
     try:
-        dbg_scores_keys = sorted((scores or {}).keys())
+        race_t = dict(globals().get('race_t', {}))
+        note_sections.append("\n偏差値（風・ライン込み）")
+        note_sections.append(_fmt_hen_lines(race_t, USED_IDS))
+        note_sections.append("\n")
     except Exception:
-        dbg_scores_keys = '—'
+        note_sections.append("偏差値データなし\n")
+
+    _FR_line  = _bets.get("FR_line", _flow.get("FR_line"))
+    _VTX_line = _bets.get("VTX_line", _flow.get("VTX_line"))
+    _U_line   = _bets.get("U_line",  _flow.get("U_line"))
+    _FRv      = float(_bets.get("FRv",  _flow.get("FR", 0.0)) or 0.0)
+    _VTXv     = float(_bets.get("VTXv", _flow.get("VTX", 0.0)) or 0.0)
+    _Uv       = float(_bets.get("Uv",   _flow.get("U", 0.0)) or 0.0)
+
+    # ここは新しい危険度（3車緩和）じゃなく、出力はいつもの文言でいい
+    def _risk_out(fr):
+        if fr >= 0.55:
+            return "高"
+        if fr >= 0.25:
+            return "中"
+        return "低"
+
+    if (_FR_line is not None) or (_VTX_line is not None) or (_U_line is not None):
+        note_sections.append(f"【順流】◎ライン {_fmt_nums(_FR_line)}：失速危険 {_risk_out(_FRv)}")
+        note_sections.append(f"【渦】候補ライン：{_fmt_nums(_VTX_line)}（VTX={_VTXv:.2f}）")
+        note_sections.append(f"【逆流】無ライン {_fmt_nums(_U_line)}：U={_Uv:.2f}（※判定基準内）")
+    else:
+        note_sections.append(_flow.get("note", "【流れ】出力なし"))
+
+    note_sections.append(_bets.get("note", "【買い目】出力なし"))
 
     try:
-        _flow_diag_raw = compute_flow_indicators(lines_str, marks, scores)
-        _flow_diag = _flow_diag_raw if isinstance(_flow_diag_raw, dict) else {}
-    except Exception as e:
-        _flow_diag = {}
-        note_sections.append(f"⚠ compute_flow_indicators(診断)エラー: {type(e).__name__}: {e}")
+        dbg_lines = globals().get('_lines_list') or globals().get('lines_list') or '—'
+        dbg_marks = marks or '—'
+        try:
+            dbg_scores_keys = sorted((scores or {}).keys())
+        except Exception:
+            dbg_scores_keys = '—'
 
-    note_sections.append(
-        "【Tesla369診断】"
-        f"\nlines_str={lines_str or '—'}"
-        f"\nlines_list={dbg_lines}"
-        f"\nmarks={dbg_marks}"
-        f"\nscores.keys={dbg_scores_keys}"
-        f"\nFR={_flow_diag.get('FR',0.0):.3f}  "
-        f"VTX={_flow_diag.get('VTX',0.0):.3f}  "
-        f"U={_flow_diag.get('U',0.0):.3f}"
-        f"\n※どれかが '—' なら入力が読めていません。"
-    )
+        try:
+            _flow_diag_raw = compute_flow_indicators(lines_str, marks, scores)
+            _flow_diag = _flow_diag_raw if isinstance(_flow_diag_raw, dict) else {}
+        except Exception as e:
+            _flow_diag = {}
+            note_sections.append(f"⚠ compute_flow_indicators(診断)エラー: {type(e).__name__}: {e}")
 
-    _dbg = _flow_diag.get("dbg", {}) if isinstance(_flow_diag, dict) else {}
-    if isinstance(_dbg, dict) and _dbg:
         note_sections.append(
-            f"[FR内訳] blend_star={_dbg.get('blend_star',0.0):.3f} "
-            f"blend_none={_dbg.get('blend_none',0.0):.3f} "
-            f"sd={_dbg.get('sd',0.0):.3f} nu={_dbg.get('nu',0.0):.3f}"
+            "【Tesla369診断】"
+            f"\nlines_str={lines_str or '—'}"
+            f"\nlines_list={dbg_lines}"
+            f"\nmarks={dbg_marks}"
+            f"\nscores.keys={dbg_scores_keys}"
+            f"\nFR={_flow_diag.get('FR',0.0):.3f}  "
+            f"VTX={_flow_diag.get('VTX',0.0):.3f}  "
+            f"U={_flow_diag.get('U',0.0):.3f}"
+            f"\n※どれかが '—' なら入力が読めていません。"
         )
-except Exception as _e:
-    note_sections.append(f"⚠ Tesla369診断エラー: {type(_e).__name__}: {str(_e)}")
 
+        _dbg = _flow_diag.get("dbg", {}) if isinstance(_flow_diag, dict) else {}
+        if isinstance(_dbg, dict) and _dbg:
+            note_sections.append(
+                f"[FR内訳] blend_star={_dbg.get('blend_star',0.0):.3f} "
+                f"blend_none={_dbg.get('blend_none',0.0):.3f} "
+                f"sd={_dbg.get('sd',0.0):.3f} nu={_dbg.get('nu',0.0):.3f}"
+            )
+    except Exception as _e:
+        note_sections.append(f"⚠ Tesla369診断エラー: {type(_e).__name__}: {str(_e)}")
 else:
     pass
 
