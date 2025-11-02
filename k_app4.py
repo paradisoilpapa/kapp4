@@ -4065,6 +4065,8 @@ def generate_tesla_bets(flow: Dict[str, Any],
 
 
 
+def generate_tesla_bets(flow, lines_str, marks_any, scores):
+    print("⚡ generate_tesla_bets: 補完専用ロジックが実行されています")
 
 
 
