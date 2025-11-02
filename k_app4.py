@@ -3938,13 +3938,15 @@ def trio_free_completion(hens, marks_any, risk_label, flow=None):
     # 相手4枠：軸以外の偏差値上位4
     base = [x for x in order if x != axis][:4]
 
-    # α補完（失速=高のとき）：αが base/軸に居なければ、base最下位をαで置換
+        # α補完（失速=高のとき）：αが base/軸に居なければ、base最下位をαで置換（順序保持）
     if r.startswith("高"):
         alpha_cands = [cid for cid, m in marks_by_car.items()
                        if str(m).strip() == "α" and cid != axis and cid not in base and cid in hens]
         if alpha_cands:
             drop = min(base, key=lambda x: hens.get(x, 0.0))
-            base = [x for x in base if x != drop] + [alpha_cands[0]]
+            base = [x for x in base if x != drop]
+            base.append(alpha_cands[0])  # ← αを最後に追加
+
 
     group = ''.join(str(x) for x in sorted(base))
     return f"{axis}-{group}-{group}"
