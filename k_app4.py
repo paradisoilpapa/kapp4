@@ -3895,56 +3895,60 @@ def select_tri_opponents_v2(
     return picks
 # === /PATCH ==============================================================
 
-def trio_free_completion(hens, marks_by_car, risk_label, flow=None):
+# ==== 三連複：自由＋α補完（ライン完全無視・失速=高で◎外し） ====
+def trio_free_completion(hens, marks_any, risk_label, flow=None):
     hens = dict(hens or {})
-    marks_by_car = dict(marks_by_car or {})
-    flow = flow or {}
+    flow = dict(flow or {})
 
-    # ✅ ここで完全独立モードを宣言
-    # flow内のライン情報は補完参考のみ。スコア選出に使わない。
-    FR_line = []
-    VTX_line = []
-    U_line   = []
+    # marks_any は {印:車番} でも {車番:印} でもOKにする
+    marks_by_car = {}
+    if all(isinstance(v, int) for v in (marks_any or {}).values()):
+        # {印: 車番}
+        for k, v in (marks_any or {}).items():
+            try: marks_by_car[int(v)] = str(k)
+            except: pass
+    else:
+        # {車番: 印}
+        for k, v in (marks_any or {}).items():
+            try: marks_by_car[int(k)] = str(v)
+            except: pass
 
-    # 構造反転（{印:車番}→{車番:印}対応）
-    if all(isinstance(v, int) for v in marks_by_car.values()):
-        marks_by_car = {int(v): str(k) for k, v in marks_by_car.items()}
+    # リスク判定：引数が空なら flow.FR から復元
+    r = (str(risk_label) or "").strip()
+    if not r:
+        try:
+            r = "高" if float(flow.get("FR", 0.0)) >= 0.55 else ("中" if float(flow.get("FR",0.0)) >= 0.25 else "低")
+        except:
+            r = "低"
 
-    # 偏差値降順
+    # ◎車番
+    star_id = next((cid for cid, m in marks_by_car.items() if str(m).strip() == "◎"), None)
+
+    # 偏差値降順（純粋に数値だけ。ライン一切見ない）
     order = sorted(hens.keys(), key=lambda k: (hens.get(k, 0.0), k), reverse=True)
     if not order:
         return "—"
 
-    # ◎特定
-    star_id = None
-    for k, v in marks_by_car.items():
-        if str(v).strip() == "◎":
-            star_id = int(k)
-            break
-
-    r = str(risk_label or "").strip()
-
-    # 軸決定
-    if r.startswith("高"):
-        # もうラインを使わない。純偏差値ロジックで軸を決定。
-        non_star = [x for x in order if x != star_id]
-        axis = non_star[0] if non_star else order[0]
+    # 軸：失速「高」なら◎を外したうえでの上位（= 非◎トップ）、それ以外はトップ
+    if r.startswith("高") and (star_id in order) and len(order) >= 2:
+        axis = order[0] if order[0] != star_id else order[1]
     else:
         axis = order[0]
 
-    # 相手：偏差値上位4
+    # 相手4枠：軸以外の偏差値上位4
     base = [x for x in order if x != axis][:4]
 
-    # α補完：最下位置換
+    # α補完（失速=高のとき）：αが base/軸に居なければ、base最下位をαで置換
     if r.startswith("高"):
-        alpha_cands = [x for x, m in marks_by_car.items()
-                       if str(m).strip() == "α" and x not in base and x != axis]
+        alpha_cands = [cid for cid, m in marks_by_car.items()
+                       if str(m).strip() == "α" and cid != axis and cid not in base and cid in hens]
         if alpha_cands:
             drop = min(base, key=lambda x: hens.get(x, 0.0))
             base = [x for x in base if x != drop] + [alpha_cands[0]]
 
     group = ''.join(str(x) for x in sorted(base))
     return f"{axis}-{group}-{group}"
+
 
 
 
@@ -4165,9 +4169,10 @@ def generate_tesla_bets(flow, lines_str, marks, scores):
 
     # ---------- 三連複（補完）出力 ----------
     note_lines = ["【買い目】"]
-    risk_label = fr_risk  # 直前で求めた「高/中/低」
-    trio_text = trio_free_completion(scores, marks, risk_label)
+    _flow_for_trio = {"FR": FRv}  # FRだけで十分（高/中/低の復元用）
+    trio_text = trio_free_completion(scores, marks, fr_risk, _flow_for_trio)
     note_lines.append(f"三連複（補完）：{trio_text}")
+    ")
 
     return {
         "FR_line": FR_line,
