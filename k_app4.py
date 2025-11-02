@@ -3935,8 +3935,23 @@ def trio_free_completion(hens, marks_any, risk_label, flow=None):
     else:
         axis = order[0]
 
-    # 相手4枠：軸以外の偏差値上位4
+        # 相手4枠：軸以外の偏差値上位4
     base = [x for x in order if x != axis][:4]
+
+    # === 追加修正：失速=高のときは◎軸を外して再評価 ===
+    if r.startswith("高"):
+        # 軸のスコアを軽く下げて中立・逆流側を拾いやすくする
+        axis_score = hens.get(axis, 0.0)
+        order2 = sorted(
+            hens.keys(),
+            key=lambda k: (
+                hens.get(k, 0.0)
+                - (3.0 if k == axis else 0.0)
+                + (0.5 if str(marks_by_car.get(k, "")) in ["×", "α"] else 0.0)
+            ),
+            reverse=True,
+        )
+        base = [x for x in order2 if x != axis][:4]
 
     # α補完（失速=高のとき）：αが base/軸に居なければ、base最下位をαで置換（順序保持）
     if r.startswith("高"):
@@ -3945,11 +3960,11 @@ def trio_free_completion(hens, marks_any, risk_label, flow=None):
         if alpha_cands:
             drop = min(base, key=lambda x: hens.get(x, 0.0))
             base = [x for x in base if x != drop]
-            base.append(alpha_cands[0])  # ← αを最後に追加
+            base.append(alpha_cands[0])  # αを最後に追加
 
     group = ''.join(str(x) for x in base)
-
     return f"{axis}-{group}-{group}"
+
 
 
 
