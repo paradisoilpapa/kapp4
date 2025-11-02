@@ -3904,6 +3904,10 @@ def trio_free_completion(hens, marks_by_car, risk_label, flow=None):
     VTX_line = flow.get("VTX_line") or []
     U_line   = flow.get("U_line")   or []
 
+    # ✅ 自動反転（{印:車番}→{車番:印}にする）
+    if all(isinstance(v, int) for v in marks_by_car.values()):
+        marks_by_car = {int(v): str(k) for k, v in marks_by_car.items()}
+
     # 偏差値降順
     order = sorted(hens.keys(), key=lambda k: (hens.get(k, 0.0), k), reverse=True)
     if not order:
@@ -3915,14 +3919,11 @@ def trio_free_completion(hens, marks_by_car, risk_label, flow=None):
         if str(v).strip() == "◎":
             star_id = int(k)
             break
-    if star_id is None and "◎" in marks_by_car:
-        star_id = int(marks_by_car["◎"])
 
     r = str(risk_label or "").strip()
 
     # --- 軸決定 ---
     if r.startswith("高"):
-        # 渦または逆流ラインの最高偏差値車を軸
         cand = []
         for g in (VTX_line, U_line):
             for x in (g or []):
@@ -3944,11 +3945,9 @@ def trio_free_completion(hens, marks_by_car, risk_label, flow=None):
         # α印を最優先
         alpha_cands = [x for x, m in marks_by_car.items() if str(m).strip() == "α" and x not in base and x != axis]
         if alpha_cands:
-            # baseの最下位をαで置換
             drop = min(base, key=lambda x: hens.get(x, 0.0))
             base = [x for x in base if x != drop] + [alpha_cands[0]]
         else:
-            # αがいない場合：逆流or渦ラインから追加
             pool = []
             for g in (U_line, VTX_line):
                 for x in (g or []):
