@@ -3895,16 +3895,21 @@ def select_tri_opponents_v2(
     return picks
 # === /PATCH ==============================================================
 
-# ==== 三連複：失速高→逆流・渦補完（α優先固定） ====
 def trio_free_completion(hens, marks_by_car, risk_label, flow=None):
     hens = dict(hens or {})
     marks_by_car = dict(marks_by_car or {})
     flow = flow or {}
-    FR_line = flow.get("FR_line") or []
-    VTX_line = flow.get("VTX_line") or []
-    U_line   = flow.get("U_line")   or []
 
-    # ✅ 自動反転（{印:車番}→{車番:印}にする）
+    # ライン制約を完全無効化（参照のみ残す）
+    FR_line = []
+    VTX_line = []
+    U_line   = []
+    if isinstance(flow, dict):
+        FR_line = flow.get("FR_line") or []
+        VTX_line = flow.get("VTX_line") or []
+        U_line   = flow.get("U_line")   or []
+
+    # 構造反転（{印:車番}→{車番:印}対応）
     if all(isinstance(v, int) for v in marks_by_car.values()):
         marks_by_car = {int(v): str(k) for k, v in marks_by_car.items()}
 
@@ -3913,7 +3918,7 @@ def trio_free_completion(hens, marks_by_car, risk_label, flow=None):
     if not order:
         return "—"
 
-    # ◎取得
+    # ◎特定
     star_id = None
     for k, v in marks_by_car.items():
         if str(v).strip() == "◎":
@@ -3922,41 +3927,28 @@ def trio_free_completion(hens, marks_by_car, risk_label, flow=None):
 
     r = str(risk_label or "").strip()
 
-    # --- 軸決定 ---
+    # 軸決定
     if r.startswith("高"):
         cand = []
         for g in (VTX_line, U_line):
             for x in (g or []):
                 if x in hens:
                     cand.append(x)
-        if cand:
-            axis = max(cand, key=lambda x: hens.get(x, 0.0))
-        else:
-            non_star = [x for x in order if x != star_id]
-            axis = non_star[0] if non_star else order[0]
+        axis = max(cand, key=lambda x: hens.get(x, 0.0)) if cand else order[0]
+        if axis == star_id and len(order) > 1:
+            axis = order[1]
     else:
         axis = order[0]
 
-    # --- 相手4枠 ---
+    # 相手：偏差値上位4
     base = [x for x in order if x != axis][:4]
 
-    # --- 失速高：α補完優先 ---
+    # α補完：最下位置換
     if r.startswith("高"):
-        # α印を最優先
         alpha_cands = [x for x, m in marks_by_car.items() if str(m).strip() == "α" and x not in base and x != axis]
         if alpha_cands:
             drop = min(base, key=lambda x: hens.get(x, 0.0))
             base = [x for x in base if x != drop] + [alpha_cands[0]]
-        else:
-            pool = []
-            for g in (U_line, VTX_line):
-                for x in (g or []):
-                    if x not in base and x != axis and x in hens:
-                        pool.append(x)
-            if pool:
-                drop = min(base, key=lambda x: hens.get(x, 0.0))
-                pick = max(pool, key=lambda x: hens.get(x, 0.0))
-                base = [x for x in base if x != drop] + [pick]
 
     group = ''.join(str(x) for x in sorted(base))
     return f"{axis}-{group}-{group}"
