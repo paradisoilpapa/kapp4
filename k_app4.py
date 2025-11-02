@@ -3989,353 +3989,70 @@ def trio_free_completion(hens, marks_any, risk_label, flow=None):
 # ===== Tesla369｜出力統合・完全版（◎寄せ・3車緩和・6点固定・表示掃除） =====
 import json, hashlib
 
-# ---------- 買い目ジェネレータ（6点固定：軸-4車-4車 / 相手配分は select_tri_opponents_v2＋逆張り1枠） ----------
+# ---------- 買い目ジェネレータ（補完三連複メイン版） ----------
 def generate_tesla_bets(flow, lines_str, marks, scores):
     """
-    三連複：常に 6 点（軸-4車-4車）
-
-    軸の決め方（今回の仕様）：
-      1) FRが「低」なら：◎がいる順流ラインの中で一番スコアが高い車を使う
-      2) FRが「中 / 高」でも、FRが0.60以下 かつ ◎がレース内トップから3pt以内なら ◎をそのまま軸にする
-      3) それでも決まらないときだけ 渦ライン(VTX)の中で一番スコアが高い車を使う
-
-    FRのラベルの付け方（今回の仕様）：
-      - ラインに3車がある日は「高」のしきい値を 0.55 に上げる（＝高が出にくくなる）
-      - ラインに3車がない日はこれまでに近い 0.45 / 0.20 の2段
-
-    相手4枠は select_tri_opponents_v2 に一本化
-      - 3車ライン厚め必須
-      - U高域/境界補正込み
-
-    ＋ 逆張り1枠ルール（あなたが戻したやつをそのまま残す）：
-        ① 3車ラインが無い
-        ② FRリスクが「高」
-        ③ VTXが 0.56〜0.60
-        ④ U < 0.90
-       のときにだけ、最弱ラインの上位1名を1枠だけ相手にねじ込む
+    三連複（補完）のみ出力する簡潔版
+      - ライン制約を最小化
+      - FR/VTX/U 判定からリスクを決め、補完ロジックで出力
     """
-    # ===== 調整パラメータ（あなたが前に使ってた値をそのまま） =====
+    # ===== パラメータ =====
     VTX_LOWER = 0.56
     VTX_UPPER = 0.60
     U_CAP     = 0.90
-    HENS_DIFF_MAX = 8.5  # 逆張り時に中立と入れ替えるときの許容差
 
-    # ===== 入力の正規化 =====
+    # ===== 入力正規化 =====
     flow   = flow or {}
     lines  = list(flow.get("lines") or [])
     scores = scores or {}
     marks  = marks or {}
 
-    # marks が {'◎':2, ...} の場合は反転して渡す
     if all(isinstance(v, int) for v in marks.values()):
         marks = {int(v): str(k) for k, v in marks.items()}
 
-
-    # 参加全車番
     all_nums = sorted({n for ln in lines for n in ln}) if lines else []
 
-    # 指標
+    # ===== 指標 =====
     FRv  = float(flow.get("FR", 0.0) or 0.0)
     VTXv = float(flow.get("VTX", 0.0) or 0.0)
     Uv   = float(flow.get("U", 0.0) or 0.0)
 
-    # 小ヘルパ
-    def _avg(ln):
-        xs = [float(scores.get(n, 0.0)) for n in (ln or [])]
-        return (sum(xs) / len(xs)) if xs else -1e9
+    # ===== ライン構成を最小化（自由化） =====
+    FR_line, VTX_line, U_line = [], [], []
 
-    def _line_of(target):
-        try:
-            t = int(target)
-        except Exception:
-            return []
-        for ln in lines:
-            if t in ln:
-                return ln[:]
-        return []
+    # ===== リスク分類 =====
+    def _risk_from_FRv(fr):
+        fr = float(fr or 0)
+        if fr >= 0.55: return "高"
+        if fr >= 0.25: return "中"
+        return "低"
 
-    # --- FR→危険度ラベル（3車ある日はちょっと緩める＋◎を通しやすく） ---
-    def _risk_from_FRv_local(fr, lines_local):
-        fr = 0.0 if fr is None else float(fr)
-        has_3line = any(len(g) >= 3 for g in (lines_local or []))
+    fr_risk = _risk_from_FRv(FRv)
 
-        if has_3line:
-            # 3車ラインがある日は“高”を出にくくする
-            if fr >= 0.55:
-                return "高"
-            if fr >= 0.25:
-                return "中"
-            return "低"
-        else:
-            # 3車がない日はこれまでに近いしきい値
-            if fr >= 0.45:
-                return "高"
-            if fr >= 0.20:
-                return "中"
-            return "低"
-
-    # ---------- ライン特定 ----------
-    star_id = marks.get('◎')
-    FR_line = _line_of(star_id) if isinstance(star_id, int) else []
-    if not FR_line:
-        cand = sorted(lines, key=_avg, reverse=True)
-        FR_line = cand[0] if cand else []
-
-    vtx_bid = str(flow.get("vtx_bid") or "")
-    VTX_line = []
-    for ln in lines:
-        if "".join(map(str, ln)) == vtx_bid:
-            VTX_line = ln[:]
-            break
-    if not VTX_line:
-        cand = sorted([ln for ln in lines if ln != FR_line], key=_avg, reverse=True)
-        VTX_line = cand[0] if cand else []
-
-    none_id = marks.get('無')
-    U_line = _line_of(none_id) if isinstance(none_id, int) else []
-    if (not U_line) or (U_line == FR_line) or (U_line == VTX_line):
-        singles = [ln for ln in lines if len(ln) == 1 and ln not in (FR_line, VTX_line)]
-        if singles:
-            U_line = singles[0]
-        else:
-            others = [ln for ln in lines if ln not in (FR_line, VTX_line)]
-            others.sort(key=_avg)  # 低スコア優先＝逆流寄り
-            U_line = others[0] if others else []
-
-    # 互いに別ラインガード
-    def _line_avg(ln): return _avg(ln) if ln else -1e9
-
-    if VTX_line:
-        cand = sorted([ln for ln in lines if ln not in (FR_line, VTX_line, U_line)],
-                      key=_line_avg, reverse=True)
-        if (VTX_line == FR_line) or (VTX_line == U_line):
-            VTX_line = cand[0] if cand else VTX_line
-
-    if U_line:
-        cand_low = sorted([ln for ln in lines if ln not in (FR_line, VTX_line, U_line)],
-                          key=_line_avg)
-        if (U_line == FR_line) or (U_line == VTX_line):
-            U_line = cand_low[0] if cand_low else U_line
-
-    if VTX_line == U_line:
-        cand = sorted(lines, key=_avg, reverse=True)
-        VTX_line = next((ln for ln in cand if ln not in (FR_line, U_line)), VTX_line)
-
-        # ---------- ここから今回の“◎をもう少し通す” ----------
-    # 3車の順流ラインがあって、VTXが0.60未満のときは “まず順流を見ろ” を最優先にする
-    force_fr_axis = (len(FR_line) >= 3 and VTXv < 0.60)
-
-    fr_risk = _risk_from_FRv_local(FRv, lines)
-    axis = None
-    MAX_FR_FOR_FORCE_STAR = 0.60  # FRがこれより上なら②は使わない
-
-    # 0) まず「3車＋VTX弱い」なら順流ラインから取る
-    if force_fr_axis and FR_line:
-        axis = max(FR_line, key=lambda x: float(scores.get(x, 0.0)))
-
-    # 1) FRが「低」なら◎ラインの中で一番スコア高いの
-    elif fr_risk == "低" and FR_line:
-        axis = max(FR_line, key=lambda x: float(scores.get(x, 0.0)))
-
-    # 2) FRが「中/高」でも、FRが0.60以下で◎がトップから3pt以内なら◎をそのまま軸
-    if axis is None and FRv <= MAX_FR_FOR_FORCE_STAR:
-        star_id = marks.get('◎')
-        if isinstance(star_id, int) and star_id in scores and all_nums:
-            top_score = max(float(scores.get(n, 0.0)) for n in all_nums)
-            my_score  = float(scores.get(star_id, 0.0))
-            if (top_score - my_score) <= 3.0:
-                axis = star_id
-
-    # 3) それでも決まらなかったら渦ラインのいちばん強いのに譲る
-    if axis is None and VTX_line:
-        axis = max(VTX_line, key=lambda x: float(scores.get(x, 0.0)))
-
-    # ---------- ガード ----------
-    if not isinstance(axis, int) or not all_nums:
-        return {
-            "FR_line": FR_line, "VTX_line": VTX_line, "U_line": U_line,
-            "FRv": FRv, "VTXv": VTXv, "Uv": Uv,
-            "trios": [], "note": "【買い目】出力なし"
-        }
-
-    # ---------- 相手4枠（強化ロジック） ----------
-    vtx_line_str = "".join(map(str, VTX_line)) if VTX_line else None
-    u_line_str   = "".join(map(str, U_line))   if U_line   else None
-    opps = select_tri_opponents_v2(
-        axis=axis,
-        lines_str=lines_str,
-        hens=scores,
-        vtx=VTXv,
-        u=Uv,
-        marks=marks,
-        shissoku_label=fr_risk,
-        vtx_line_str=vtx_line_str,
-        u_line_str=u_line_str,
-        n_opps=4
-    )
-
-    # ---------- 逆張り1枠（あなたが戻したやつ） ----------
-    has_3line = any(len(g) >= 3 for g in lines)
-    if (not has_3line) and (fr_risk == "高") and (VTX_LOWER <= VTXv <= VTX_UPPER) and (Uv < U_CAP):
-        try:
-            weak_line = min(lines, key=_avg)
-        except Exception:
-            weak_line = []
-        weak_cand = None
-        if weak_line:
-            weak_cand = max(weak_line, key=lambda x: scores.get(x, 0.0))
-
-        FRs, VTXs, Us = set(FR_line or []), set(VTX_line or []), set(U_line or [])
-        neutral_in_opps = [x for x in opps if (x not in FRs and x not in VTXs and x not in Us)]
-
-        if isinstance(weak_cand, int) and (weak_cand != axis) and (weak_cand in all_nums) and (weak_cand not in opps) and neutral_in_opps:
-            ok_drops = [x for x in neutral_in_opps if abs(scores.get(x, 0.0) - scores.get(weak_cand, 0.0)) <= HENS_DIFF_MAX]
-            if ok_drops:
-                drop = min(ok_drops, key=lambda x: scores.get(x, 0.0))
-                opps = [y for y in opps if y != drop] + [weak_cand]
-                seen = set()
-                opps = [x for x in opps if not (x in seen or seen.add(x))][:4]
-
-    # ---------- 三連複6点（軸-4-4） ----------
-    from itertools import combinations
-    chosen = []
-    if len(opps) >= 4:
-        for a, b in combinations(sorted(opps), 2):  # 4C2 = 6
-            tri = tuple(sorted([axis, a, b]))
-            if len(set(tri)) == 3 and all(x in all_nums for x in tri):
-                chosen.append(tri)
-    chosen = sorted(set(chosen))
-
-    # ---------- 三連複（補完）出力 ----------
+    # ===== 三連複（補完）出力 =====
     note_lines = ["【買い目】"]
     _flow_for_trio = {"FR": FRv}
     trio_text = trio_free_completion(scores, marks, fr_risk, _flow_for_trio)
     note_lines.append(f"三連複（補完）：{trio_text}")
 
-
-    
+    # triosは空リスト（互換用）
     return {
         "FR_line": FR_line,
         "VTX_line": VTX_line,
         "U_line": U_line,
-        "FRv": FRv, "VTXv": VTXv, "Uv": Uv,
-        "trios": chosen,
+        "FRv": FRv,
+        "VTXv": VTXv,
+        "Uv": Uv,
+        "trios": [],
         "note": "\n".join(note_lines),
     }
 
 
-
-# ---------- 出力ヘルパ ----------
-def _safe_flow(lines_str, marks, scores):
-    try:
-        fr = compute_flow_indicators(lines_str, marks, scores)
-        return fr if isinstance(fr, dict) else {}
-    except Exception:
-        return {}
-
-def _safe_generate(flow, lines_str, marks, scores):
-    try:
-        res = generate_tesla_bets(flow, lines_str, marks, scores)
-        return res if isinstance(res, dict) else {"note": "【買い目】出力なし"}
-    except Exception as e:
-        return {"note": f"⚠ generate_tesla_betsエラー: {type(e).__name__}: {e}"}
-
-def _decide_label(flow):
-    FRv  = float((flow or {}).get("FR", 0.0))
-    VTXv = float((flow or {}).get("VTX", 0.0))
-    Uv   = float((flow or {}).get("U", 0.0))
-    ken  = bool((flow or {}).get("ken", False))
-    FR_MIN, VTX_MIN, VTX_MAX, U_MIN = 0.00, 0.50, 0.75, 0.10
-    gate_main = (((FRv >= FR_MIN) or (VTXv >= 0.53) or (Uv >= 0.60))
-                 and (VTX_MIN <= VTXv <= VTX_MAX) and (Uv >= U_MIN))
-    return "推奨" if (gate_main and not ken) else "参考"
-
-def _infer_eval(flow):
-    FRv  = float((flow or {}).get("FR", 0.0))
-    VTXv = float((flow or {}).get("VTX", 0.0))
-    Uv   = float((flow or {}).get("U", 0.0))
-
-    # いちばん強いときだけ「優位」
-    # ・FRがかなり高い
-    # ・VTXが真ん中あたり（渦が効きすぎても効かなすぎても×）
-    # ・Uもそこそこある
-    if (FRv >= 0.40) and (0.54 <= VTXv <= 0.66) and (Uv >= 0.60):
-        return "優位"
-
-    # そこまでではないが形になってるときは「互角」
-    # FRは中くらい、VTXはおおむね許容、Uも少しある
-    if (FRv >= 0.20) and (0.50 <= VTXv <= 0.72) and (Uv >= 0.50):
-        return "互角"
-
-    # それ以外は「混戦」
-    return "混戦"
-
-
-def _fmt_rank_local(marks_dict: dict, used_ids: list) -> tuple[str, str]:
-    ids_set = set(used_ids or [])
-    marks_dict = marks_dict or {}
-    used_marks = set(marks_dict.values())
-    try:
-        no_mark_ids = [int(i) for i in ids_set if int(i) not in used_marks]
-    except Exception:
-        no_mark_ids = []
-    marks_str = ' '.join(f'{m}{marks_dict[m]}' for m in ['◎','〇','▲','△','×','α'] if m in marks_dict) or ""
-    no_str = ' を除く未指名：' + (' '.join(map(str, sorted(no_mark_ids))) if no_mark_ids else '—')
-    return marks_str, f"無{('—' if '無' in marks_dict else '')}{no_str}"
-
-def _fmt_hen_lines(ts_map: dict, ids) -> str:
-    ids = list(ids or [])
-    ts_map = ts_map or {}
-    lines = []
-    for n in ids:
-        v = ts_map.get(n, "—")
-        lines.append(f"{n}: {float(v):.1f}" if isinstance(v, (int, float)) else f"{n}: —")
-    return "\n".join(lines)
-
-def _fmt_nums(arr):
-    if isinstance(arr, list):
-        return "".join(str(x) for x in arr) if arr else "—"
-    return "—"
-
-# ---------- note_sections 準備・掃除 ----------
-if 'note_sections' not in globals() or not isinstance(note_sections, list):
-    note_sections = []
-
-def _kill_garbage(s: str) -> bool:
-    if not isinstance(s, str):
-        return False
-    t = s.strip()
-    return ("狙いたいレース" in t) or ("三連複フォーメーション：" in t)
-
-note_sections = [s for s in note_sections if not _kill_garbage(s)]
-
-# ---------- 二重出力ガード ----------
-def _t369_build_render_key(lines_str, marks, scores) -> str:
-    try:
-        venue   = str(globals().get("track") or globals().get("place") or "").strip()
-        race_no = str(globals().get("race_no") or "").strip()
-        line_inputs = globals().get("line_inputs", [])
-        payload = {
-            "venue": venue,
-            "race_no": race_no,
-            "lines_str": str(lines_str),
-            "line_inputs": [str(x) for x in (line_inputs or [])],
-            "marks": {str(k): int(v) for k, v in (marks or {}).items()},
-            "scores": {str(k): float((scores or {}).get(k, 0.0))
-                       for k in sorted((scores or {}).keys(), key=lambda x: int(x) if str(x).isdigit() else str(x))}
-        }
-        blob = json.dumps(payload, ensure_ascii=False, sort_keys=True)
-        return "t369:" + hashlib.md5(blob.encode("utf-8")).hexdigest()
-    except Exception:
-        import time, random
-        return f"t369:fallback:{time.time()}:{random.random()}"
-
 # ---------- 出力本体 ----------
 _render_key = _t369_build_render_key(lines_str, marks, scores)
 
-# 🔧 DEBUG：キャッシュ無効化（毎回再描画）
 def _t369_render_once(key: str) -> bool:
-    return True
+    return True  # 常に再描画
 
 if _t369_render_once(_render_key):
 
@@ -4371,15 +4088,12 @@ if _t369_render_once(_render_key):
         else:
             note_sections.append(f"スコア順（SBなし）　{' '.join(map(str, USED_IDS))}")
     except Exception:
-        USED_IDS = list(globals().get('USED_IDS', []))
-        note_sections.append(f"スコア順（SBなし）　{' '.join(map(str, USED_IDS))}")
+        note_sections.append("スコア順（SBなし）　—")
 
     try:
         result_marks = globals().get('result_marks', {})
         marks_str, no_str = _fmt_rank_local(result_marks, USED_IDS)
-        mline = f"{marks_str} {no_str}".strip()
-        if mline:
-            note_sections.append(mline)
+        note_sections.append(f"{marks_str} {no_str}")
     except Exception:
         pass
 
@@ -4391,71 +4105,40 @@ if _t369_render_once(_render_key):
     except Exception:
         note_sections.append("偏差値データなし\n")
 
-    _FR_line  = _bets.get("FR_line", _flow.get("FR_line"))
-    _VTX_line = _bets.get("VTX_line", _flow.get("VTX_line"))
-    _U_line   = _bets.get("U_line",  _flow.get("U_line"))
-    _FRv      = float(_bets.get("FRv",  _flow.get("FR", 0.0)) or 0.0)
-    _VTXv     = float(_bets.get("VTXv", _flow.get("VTX", 0.0)) or 0.0)
-    _Uv       = float(_bets.get("Uv",   _flow.get("U", 0.0)) or 0.0)
+    _FRv = float(_bets.get("FRv", 0.0))
+    _VTXv = float(_bets.get("VTXv", 0.0))
+    _Uv = float(_bets.get("Uv", 0.0))
 
-    # ここは新しい危険度（3車緩和）じゃなく、出力はいつもの文言でいい
     def _risk_out(fr):
-        if fr >= 0.55:
-            return "高"
-        if fr >= 0.25:
-            return "中"
+        if fr >= 0.55: return "高"
+        if fr >= 0.25: return "中"
         return "低"
 
-    if (_FR_line is not None) or (_VTX_line is not None) or (_U_line is not None):
-        note_sections.append(f"【順流】◎ライン {_fmt_nums(_FR_line)}：失速危険 {_risk_out(_FRv)}")
-        note_sections.append(f"【渦】候補ライン：{_fmt_nums(_VTX_line)}（VTX={_VTXv:.2f}）")
-        note_sections.append(f"【逆流】無ライン {_fmt_nums(_U_line)}：U={_Uv:.2f}（※判定基準内）")
-    else:
-        note_sections.append(_flow.get("note", "【流れ】出力なし"))
+    note_sections.append(f"【順流】◎ライン —：失速危険 {_risk_out(_FRv)}")
+    note_sections.append(f"【渦】候補ライン：—（VTX={_VTXv:.2f}）")
+    note_sections.append(f"【逆流】無ライン —：U={_Uv:.2f}（※判定基準内）")
 
-    # 🔧 デバッグ：買い目生成を可視化
-    note_sections.append("DBG: CALL generate_tesla_bets -> trio_free_completion")
+    # === 買い目：補完のみ ===
     note_sections.append(_bets.get("note", "【買い目】出力なし"))
-    note_sections.append("DBG: END generate_tesla_bets")
 
+    # === 診断 ===
     try:
-        dbg_lines = globals().get('_lines_list') or globals().get('lines_list') or '—'
-        dbg_marks = marks or '—'
-        try:
-            dbg_scores_keys = sorted((scores or {}).keys())
-        except Exception:
-            dbg_scores_keys = '—'
-
-        try:
-            _flow_diag_raw = compute_flow_indicators(lines_str, marks, scores)
-            _flow_diag = _flow_diag_raw if isinstance(_flow_diag_raw, dict) else {}
-        except Exception as e:
-            _flow_diag = {}
-            note_sections.append(f"⚠ compute_flow_indicators(診断)エラー: {type(e).__name__}: {e}")
-
-        note_sections.append(
-            "【Tesla369診断】"
-            f"\nlines_str={lines_str or '—'}"
-            f"\nlines_list={dbg_lines}"
-            f"\nmarks={dbg_marks}"
-            f"\nscores.keys={dbg_scores_keys}"
-            f"\nFR={_flow_diag.get('FR',0.0):.3f}  "
-            f"VTX={_flow_diag.get('VTX',0.0):.3f}  "
-            f"U={_flow_diag.get('U',0.0):.3f}"
-            f"\n※どれかが '—' なら入力が読めていません。"
-        )
-
+        _flow_diag = compute_flow_indicators(lines_str, marks, scores)
         _dbg = _flow_diag.get("dbg", {}) if isinstance(_flow_diag, dict) else {}
-        if isinstance(_dbg, dict) and _dbg:
+        note_sections.append(
+            f"【Tesla369診断】\nlines_str={lines_str or '—'}"
+            f"\nlines_list={globals().get('lines_list') or '—'}"
+            f"\nmarks={marks}\nFR={_flow_diag.get('FR',0.0):.3f}  "
+            f"VTX={_flow_diag.get('VTX',0.0):.3f}  U={_flow_diag.get('U',0.0):.3f}"
+        )
+        if _dbg:
             note_sections.append(
                 f"[FR内訳] blend_star={_dbg.get('blend_star',0.0):.3f} "
                 f"blend_none={_dbg.get('blend_none',0.0):.3f} "
                 f"sd={_dbg.get('sd',0.0):.3f} nu={_dbg.get('nu',0.0):.3f}"
             )
-    except Exception as _e:
-        note_sections.append(f"⚠ Tesla369診断エラー: {type(_e).__name__}: {str(_e)}")
-else:
-    pass
+    except Exception as e:
+        note_sections.append(f"⚠ Tesla369診断エラー: {type(e).__name__}: {e}")
 
 
 
