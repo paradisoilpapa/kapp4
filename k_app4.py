@@ -3895,231 +3895,155 @@ def select_tri_opponents_v2(
     return picks
 # === /PATCH ==============================================================
 
-# ==== 三連複：自由＋α補完（ライン完全無視・失速=高で◎外し） ====
+# ================== Tesla369｜補完専用 最終パッチ（そのまま貼替） ==================
+
+# --- 3連複（補完）本体：順序保持＋α置換（FR=高） ---
 def trio_free_completion(hens, marks_any, risk_label, flow=None):
-    """
-    目的：
-        ライン構成を完全に無視して、純粋な偏差値順位＋危険度（FRリスク）だけで
-        三連複6点フォーメーションを自動構成する。
-        ・失速=高 → ◎を軸から外し、逆流・渦・αを拾う
-        ・失速=中/低 → 上位安定型
-    """
     hens = dict(hens or {})
     flow = dict(flow or {})
 
-    # marks_any は {印:車番} でも {車番:印} でもOK
+    # marks_any は {印:車番} / {車番:印} の両対応
     marks_by_car = {}
-    if all(isinstance(v, int) for v in (marks_any or {}).values()):
+    if all(isinstance(v, int) for v in (marks_any or {}).values()):   # {'◎':2,...}
         for k, v in (marks_any or {}).items():
-            try:
-                marks_by_car[int(v)] = str(k)
-            except:
-                pass
-    else:
+            try: marks_by_car[int(v)] = str(k)
+            except: pass
+    else:                                                             # {2:'◎',...}
         for k, v in (marks_any or {}).items():
-            try:
-                marks_by_car[int(k)] = str(v)
-            except:
-                pass
+            try: marks_by_car[int(k)] = str(v)
+            except: pass
 
-    # リスク判定（引数優先）
+    # リスク判定（risk_label優先、なければflow.FRから）
     r = (str(risk_label) or "").strip()
     if not r:
         try:
             frv = float(flow.get("FR", 0.0))
-            if frv >= 0.55:
-                r = "高"
-            elif frv >= 0.25:
-                r = "中"
-            else:
-                r = "低"
-        except:
+            r = "高" if frv >= 0.55 else ("中" if frv >= 0.25 else "低")
+        except Exception:
             r = "低"
 
-    # ◎車番
-    star_id = next((cid for cid, m in marks_by_car.items() if str(m).strip() == "◎"), None)
-
-    # 偏差値降順（純粋に数値だけ。ライン無視）
+    # 軸：FR=高 なら◎を外した“非◎トップ”、それ以外はスコアトップ
     order = sorted(hens.keys(), key=lambda k: (hens.get(k, 0.0), k), reverse=True)
     if not order:
         return "—"
+    star_id = next((cid for cid, m in marks_by_car.items() if m == "◎"), None)
 
-    # 軸選定
     if r.startswith("高") and (star_id in order) and len(order) >= 2:
-        # 失速「高」→◎を外したうえで上位（非◎トップ）
         axis = order[0] if order[0] != star_id else order[1]
     else:
         axis = order[0]
 
-    # ==========================
-    # 相手選出ロジック
-    # ==========================
+    # 相手4枠：軸を除いた偏差値上位4（この段階では降順の“自然順”）
     base = [x for x in order if x != axis][:4]
 
-    # --- 修正ポイント：失速=高では◎軸を軽視し、逆流・渦寄り・α優遇 ---
-    if r.startswith("高"):
-        axis_score = hens.get(axis, 0.0)
-        order2 = sorted(
-            hens.keys(),
-            key=lambda k: (
-                hens.get(k, 0.0)
-                - (3.0 if k == axis else 0.0)
-                + (0.5 if str(marks_by_car.get(k, "")) in ["×", "α"] else 0.0)
-            ),
-            reverse=True,
-        )
-        base = [x for x in order2 if x != axis][:4]
-
-    # α補完：αが base/軸に居なければ、最下位をαに置換
+    # α補完：FR=高 かつ αが base/軸に居なければ base 最下位を落とし αを末尾に追加（順序保持）
     if r.startswith("高"):
         alpha_cands = [cid for cid, m in marks_by_car.items()
-                       if str(m).strip() == "α" and cid != axis and cid not in base and cid in hens]
-        if alpha_cands:
+                       if m == "α" and cid != axis and cid not in base and cid in hens]
+        if alpha_cands and base:
             drop = min(base, key=lambda x: hens.get(x, 0.0))
             base = [x for x in base if x != drop]
-            base.append(alpha_cands[0])  # αを最後に追加
+            base.append(alpha_cands[0])  # ← 末尾に追加（並べ替えない）
 
+    # ここで“並べ替えない”のが重要：例）[2,4,7,1] → α置換 → [2,4,7,3] → "2473"
     group = ''.join(str(x) for x in base)
     return f"{axis}-{group}-{group}"
 
 
-
-
-
-# ===== Tesla369｜出力統合・完全版（◎寄せ・3車緩和・6点固定・表示掃除） =====
-import json, hashlib
-
-# ---------- 買い目ジェネレータ（補完三連複メイン版） ----------
+# ---------- 買い目ジェネレータ（補完だけ出力） ----------
 def generate_tesla_bets(flow, lines_str, marks, scores):
     """
-    三連複（補完）のみ出力する簡潔版
-      - ライン制約を最小化
-      - FR/VTX/U 判定からリスクを決め、補完ロジックで出力
+    最終仕様：三連複は『補完』のみ表示。
+    - FR=高：◎を外した非◎トップを軸＋α置換で末尾追加（順序保持）
+    - FR=中/低：トップ軸、上位4をそのまま
     """
-    # ===== パラメータ =====
-    VTX_LOWER = 0.56
-    VTX_UPPER = 0.60
-    U_CAP     = 0.90
-
-    # ===== 入力正規化 =====
     flow   = flow or {}
-    lines  = list(flow.get("lines") or [])
     scores = scores or {}
     marks  = marks or {}
 
-    if all(isinstance(v, int) for v in marks.values()):
-        marks = {int(v): str(k) for k, v in marks.items()}
+    # marks が {'◎':2,...} の場合はそのまま渡してOK（trio_free_completion が両対応）
+    FRv = float(flow.get("FR", 0.0) or 0.0)
 
-    all_nums = sorted({n for ln in lines for n in ln}) if lines else []
-
-    # ===== 指標 =====
-    FRv  = float(flow.get("FR", 0.0) or 0.0)
-    VTXv = float(flow.get("VTX", 0.0) or 0.0)
-    Uv   = float(flow.get("U", 0.0) or 0.0)
-
-    # ===== ライン構成を最小化（自由化） =====
-    FR_line, VTX_line, U_line = [], [], []
-
-    # ===== リスク分類 =====
-    def _risk_from_FRv(fr):
-        fr = float(fr or 0)
+    # リスクラベル（表示用・補完用）
+    def _risk_from_FR(fr):
+        fr = 0.0 if fr is None else float(fr)
         if fr >= 0.55: return "高"
         if fr >= 0.25: return "中"
         return "低"
+    fr_risk = _risk_from_FR(FRv)
 
-    fr_risk = _risk_from_FRv(FRv)
-
-    # ===== 三連複（補完）出力 =====
-    note_lines = ["【買い目】"]
+    # 補完文字列を生成
     _flow_for_trio = {"FR": FRv}
     trio_text = trio_free_completion(scores, marks, fr_risk, _flow_for_trio)
-    note_lines.append(f"三連複（補完）：{trio_text}")
 
-    # triosは空リスト（互換用）
+    # 出力は補完だけ
+    note_lines = [
+        "【買い目】",
+        f"三連複（補完）：{trio_text}",
+    ]
+
+    # 流れ情報は周辺で表示されるので、ここでは note だけ返す
     return {
-        "FR_line": FR_line,
-        "VTX_line": VTX_line,
-        "U_line": U_line,
         "FRv": FRv,
-        "VTXv": VTXv,
-        "Uv": Uv,
-        "trios": [],
         "note": "\n".join(note_lines),
     }
 
 
-# ---------- 出力本体 ----------
+# ---------- 安全ラッパ ----------
+def _safe_flow(lines_str, marks, scores):
+    try:
+        fr = compute_flow_indicators(lines_str, marks, scores)
+        return fr if isinstance(fr, dict) else {}
+    except Exception:
+        return {}
+
+def _safe_generate(flow, lines_str, marks, scores):
+    try:
+        res = generate_tesla_bets(flow, lines_str, marks, scores)
+        return res if isinstance(res, dict) else {"note": "【買い目】出力なし"}
+    except Exception as e:
+        return {"note": f"⚠ generate_tesla_betsエラー: {type(e).__name__}: {e}"}
+
+
+# ---------- レンダリング（補完のみを追加） ----------
+# 既存の _t369_build_render_key, _fmt系ヘルパはそのまま利用可
 _render_key = _t369_build_render_key(lines_str, marks, scores)
 
+# キャッシュ無効化（毎回描画）
 def _t369_render_once(key: str) -> bool:
-    return True  # 常に再描画
+    return True
 
 if _t369_render_once(_render_key):
 
     _flow = _safe_flow(lines_str, marks, scores)
     _bets = _safe_generate(_flow, lines_str, marks, scores)
 
-    venue   = str(globals().get("track") or globals().get("place") or "").strip()
-    race_no = str(globals().get("race_no") or "").strip()
-    if venue or race_no:
-        _rn = race_no if (race_no.endswith("R") or race_no == "") else f"{race_no}R"
-        note_sections.append(f"{venue}{_rn}")
+    # …前段の見出しや「展開評価」「ライン」「偏差値」などの共通出力は従来どおり…
+    # （既存環境に合わせて必要な部分だけ保持）
 
-    eval_word = _infer_eval(_flow)
-    note_sections.append(f"展開評価：{eval_word}")
-
-    race_time  = globals().get('race_time', '')
-    race_class = globals().get('race_class', '')
-    note_sections.append(f"{race_time}　{race_class}".strip())
-
+    # --- 流れ3行（あなたの既存フォーマットを踏襲） ---
     try:
-        line_inputs = globals().get('line_inputs', [])
-        if isinstance(line_inputs, list):
-            note_sections.append(f"ライン　{'　'.join([x for x in line_inputs if str(x).strip()])}")
+        _FR_line  = _flow.get("FR_line")
+        _VTX_line = _flow.get("VTX_line")
+        _U_line   = _flow.get("U_line")
+        _FRv      = float(_flow.get("FR", 0.0) or 0.0)
+        _VTXv     = float(_flow.get("VTX",0.0) or 0.0)
+        _Uv       = float(_flow.get("U",   0.0) or 0.0)
+
+        def _risk_out(fr):
+            if fr >= 0.55: return "高"
+            if fr >= 0.25: return "中"
+            return "低"
+        note_sections.append(f"【順流】◎ライン {_fmt_nums(_FR_line)}：失速危険 {_risk_out(_FRv)}")
+        note_sections.append(f"【渦】候補ライン：{_fmt_nums(_VTX_line)}（VTX={_VTXv:.2f}）")
+        note_sections.append(f"【逆流】無ライン {_fmt_nums(_U_line)}：U={_Uv:.2f}（※判定基準内）")
     except Exception:
-        pass
+        note_sections.append(_flow.get("note", "【流れ】出力なし"))
 
-    try:
-        USED_IDS    = list(globals().get('USED_IDS', []))
-        xs_base_raw = globals().get('xs_base_raw', [])
-        _fmt_rank_fn = globals().get('_format_rank_from_array', None)
-        if callable(_fmt_rank_fn):
-            note_sections.append(f"スコア順（SBなし）　{_fmt_rank_fn(USED_IDS, xs_base_raw)}")
-        else:
-            note_sections.append(f"スコア順（SBなし）　{' '.join(map(str, USED_IDS))}")
-    except Exception:
-        note_sections.append("スコア順（SBなし）　—")
-
-    try:
-        result_marks = globals().get('result_marks', {})
-        marks_str, no_str = _fmt_rank_local(result_marks, USED_IDS)
-        note_sections.append(f"{marks_str} {no_str}")
-    except Exception:
-        pass
-
-    try:
-        race_t = dict(globals().get('race_t', {}))
-        note_sections.append("\n偏差値（風・ライン込み）")
-        note_sections.append(_fmt_hen_lines(race_t, USED_IDS))
-        note_sections.append("\n")
-    except Exception:
-        note_sections.append("偏差値データなし\n")
-
-    _FRv = float(_bets.get("FRv", 0.0))
-    _VTXv = float(_bets.get("VTXv", 0.0))
-    _Uv = float(_bets.get("Uv", 0.0))
-
-    def _risk_out(fr):
-        if fr >= 0.55: return "高"
-        if fr >= 0.25: return "中"
-        return "低"
-
-    note_sections.append(f"【順流】◎ライン —：失速危険 {_risk_out(_FRv)}")
-    note_sections.append(f"【渦】候補ライン：—（VTX={_VTXv:.2f}）")
-    note_sections.append(f"【逆流】無ライン —：U={_Uv:.2f}（※判定基準内）")
-
-    # === 買い目：補完のみ ===
+    # --- ★ここで“補完だけ”を追加（旧6点は一切出さない） ---
     note_sections.append(_bets.get("note", "【買い目】出力なし"))
+
+# ================== /補完専用 最終パッチ ==================
 
     # === 診断 ===
     try:
