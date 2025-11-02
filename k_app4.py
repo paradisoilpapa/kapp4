@@ -4138,10 +4138,11 @@ def generate_tesla_bets(flow, lines_str, marks, scores):
                 chosen.append(tri)
     chosen = sorted(set(chosen))
 
+    # ---------- 三連複（補完）出力 ----------
     note_lines = ["【買い目】"]
-risk_label = fr_risk  # 直前で求めた「高/中/低」
-trio_text = trio_free_completion(scores, marks, risk_label)
-note_lines.append(f"三連複（補完）：{trio_text}")
+    risk_label = fr_risk  # 直前で求めた「高/中/低」
+    trio_text = trio_free_completion(scores, marks, risk_label)
+    note_lines.append(f"三連複（補完）：{trio_text}")
 
     return {
         "FR_line": FR_line,
@@ -4151,6 +4152,7 @@ note_lines.append(f"三連複（補完）：{trio_text}")
         "trios": chosen,
         "note": "\n".join(note_lines),
     }
+
 
 
 # ---------- 出力ヘルパ ----------
