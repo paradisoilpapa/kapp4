@@ -3895,7 +3895,7 @@ def select_tri_opponents_v2(
     return picks
 # === /PATCH ==============================================================
 
-# ==== 三連複：失速高→逆流・渦優先補完 ====
+# ==== 三連複：失速高→逆流・渦補完（5-2473-2473再現） ====
 def trio_free_completion(hens, marks_by_car, risk_label, flow=None):
     hens = dict(hens or {})
     marks_by_car = dict(marks_by_car or {})
@@ -3922,7 +3922,7 @@ def trio_free_completion(hens, marks_by_car, risk_label, flow=None):
 
     # --- 軸決定 ---
     if r.startswith("高"):
-        # 渦または逆流ライン内の最高偏差値車を軸に
+        # 渦・逆流ライン上の最高偏差値車
         cand = []
         for g in (VTX_line, U_line):
             for x in (g or []):
@@ -3931,29 +3931,42 @@ def trio_free_completion(hens, marks_by_car, risk_label, flow=None):
         if cand:
             axis = max(cand, key=lambda x: hens.get(x, 0.0))
         else:
-            # 渦・逆流が空なら◎以外の偏差値上位
             non_star = [x for x in order if x != star_id]
             axis = non_star[0] if non_star else order[0]
     else:
-        # 通常：偏差値トップ
         axis = order[0]
 
-    # --- 相手選定 ---
-    # 偏差値上位（軸を除く）
-    base = [x for x in order if x != axis][:3]
+    # --- 相手選定（基本4枠） ---
+    base = [x for x in order if x != axis][:4]
 
-    # 逆流補完（Uライン代表を1枠追加）
-    extra = []
-    for g in (U_line,):
-        for x in (g or []):
-            if x not in base and x != axis and x in hens:
-                extra.append(x)
-    if extra:
-        base.append(max(extra, key=lambda x: hens.get(x, 0.0)))
+    # --- 失速「高」補完：逆流or渦ラインの代表を追加 ---
+    if r.startswith("高"):
+        pool = []
+        for g in (U_line, VTX_line):
+            for x in (g or []):
+                if x not in base and x != axis and x in hens:
+                    pool.append(x)
 
-    # 整形出力
+        # α印を優先、次に偏差値
+        def mark_prio(x):
+            m = str(marks_by_car.get(x, "")).strip()
+            return 2 if m in ("α", "無") else (1 if m in ("×", "") else 0)
+
+        pool = sorted(set(pool), key=lambda x: (mark_prio(x), hens.get(x, 0.0)), reverse=True)
+
+        # 追加（被りなしで1枠加える）
+        for pick in pool:
+            if pick not in base:
+                base.append(pick)
+                break
+
+    # 上位5枠から4枠に制限（保険）
+    base = sorted(base, key=lambda x: hens.get(x, 0.0), reverse=True)[:4]
+
+    # 出力整形
     group = ''.join(str(x) for x in sorted(base))
     return f"{axis}-{group}-{group}"
+
 
 
 
