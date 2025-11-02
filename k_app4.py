@@ -4330,24 +4330,13 @@ def _t369_build_render_key(lines_str, marks, scores) -> str:
         import time, random
         return f"t369:fallback:{time.time()}:{random.random()}"
 
-def _t369_render_once(key: str) -> bool:
-    store_name = "_t369_done_keys_fallback"
-    store = globals().get(store_name)
-    if not isinstance(store, set):
-        store = set()
-        globals()[store_name] = store
-    if key in store:
-        return False
-    store.add(key)
-    return True
-
-# ---------- 環境取得 ----------
-lines_str = globals().get("lines_str", lines_str)
-marks     = globals().get("marks", marks)
-scores    = globals().get("scores", scores)
-
 # ---------- 出力本体 ----------
 _render_key = _t369_build_render_key(lines_str, marks, scores)
+
+# 🔧 DEBUG：キャッシュ無効化（毎回再描画）
+def _t369_render_once(key: str) -> bool:
+    return True
+
 if _t369_render_once(_render_key):
 
     _flow = _safe_flow(lines_str, marks, scores)
@@ -4424,7 +4413,10 @@ if _t369_render_once(_render_key):
     else:
         note_sections.append(_flow.get("note", "【流れ】出力なし"))
 
+    # 🔧 デバッグ：買い目生成を可視化
+    note_sections.append("DBG: CALL generate_tesla_bets -> trio_free_completion")
     note_sections.append(_bets.get("note", "【買い目】出力なし"))
+    note_sections.append("DBG: END generate_tesla_bets")
 
     try:
         dbg_lines = globals().get('_lines_list') or globals().get('lines_list') or '—'
@@ -4465,7 +4457,6 @@ if _t369_render_once(_render_key):
 else:
     pass
 
-# ===== /Tesla369｜出力統合・完全版 =====
 
 
 
