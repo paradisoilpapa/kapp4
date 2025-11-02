@@ -3895,53 +3895,65 @@ def select_tri_opponents_v2(
     return picks
 # === /PATCH ==============================================================
 
-# ==== 三連複：自由組み＋補完（逆流対応版） ====
+# ==== 三連複：失速高→逆流・渦優先補完 ====
 def trio_free_completion(hens, marks_by_car, risk_label, flow=None):
     hens = dict(hens or {})
     marks_by_car = dict(marks_by_car or {})
+    flow = flow or {}
+    FR_line = flow.get("FR_line") or []
+    VTX_line = flow.get("VTX_line") or []
+    U_line   = flow.get("U_line")   or []
+
+    # 偏差値降順
     order = sorted(hens.keys(), key=lambda k: (hens.get(k, 0.0), k), reverse=True)
     if not order:
         return "—"
 
+    # ◎特定
+    star_id = None
+    for k, v in marks_by_car.items():
+        if str(v).strip() == "◎":
+            star_id = int(k)
+            break
+    if star_id is None and "◎" in marks_by_car:
+        star_id = int(marks_by_car["◎"])
+
     r = str(risk_label or "").strip()
-    flow = flow or {}
-    FR_line = flow.get("FR_line") or []
-    VTX_line = flow.get("VTX_line") or []
-    U_line = flow.get("U_line") or []
 
     # --- 軸決定 ---
     if r.startswith("高"):
-        # 失速高：順流を外し、逆流・渦側を軸候補に
+        # 渦または逆流ライン内の最高偏差値車を軸に
         cand = []
-        for g in [U_line, VTX_line]:
-            if g:
-                cand += g
-        cand = [x for x in cand if x in hens]
+        for g in (VTX_line, U_line):
+            for x in (g or []):
+                if x in hens:
+                    cand.append(x)
         if cand:
             axis = max(cand, key=lambda x: hens.get(x, 0.0))
         else:
-            axis = order[1] if len(order) > 1 else order[0]
+            # 渦・逆流が空なら◎以外の偏差値上位
+            non_star = [x for x in order if x != star_id]
+            axis = non_star[0] if non_star else order[0]
     else:
-        # 通常：単純に偏差値トップ
+        # 通常：偏差値トップ
         axis = order[0]
 
-    # --- 相手選定（上位＋逆流補完） ---
-    base = [x for x in order if x != axis][:4]
+    # --- 相手選定 ---
+    # 偏差値上位（軸を除く）
+    base = [x for x in order if x != axis][:3]
 
-    # 逆流補完（失速高のみ）
-    if r.startswith("高"):
-        extra = []
-        for g in [U_line, VTX_line]:
-            for x in (g or []):
-                if x not in base and x != axis and x in hens:
-                    extra.append(x)
-        if extra:
-            for x in extra[:2]:
-                if x not in base:
-                    base[-1] = x  # 1〜2枠差し替え
+    # 逆流補完（Uライン代表を1枠追加）
+    extra = []
+    for g in (U_line,):
+        for x in (g or []):
+            if x not in base and x != axis and x in hens:
+                extra.append(x)
+    if extra:
+        base.append(max(extra, key=lambda x: hens.get(x, 0.0)))
 
-    opps_sorted = ''.join(str(x) for x in sorted(base))
-    return f"{axis}-{opps_sorted}-{opps_sorted}"
+    # 整形出力
+    group = ''.join(str(x) for x in sorted(base))
+    return f"{axis}-{group}-{group}"
 
 
 
