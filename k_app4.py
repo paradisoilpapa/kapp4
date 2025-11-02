@@ -3992,6 +3992,11 @@ def generate_tesla_bets(flow, lines_str, marks, scores):
     scores = scores or {}
     marks  = marks or {}
 
+    # marks が {'◎':2, ...} の場合は反転して渡す
+    if all(isinstance(v, int) for v in marks.values()):
+        marks = {int(v): str(k) for k, v in marks.items()}
+
+
     # 参加全車番
     all_nums = sorted({n for ln in lines for n in ln}) if lines else []
 
@@ -4172,8 +4177,7 @@ def generate_tesla_bets(flow, lines_str, marks, scores):
     _flow_for_trio = {"FR": FRv}  # FRだけで十分（高/中/低の復元用）
     trio_text = trio_free_completion(scores, marks, fr_risk, _flow_for_trio)
     note_lines.append(f"三連複（補完）：{trio_text}")
-    ")
-
+    
     return {
         "FR_line": FR_line,
         "VTX_line": VTX_line,
