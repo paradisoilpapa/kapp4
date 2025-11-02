@@ -4189,6 +4189,71 @@ note_sections.append(_bets.get("note", "【買い目】出力なし"))
 
 # ===================== /T369｜FREE-ONLY 完全置換ブロック =====================
 
+    _FR_line  = _bets.get("FR_line", _flow.get("FR_line"))
+    _VTX_line = _bets.get("VTX_line", _flow.get("VTX_line"))
+    _U_line   = _bets.get("U_line",  _flow.get("U_line"))
+    _FRv      = float(_bets.get("FRv",  _flow.get("FR", 0.0)) or 0.0)
+    _VTXv     = float(_bets.get("VTXv", _flow.get("VTX", 0.0)) or 0.0)
+    _Uv       = float(_bets.get("Uv",   _flow.get("U", 0.0)) or 0.0)
+
+    # ここは新しい危険度（3車緩和）じゃなく、出力はいつもの文言でいい
+    def _risk_out(fr):
+        if fr >= 0.55:
+            return "高"
+        if fr >= 0.25:
+            return "中"
+        return "低"
+
+    if (_FR_line is not None) or (_VTX_line is not None) or (_U_line is not None):
+        note_sections.append(f"【順流】◎ライン {_fmt_nums(_FR_line)}：失速危険 {_risk_out(_FRv)}")
+        note_sections.append(f"【渦】候補ライン：{_fmt_nums(_VTX_line)}（VTX={_VTXv:.2f}）")
+        note_sections.append(f"【逆流】無ライン {_fmt_nums(_U_line)}：U={_Uv:.2f}（※判定基準内）")
+    else:
+        note_sections.append(_flow.get("note", "【流れ】出力なし"))
+
+    note_sections.append(_bets.get("note", "【買い目】出力なし"))
+
+    try:
+        dbg_lines = globals().get('_lines_list') or globals().get('lines_list') or '—'
+        dbg_marks = marks or '—'
+        try:
+            dbg_scores_keys = sorted((scores or {}).keys())
+        except Exception:
+            dbg_scores_keys = '—'
+
+        try:
+            _flow_diag_raw = compute_flow_indicators(lines_str, marks, scores)
+            _flow_diag = _flow_diag_raw if isinstance(_flow_diag_raw, dict) else {}
+        except Exception as e:
+            _flow_diag = {}
+            note_sections.append(f"⚠ compute_flow_indicators(診断)エラー: {type(e).__name__}: {e}")
+
+        note_sections.append(
+            "【Tesla369診断】"
+            f"\nlines_str={lines_str or '—'}"
+            f"\nlines_list={dbg_lines}"
+            f"\nmarks={dbg_marks}"
+            f"\nscores.keys={dbg_scores_keys}"
+            f"\nFR={_flow_diag.get('FR',0.0):.3f}  "
+            f"VTX={_flow_diag.get('VTX',0.0):.3f}  "
+            f"U={_flow_diag.get('U',0.0):.3f}"
+            f"\n※どれかが '—' なら入力が読めていません。"
+        )
+
+        _dbg = _flow_diag.get("dbg", {}) if isinstance(_flow_diag, dict) else {}
+        if isinstance(_dbg, dict) and _dbg:
+            note_sections.append(
+                f"[FR内訳] blend_star={_dbg.get('blend_star',0.0):.3f} "
+                f"blend_none={_dbg.get('blend_none',0.0):.3f} "
+                f"sd={_dbg.get('sd',0.0):.3f} nu={_dbg.get('nu',0.0):.3f}"
+            )
+    except Exception as _e:
+        note_sections.append(f"⚠ Tesla369診断エラー: {type(_e).__name__}: {str(_e)}")
+else:
+    pass
+
+# ===== /Tesla369｜出力統合・完全版 =====
+
 # =========================
 note_text = "\n".join(note_sections)
 st.markdown("### 📋 note用（コピーエリア）")
