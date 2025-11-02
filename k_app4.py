@@ -3896,131 +3896,151 @@ def select_tri_opponents_v2(
 # === /PATCH ==============================================================
 
 # ================== Tesla369｜補完専用 最終パッチ（そのまま貼替） ==================
+# ===== 逆流補完型｜三連複（補完）だけ出力・ライン影響ゼロ =====
+# 貼り替え先：
+# - trio_free_completion をこの版で上書き
+# - generate_tesla_bets もこの版で上書き（triosは使わない）
 
-# ================== Tesla369｜三連複（補完）固定パターン版 ==================
+from typing import Dict, Any
 
-# ================== Tesla369｜三連複（補完）固定パターン版 ==================
-
-def trio_free_completion(hens, marks_any, flow=None):
+def _t369_norm_marks(marks_any: Dict[Any, Any]) -> Dict[int, str]:
     """
-    三連複補完：常に「◎（or〇）軸 + 偏差値上位4 + α補完（順序保持）」
-    FRリスクなどの条件は考慮しない固定パターン。
-    出力例：5-2473-2473
+    marks を {車番:int -> 印:str} に正規化する。
+    例:
+      {'◎': 2, '〇':5, ...} -> {2:'◎', 5:'〇', ...}
+      {2:'◎', 5:'〇', ...}  -> {2:'◎', 5:'〇', ...}
     """
-    hens = dict(hens or {})
-    flow = dict(flow or {})
-
-    # marks_any は {印:車番} / {車番:印} どちらでも可
-    marks_by_car = {}
-    if all(isinstance(v, int) for v in (marks_any or {}).values()):   # {'◎':2,...}
+    marks_any = dict(marks_any or {})
+    if not marks_any:
+        return {}
+    # すべて値が int なら {印:車番} と判断して反転
+    if all(isinstance(v, int) for v in marks_any.values()):
+        out = {}
         for k, v in marks_any.items():
             try:
-                marks_by_car[int(v)] = str(k)
-            except: pass
-    else:                                                             # {2:'◎',...}
-        for k, v in marks_any.items():
-            try:
-                marks_by_car[int(k)] = str(v)
-            except: pass
+                out[int(v)] = str(k)
+            except Exception:
+                pass
+        return out
+    # それ以外は {車番:印} とみなす
+    out = {}
+    for k, v in marks_any.items():
+        try:
+            out[int(k)] = str(v)
+        except Exception:
+            pass
+    return out
 
-    # 軸（◎→〇→スコアトップ）
-    star_id   = next((cid for cid, m in marks_by_car.items() if m == "◎"), None)
-    circle_id = next((cid for cid, m in marks_by_car.items() if m == "〇"), None)
 
-    if star_id is not None:
-        axis = star_id
-    elif circle_id is not None:
-        axis = circle_id
-    else:
-        order = sorted(hens.keys(), key=lambda k: (hens.get(k, 0.0), k), reverse=True)
-        axis = order[0] if order else None
+def trio_free_completion(scores: Dict[int, float],
+                         marks_any: Dict[Any, Any],
+                         _ignored_risk_label: str = "",
+                         _ignored_flow: Dict[str, float] = None) -> str:
+    """
+    ★ 逆流補完型（流れ崩壊固定・ライン完全無視）
+    - 軸：常に「非◎の偏差値トップ」。◎が無い時だけ純粋トップ。
+    - 相手4枠：軸を除く偏差値上位4。
+    - α補完：αが軸/相手に居なければ、相手4枠の“最下位”をαで置換し、αは末尾へ（順序保持）。
+    - 出力のみ生成：「<軸>-<相手4>-<相手4>」の固定。
+    """
+    hens = {int(k): float(v) for k, v in (scores or {}).items() if str(k).isdigit()}
 
-    if axis is None:
+    # 入力が空の場合の保険
+    if not hens:
         return "—"
 
-    # 相手4枠：軸を除いた偏差値上位4（順序保持）
-    order = sorted(hens.keys(), key=lambda k: (hens.get(k, 0.0), k), reverse=True)
-    base = [x for x in order if x != axis][:4]
+    marks = _t369_norm_marks(marks_any)
+    # 偏差値（=hens）降順の自然順位
+    natural_order = sorted(hens.keys(), key=lambda k: (hens[k], k), reverse=True)
 
-    # α補完：αが軸/baseに居なければ末尾に追加（最下位を落とす）
-    alpha_cands = [cid for cid, m in marks_by_car.items()
-                   if m == "α" and cid not in base and cid != axis and cid in hens]
-    if alpha_cands and base:
-        drop = min(base, key=lambda x: hens.get(x, 0.0))
-        base = [x for x in base if x != drop]
-        base.append(alpha_cands[0])  # 順序は変えない
+    star_id = next((cid for cid, m in marks.items() if str(m).strip() == "◎"), None)
 
-    # 出力整形
+    # 1) 軸：非◎トップ（◎が居れば除外。居なければトップ）
+    axis = None
+    if isinstance(star_id, int):
+        for n in natural_order:
+            if n != star_id:
+                axis = n
+                break
+    if axis is None:
+        axis = natural_order[0]
+
+    # 2) 相手4枠：軸を除く自然順位上位4
+    base = [n for n in natural_order if n != axis][:4]
+
+    # 3) α補完：αがいない場合のみ、最下位をαに置換（αは末尾に挿入／順序保持）
+    alpha_id = next((cid for cid, m in marks.items() if str(m).strip() == "α"), None)
+    if isinstance(alpha_id, int) and (alpha_id in hens):
+        if alpha_id != axis and alpha_id not in base:
+            if base:
+                # 最下位＝hens最小を落として α を末尾へ
+                drop = min(base, key=lambda x: hens.get(x, 0.0))
+                base = [x for x in base if x != drop]
+                base.append(alpha_id)
+            else:
+                # base が空（理論上ほぼ無い）なら α を入れて埋める
+                base = [alpha_id]
+
+    # 4) 出力（相手4は“並びを崩さず”連結。ソートしない）
     group = ''.join(str(x) for x in base)
     return f"{axis}-{group}-{group}"
 
 
-# ---------- 買い目ジェネレータ（補完だけ出力） ----------
-def generate_tesla_bets(flow, lines_str, marks, scores):
+# ---------- 買い目ジェネレータ（補完のみ出力・ラインは表示用） ----------
+def generate_tesla_bets(flow: Dict[str, Any],
+                        lines_str: str,
+                        marks_any: Dict[Any, Any],
+                        scores: Dict[int, float]) -> Dict[str, Any]:
     """
-    常時このパターンで三連複補完を出力。
-    例：三連複（補完）：5-2473-2473
+    表示用に FR/VTX/U の行は残すが、選出は trio_free_completion のみで行う。
+    trios は使わない（空にしておく）。
     """
-    scores = scores or {}
-    marks  = marks or {}
-    flow   = flow or {}
+    flow   = dict(flow or {})
+    scores = {int(k): float(v) for k, v in (scores or {}).items() if str(k).isdigit()}
+    marks  = _t369_norm_marks(marks_any)
 
-    trio_text = trio_free_completion(scores, marks, flow)
-    note_lines = ["【買い目】", f"三連複（補完）：{trio_text}"]
+    # 表示用にだけ FR/VTX/U を拾う（選出には使わない）
+    FRv  = float(flow.get("FR", 0.0) or 0.0)
+    VTXv = float(flow.get("VTX", 0.0) or 0.0)
+    Uv   = float(flow.get("U", 0.0) or 0.0)
+
+    # 可能なら lines も表示用に展開（なければ空）
+    lines = list(flow.get("lines") or [])
+    def _avg(ln):
+        xs = [scores.get(n, 0.0) for n in (ln or [])]
+        return (sum(xs) / len(xs)) if xs else -1e9
+
+    # ◎ライン / 渦候補 / 無ライン（“表示用のみ”。重なってもよい）
+    star_id = next((cid for cid, m in marks.items() if m == "◎"), None)
+    FR_line = next((ln for ln in lines if isinstance(star_id, int) and star_id in ln), [])
+    # vtx_bid が来ていれば拾う。無ければ平均高い別ライン
+    vtx_bid = str(flow.get("vtx_bid") or "")
+    VTX_line = next((ln for ln in lines if "".join(map(str, ln)) == vtx_bid), [])
+    if not VTX_line:
+        VTX_line = next((ln for ln in sorted([g for g in lines if g != FR_line], key=_avg, reverse=True)), [])
+
+    none_id = next((cid for cid, m in marks.items() if m == "無"), None)
+    U_line  = next((ln for ln in lines if isinstance(none_id, int) and none_id in ln), [])
+    if not U_line:
+        # 表示のために“平均が低い側”をひとつ
+        remain = [g for g in lines if g not in (FR_line, VTX_line)]
+        remain.sort(key=_avg)
+        U_line = remain[0] if remain else []
+
+    # ★ 補完だけ出力
+    note_lines = ["【買い目】"]
+    trio_text = trio_free_completion(scores, marks, "", {})
+    note_lines.append(f"三連複（補完）：{trio_text}")
 
     return {
-        "note": "\n".join(note_lines)
+        "FR_line": FR_line,
+        "VTX_line": VTX_line,
+        "U_line": U_line,
+        "FRv": FRv, "VTXv": VTXv, "Uv": Uv,
+        "trios": [],                     # 使わない（常に空）
+        "note": "\n".join(note_lines),   # ← ここに補完だけ
     }
 
-
-# ---------- 安全ラッパ ----------
-def _safe_flow(lines_str, marks, scores):
-    try:
-        fr = compute_flow_indicators(lines_str, marks, scores)
-        return fr if isinstance(fr, dict) else {}
-    except Exception:
-        return {}
-
-def _safe_generate(flow, lines_str, marks, scores):
-    try:
-        res = generate_tesla_bets(flow, lines_str, marks, scores)
-        return res if isinstance(res, dict) else {"note": "【買い目】出力なし"}
-    except Exception as e:
-        return {"note": f"⚠ generate_tesla_betsエラー: {type(e).__name__}: {e}"}
-
-
-# ---------- 出力統合 ----------
-_render_key = _t369_build_render_key(lines_str, marks, scores)
-
-def _t369_render_once(key: str) -> bool:
-    return True  # 毎回再描画
-
-if _t369_render_once(_render_key):
-
-    _flow = _safe_flow(lines_str, marks, scores)
-    _bets = _safe_generate(_flow, lines_str, marks, scores)
-
-    # --- 流れ3行はそのまま保持 ---
-    try:
-        _FR_line  = _flow.get("FR_line")
-        _VTX_line = _flow.get("VTX_line")
-        _U_line   = _flow.get("U_line")
-        _FRv      = float(_flow.get("FR", 0.0) or 0.0)
-        _VTXv     = float(_flow.get("VTX",0.0) or 0.0)
-        _Uv       = float(_flow.get("U",   0.0) or 0.0)
-        def _risk_out(fr): return "高" if fr>=0.55 else ("中" if fr>=0.25 else "低")
-        note_sections.append(f"【順流】◎ライン {_fmt_nums(_FR_line)}：失速危険 {_risk_out(_FRv)}")
-        note_sections.append(f"【渦】候補ライン：{_fmt_nums(_VTX_line)}（VTX={_VTXv:.2f}）")
-        note_sections.append(f"【逆流】無ライン {_fmt_nums(_U_line)}：U={_Uv:.2f}（※判定基準内）")
-    except Exception:
-        note_sections.append(_flow.get("note", "【流れ】出力なし"))
-
-    # --- ★補完だけを出力 ---
-    note_sections.append(_bets.get("note", "【買い目】出力なし"))
-
-# ================== /補完固定版 ==================
-
-# ================== /補完固定版 ==================
 
 # ================== /補完専用 最終パッチ ==================
 
