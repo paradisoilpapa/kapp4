@@ -4341,7 +4341,7 @@ if _t369_render_once(_render_key):
     except Exception:
         pass
 
-    try:
+try:
     dbg_lines = globals().get('_lines_list') or globals().get('lines_list') or '—'
     dbg_marks = marks or '—'
     try:
