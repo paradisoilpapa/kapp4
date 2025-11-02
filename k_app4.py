@@ -3900,14 +3900,11 @@ def trio_free_completion(hens, marks_by_car, risk_label, flow=None):
     marks_by_car = dict(marks_by_car or {})
     flow = flow or {}
 
-    # ライン制約を完全無効化（参照のみ残す）
+    # ✅ ここで完全独立モードを宣言
+    # flow内のライン情報は補完参考のみ。スコア選出に使わない。
     FR_line = []
     VTX_line = []
     U_line   = []
-    if isinstance(flow, dict):
-        FR_line = flow.get("FR_line") or []
-        VTX_line = flow.get("VTX_line") or []
-        U_line   = flow.get("U_line")   or []
 
     # 構造反転（{印:車番}→{車番:印}対応）
     if all(isinstance(v, int) for v in marks_by_car.values()):
@@ -3929,14 +3926,9 @@ def trio_free_completion(hens, marks_by_car, risk_label, flow=None):
 
     # 軸決定
     if r.startswith("高"):
-        cand = []
-        for g in (VTX_line, U_line):
-            for x in (g or []):
-                if x in hens:
-                    cand.append(x)
-        axis = max(cand, key=lambda x: hens.get(x, 0.0)) if cand else order[0]
-        if axis == star_id and len(order) > 1:
-            axis = order[1]
+        # もうラインを使わない。純偏差値ロジックで軸を決定。
+        non_star = [x for x in order if x != star_id]
+        axis = non_star[0] if non_star else order[0]
     else:
         axis = order[0]
 
@@ -3945,7 +3937,8 @@ def trio_free_completion(hens, marks_by_car, risk_label, flow=None):
 
     # α補完：最下位置換
     if r.startswith("高"):
-        alpha_cands = [x for x, m in marks_by_car.items() if str(m).strip() == "α" and x not in base and x != axis]
+        alpha_cands = [x for x, m in marks_by_car.items()
+                       if str(m).strip() == "α" and x not in base and x != axis]
         if alpha_cands:
             drop = min(base, key=lambda x: hens.get(x, 0.0))
             base = [x for x in base if x != drop] + [alpha_cands[0]]
