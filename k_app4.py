@@ -3962,43 +3962,71 @@ def _free_norm_marks(marks_any):
             pass
     return out
 
-# ---- 補完ロジック：流れ崩壊（逆流補完型）に固定 --------------------------------
-def trio_free_completion(scores, marks_any, _ignored_risk="", _ignored_flow=None) -> str:
+def trio_free_completion(scores, marks_any, risk_label="", flow_ctx=None) -> str:
     """
-    ・軸：常に「非◎の偏差値トップ」。◎が無い時のみ全体トップ。
-    ・相手4：軸を除く偏差値上位4（並びはスコア順のまま）
-    ・α補完：αが軸/相手に居なければ、相手4の“最下位”をαで置換し、αは末尾へ（順序保持）
-    ・出力：<軸>-<相手4>-<相手4>
+    逆流補完型（流れ崩壊固定）
+    軸：
+      - 失速危険「高」かつ 危険ライン=◎ライン → ◎を避けて「非◎トップ」
+      - 失速危険「高」かつ 危険ライン=〇ライン → 軸=◎（あれば）
+      - それ以外 → 「非◎トップ」（◎不在なら全体トップ）
+    相手4：軸を除く偏差値上位4（α補完は最下位置換＆末尾）
+    出力：<軸>-<相手4>-<相手4>
     """
     hens = {int(k): float(v) for k, v in (scores or {}).items() if str(k).isdigit()}
     if not hens:
         return "—"
 
-    marks = _free_norm_marks(marks_any)
-    natural = sorted(hens.keys(), key=lambda k: (hens[k], k), reverse=True)
-    star_id = next((cid for cid, m in marks.items() if str(m).strip() == "◎"), None)
+    # 印正規化
+    def _norm(m):
+        m = dict(m or {})
+        if m and all(isinstance(v, int) for v in m.values()):
+            out = {}
+            for k, v in m.items():
+                try: out[int(v)] = str(k)
+                except: pass
+            return out
+        out = {}
+        for k, v in m.items():
+            try: out[int(k)] = str(v)
+            except: pass
+        return out
 
-    # 軸：非◎トップ
+    marks = _norm(marks_any)
+    natural = sorted(hens.keys(), key=lambda k: (hens[k], k), reverse=True)
+
+    star_id    = next((cid for cid, m in marks.items() if str(m).strip() == "◎"), None)
+    circle_id  = next((cid for cid, m in marks.items() if str(m).strip() == "〇"), None)
+
+    # 危険ライン（generate_tesla_bets 側で FR_line を入れて渡す）
+    risky_line = list(((flow_ctx or {}).get("risky_line") or []))
+
+    # ---- 軸決定（対称ルール対応）----
     axis = None
-    if isinstance(star_id, int):
-        for n in natural:
-            if n != star_id:
-                axis = n
-                break
+    if str(risk_label) == "高":
+        # 危険ラインが〇側 → 軸=◎（あれば）
+        if isinstance(circle_id, int) and (circle_id in risky_line) and isinstance(star_id, int):
+            axis = star_id
+        # 危険ラインが◎側 → ◎を避けて非◎トップ
+        elif isinstance(star_id, int) and (star_id in risky_line):
+            axis = next((n for n in natural if n != star_id), None)
+
+    # 通常（または未決）→ 非◎トップ（◎が無ければ全体トップ）
     if axis is None:
-        axis = natural[0]
+        if isinstance(star_id, int):
+            axis = next((n for n in natural if n != star_id), None)
+        if axis is None:
+            axis = natural[0]
 
     # 相手4
     base = [n for n in natural if n != axis][:4]
 
-    # α補完（居なければ最下位と置換し、αを末尾に配置）
+    # α補完（最下位と置換→αを末尾）
     alpha_id = next((cid for cid, m in marks.items() if str(m).strip() == "α"), None)
     if isinstance(alpha_id, int) and (alpha_id in hens):
         if alpha_id != axis and alpha_id not in base:
             if base:
                 drop = min(base, key=lambda x: hens.get(x, 0.0))
-                base = [x for x in base if x != drop]
-                base.append(alpha_id)
+                base = [x for x in base if x != drop] + [alpha_id]
             else:
                 base = [alpha_id]
 
@@ -4036,10 +4064,18 @@ def generate_tesla_bets(flow, lines_str, marks_any, scores):
         remain.sort(key=_avg)
         U_line = remain[0] if remain else []
 
-    # 買い目（補完のみ）
-    note_lines = ["【買い目】"]
-    trio_text = trio_free_completion(scores, marks, "", {})
-    note_lines.append(f"三連複（補完）：{trio_text}")
+        # …（FR_line / VTX_line / U_line / FRv などの算出はそのまま）
+
+        note_lines = ["【買い目】"]
+        risk_lbl = _free_risk_out(FRv)  # ← 追加：'低'/'中'/'高'
+        trio_text = trio_free_completion(
+            scores,                      # 偏差値
+            marks,                       # 印（正規化前でもOK）
+            risk_label=risk_lbl,         # ← 追加
+            flow_ctx={"risky_line": FR_line}  # ← 追加：失速判定ラインを渡す
+        )
+        note_lines.append(f"三連複（補完）：{trio_text}")
+
 
     return {
         "FR_line": FR_line, "VTX_line": VTX_line, "U_line": U_line,
