@@ -4271,6 +4271,8 @@ if not _trio_block:
         _trio_block = "【買い目】出力なし"
 note_sections.append(_trio_block)
 
+note_sections.append("")  
+
 # === 診断（レースFRベース／記事整合） ===
 try:
     note_sections.append("【Tesla369診断（レースFRベース）】")
