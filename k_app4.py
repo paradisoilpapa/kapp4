@@ -4205,14 +4205,9 @@ try:
 
     note_sections.append(
         "【Tesla369診断】"
-        f"\nlines_str={_dbg_lines_str or '—'}"
-        f"\nlines_list={_dbg_lines_list}"
-        f"\nmarks={_dbg_marks}"
-        f"\nscores.keys={_dbg_scores_keys}"
         f"\nFR={_flow_diag.get('FR',0.0):.3f}  "
         f"VTX={_flow_diag.get('VTX',0.0):.3f}  "
         f"U={_flow_diag.get('U',0.0):.3f}"
-        f"\n※どれかが '—' なら入力が読めていません。"
     )
 
     _dbg = _flow_diag.get("dbg", {}) if isinstance(_flow_diag, dict) else {}
