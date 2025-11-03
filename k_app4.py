@@ -4180,9 +4180,9 @@ _VTXv     = float(_bets.get("VTXv", _flow.get("VTX", 0.0)) or 0.0)
 _Uv       = float(_bets.get("Uv",   _flow.get("U", 0.0)) or 0.0)
 
 if (_FR_line is not None) or (_VTX_line is not None) or (_U_line is not None):
-    note_sections.append(f"【順流】◎ライン {_free_fmt_nums(_FR_line)}：失速危険 {_free_risk_out(_FRv)}")
-    note_sections.append(f"【渦】候補ライン：{_free_fmt_nums(_VTX_line)}（VTX={_VTXv:.2f}）")
-    note_sections.append(f"【逆流】無ライン {_free_fmt_nums(_U_line)}：U={_Uv:.2f}（※判定基準内）")
+    note_sections.append(f"【順流】◎ライン {_free_fmt_nums(_FR_line)}：FR={_FRv:.3f}")
+    note_sections.append(f"【渦】候補ライン：{_free_fmt_nums(_VTX_line)}（VTX={_VTXv:.3f}）")
+    note_sections.append(f"【逆流】無ライン {_free_fmt_nums(_U_line)}：U={_Uv:.3f}（※判定基準内）")
 else:
     note_sections.append(_flow.get("note", "【流れ】出力なし"))
 
