@@ -3957,114 +3957,142 @@ def _free_norm_marks(marks_any):
             pass
     return out
 
-def trio_free_completion(scores, marks_any, flow_ctx=None) -> str:
+# ===== FRベース三連複・想定FR表示版 =====
+
+# 既存ヘルパがない場合だけ簡易定義
+try:
+    _free_fmt_nums
+except NameError:
+    def _free_fmt_nums(x):
+        if not x:
+            return ""
+        if isinstance(x, (list, tuple)):
+            return "".join(str(i) for i in x)
+        return str(x)
+
+try:
+    _free_fmt_hens
+except NameError:
+    def _free_fmt_hens(hens, order):
+        return "\n".join(f"{cid}: {hens.get(str(cid)) or hens.get(cid) or ''}" for cid in order)
+
+try:
+    _free_fmt_marks_line
+except NameError:
+    def _free_fmt_marks_line(marks, order):
+        # marks: {car: '◎' ...}
+        sym, no = [], []
+        for cid in order:
+            m = str(marks.get(cid) or "").strip()
+            if m:
+                sym.append(f"{m}{cid}")
+            else:
+                no.append(str(cid))
+        return " ".join(sym), ("を除く未指名：" + " ".join(no)) if no else ""
+
+
+# ---------- 1) FRで車番を並べる ----------
+def trio_free_completion(scores, marks_any, flow_ctx=None):
     """
-    FRベース三連複フォーメーション
-    手順：
-      1) レース全体のFRをとる（なければ従来ロジックにフォールバック）
-      2) 各ラインの「偏差値合計」でラインFRを割り振る（合計でFRになる）
-      3) 各ライン内をさらに偏差値比で割る → 車番ごとのFRになる
-      4) 車番FRでソートして 1-2345-2345 型を返す
+    1) レースFRをとる
+    2) 各ラインの偏差値合計でラインFRを割る
+    3) ライン内を偏差値比で割る
+    4) 車番FRでソートして 1-2345-2345
     """
-    # 偏差値dictにそろえる
     hens = {int(k): float(v) for k, v in (scores or {}).items() if str(k).isdigit()}
     if not hens:
-        return "—"
+        return "—", None, None
 
     flow_ctx = dict(flow_ctx or {})
     overall_fr = float(flow_ctx.get("FR", 0.0) or 0.0)
-
-    # ライン情報をとる（flowにあるやつを信じる）
-    lines = flow_ctx.get("lines")
+    lines = flow_ctx.get("lines") or []
     if not lines:
-        # lines_strから拾う場合はここでparseしても良い
-        return "—"
-
-    # --- FRが無いときは従来ロジックに落とす ---
-    if overall_fr <= 0.0:
-        # 旧来の「非◎トップ」だけ返す簡易フォールバック
+        # ラインがないときは偏差値順
         natural = sorted(hens.keys(), key=lambda k: (hens[k], k), reverse=True)
         axis = natural[0]
         base = natural[1:5]
-        group = ''.join(str(x) for x in base)
-        return f"{axis}-{group}-{group}"
+        g = "".join(str(x) for x in base)
+        return f"{axis}-{g}-{g}", axis, None
 
-    # 1) ラインの強さ＝偏差値の合計
+    if overall_fr <= 0.0:
+        # FRが無いときも偏差値順
+        natural = sorted(hens.keys(), key=lambda k: (hens[k], k), reverse=True)
+        axis = natural[0]
+        base = natural[1:5]
+        g = "".join(str(x) for x in base)
+        return f"{axis}-{g}-{g}", axis, None
+
+    # ラインごとの偏差値合計
     line_sums = []
     for ln in lines:
         ln = [int(x) for x in ln]
         s = sum(hens.get(x, 0.0) for x in ln)
         line_sums.append((ln, s))
+    total_line_strength = sum(s for _, s in line_sums) or 1.0
 
-    total_line_strength = sum(s for _, s in line_sums) or 1.0  # 0割防止
-
-    # 2) ラインFRを偏差値合計で割る
-    car_fr = {}  # 車番→FR
+    # ラインFR→車番FR
+    car_fr = {}
     for ln, ls in line_sums:
-        # このラインに渡すFR
         line_fr = overall_fr * (ls / total_line_strength)
-        ls = ls or 1.0  # 0割防止
-        # 3) ライン内をまた偏差値比で割る
+        ls = ls or 1.0
         for cid in ln:
             h = hens.get(cid, 0.0)
             car_fr[cid] = line_fr * (h / ls)
 
-    # 4) 車番FRで並べる（同値は車番若い順）
-    ordered = sorted(car_fr.keys(), key=lambda c: (car_fr[c], hens.get(c, 0.0), -c), reverse=True)
-
+    # 並べる：FR降順、同値なら車番小さい方
+    ordered = sorted(car_fr.keys(), key=lambda c: (car_fr[c], -c), reverse=True)
     axis = ordered[0]
     rest = ordered[1:5]
-    group = ''.join(str(x) for x in rest)
-    return f"{axis}-{group}-{group}"
+    g = "".join(str(x) for x in rest)
+    return f"{axis}-{g}-{g}", axis, float(car_fr.get(axis, 0.0))
 
 
-# ---- generate_tesla_bets（補完のみ／旧三連複ロジックは使わない） -----------------
+# ---------- 2) 想定FRをラインごとに作る ----------
 def generate_tesla_bets(flow, lines_str, marks_any, scores):
     flow   = dict(flow or {})
     scores = {int(k): float(v) for k, v in (scores or {}).items() if str(k).isdigit()}
-    marks  = _free_norm_marks(marks_any)
 
     FRv  = float(flow.get("FR", 0.0) or 0.0)
     VTXv = float(flow.get("VTX", 0.0) or 0.0)
     Uv   = float(flow.get("U", 0.0) or 0.0)
-
     lines = list(flow.get("lines") or [])
 
-    # 表示用は今までどおり
+    # ラインごとの想定FR（＝レースFRをライン力で割ったもの）
+    line_fr_map = {}
+    if FRv > 0.0 and lines:
+        line_sums = []
+        for ln in lines:
+            ln = [int(x) for x in ln]
+            s = sum(scores.get(x, 0.0) for x in ln)
+            line_sums.append((ln, s))
+        total = sum(s for _, s in line_sums) or 1.0
+        for ln, s in line_sums:
+            key = "".join(str(x) for x in ln)
+            line_fr_map[key] = FRv * (s / total)
+
     FR_line  = flow.get("FR_line")
     VTX_line = flow.get("VTX_line")
     U_line   = flow.get("U_line")
 
-    note_lines = ["【買い目】"]
+    trio_text, axis_id, axis_fr = trio_free_completion(scores, marks_any, flow_ctx=flow)
 
-    # ★ここでさっきのFRベース三連複を使う
-    trio_text = trio_free_completion(
-        scores,
-        marks,
-        flow_ctx={
-            "FR": FRv,
-            "lines": lines,
-        }
-    )
-    note_lines.append(f"三連複：{trio_text}")
+    note_lines = ["【買い目】", f"三連複：{trio_text}"]
 
     return {
-        "FR_line": FR_line, "VTX_line": VTX_line, "U_line": U_line,
-        "FRv": FRv, "VTXv": VTXv, "Uv": Uv,
-        "trios": [],
+        "FR_line": FR_line,
+        "VTX_line": VTX_line,
+        "U_line": U_line,
+        "FRv": FRv,
+        "VTXv": VTXv,
+        "Uv": Uv,
+        "axis_id": axis_id,
+        "axis_fr": axis_fr,
+        "line_fr_map": line_fr_map,
         "note": "\n".join(note_lines),
     }
 
 
-
-    return {
-        "FR_line": FR_line, "VTX_line": VTX_line, "U_line": U_line,
-        "FRv": FRv, "VTXv": VTXv, "Uv": Uv,
-        "trios": [],  # 使わない
-        "note": "\n".join(note_lines),
-    }
-
-# ---- _safe_flow/_safe_generate（既存が壊れていても上書き安全） -------------------
+# ---------- 3) 安全ラッパ ----------
 def _safe_flow(lines_str, marks, scores):
     try:
         fr = compute_flow_indicators(lines_str, marks, scores)
@@ -4079,23 +4107,27 @@ def _safe_generate(flow, lines_str, marks, scores):
     except Exception as e:
         return {"note": f"⚠ generate_tesla_betsエラー: {type(e).__name__}: {e}"}
 
-# ---- 出力本体（ヘッダ→偏差値→FR/VTX/U→補完の買い目 の順で1回だけ描画） --------
-# 旧の二重描画ガードは撤去（毎回描く）
+
+# ---------- 4) 出力本体 ----------
 _flow = _safe_flow(globals().get("lines_str", ""), globals().get("marks", {}), globals().get("scores", {}))
 _bets = _safe_generate(_flow, globals().get("lines_str", ""), globals().get("marks", {}), globals().get("scores", {}))
 
-if 'note_sections' not in globals() or not isinstance(note_sections, list):
+if "note_sections" not in globals() or not isinstance(note_sections, list):
     note_sections = []
 
-# 旧のガベージ（フォーメーション出力/DBG行など）を削除
+# 旧のゴミを消す
 def _free_kill_old(s: str) -> bool:
-    if not isinstance(s, str): return False
+    if not isinstance(s, str):
+        return False
     t = s.strip()
-    return (t.startswith("DBG:") or
-            t.startswith("【買い目】") or
-            t.startswith("三連複：") or
-            "三連複フォーメーション" in t or
-            "フォーメーション（固定" in t)
+    return (
+        t.startswith("DBG:")
+        or t.startswith("【買い目】")
+        or t.startswith("三連複：")
+        or "三連複フォーメーション" in t
+        or "フォーメーション（固定" in t
+    )
+
 note_sections = [s for s in note_sections if not _free_kill_old(s)]
 
 # 見出し
@@ -4105,23 +4137,31 @@ if venue or race_no:
     _rn = race_no if (race_no.endswith("R") or race_no == "") else f"{race_no}R"
     note_sections.append(f"{venue}{_rn}")
 
-note_sections.append(f"展開評価：{_free_infer_eval(_flow)}")
+# 展開評価：今回の“軸”のFRだけを出す
+axis_id = _bets.get("axis_id")
+axis_fr = _bets.get("axis_fr")
+FRv     = float(_bets.get("FRv", 0.0) or 0.0)
+if axis_id is not None and axis_fr is not None:
+    note_sections.append(f"展開評価：FR={axis_fr:.3f}")
+else:
+    note_sections.append(f"展開評価：FR={FRv:.3f}")
 
-race_time  = str(globals().get('race_time', '') or '')
-race_class = str(globals().get('race_class', '') or '')
+# 時刻・クラス
+race_time  = str(globals().get("race_time", "") or "")
+race_class = str(globals().get("race_class", "") or "")
 hdr = f"{race_time}　{race_class}".strip()
 if hdr:
     note_sections.append(hdr)
 
 # ライン
-line_inputs = globals().get('line_inputs', [])
+line_inputs = globals().get("line_inputs", [])
 if isinstance(line_inputs, list) and any(str(x).strip() for x in line_inputs):
-    note_sections.append(f"ライン　{'　'.join([x for x in line_inputs if str(x).strip()])}")
+    note_sections.append("ライン　" + "　".join([x for x in line_inputs if str(x).strip()]))
 
-# スコア順（SBなし）
-_fmt_rank_fn = globals().get('_format_rank_from_array', None)
-USED_IDS    = list(globals().get('USED_IDS', []))
-xs_base_raw = globals().get('xs_base_raw', [])
+# スコア順
+_fmt_rank_fn = globals().get("_format_rank_from_array", None)
+USED_IDS    = list(globals().get("USED_IDS", []))
+xs_base_raw = globals().get("xs_base_raw", [])
 if callable(_fmt_rank_fn):
     try:
         note_sections.append(f"スコア順（SBなし）　{_fmt_rank_fn(USED_IDS, xs_base_raw)}")
@@ -4132,7 +4172,7 @@ else:
 
 # 印＋未指名
 try:
-    result_marks = globals().get('result_marks', {})
+    result_marks = globals().get("result_marks", {})
     marks_str, no_str = _free_fmt_marks_line(result_marks, USED_IDS)
     mline = f"{marks_str} {no_str}".strip()
     if mline:
@@ -4142,65 +4182,50 @@ except Exception:
 
 # 偏差値
 try:
-    race_t = dict(globals().get('race_t', {}))
+    race_t = dict(globals().get("race_t", {}))
     note_sections.append("\n偏差値（風・ライン込み）")
     note_sections.append(_free_fmt_hens(race_t, USED_IDS))
     note_sections.append("\n")
 except Exception:
     note_sections.append("偏差値データなし\n")
 
-# ===================== /T369｜FREE-ONLY 完全置換ブロック =====================
-
-# FR/VTX/U（表示）
+# --- ここで想定FRを表示する ---
 _FR_line  = _bets.get("FR_line", _flow.get("FR_line"))
 _VTX_line = _bets.get("VTX_line", _flow.get("VTX_line"))
 _U_line   = _bets.get("U_line",  _flow.get("U_line"))
-_FRv      = float(_bets.get("FRv",  _flow.get("FR", 0.0)) or 0.0)
-_VTXv     = float(_bets.get("VTXv", _flow.get("VTX", 0.0)) or 0.0)
-_Uv       = float(_bets.get("Uv",   _flow.get("U", 0.0)) or 0.0)
+line_fr_map = _bets.get("line_fr_map", {}) or {}
 
-if (_FR_line is not None) or (_VTX_line is not None) or (_U_line is not None):
-    note_sections.append(f"【順流】◎ライン {_free_fmt_nums(_FR_line)}：想定FR={fr_for_frline:.3f}")
-    note_sections.append(f"【渦】候補ライン：{_free_fmt_nums(_VTX_line)}：想定FR={fr_for_vtxline:.3f}")
-    note_sections.append(f"【逆流】無ライン {_free_fmt_nums(_U_line)}：想定FR={fr_for_uline:.3f}")
+def _line_key(ln):
+    if not ln:
+        return ""
+    return "".join(str(x) for x in ln)
 
-else:
-    note_sections.append(_flow.get("note", "【流れ】出力なし"))
+fr_for_frline  = line_fr_map.get(_line_key(_FR_line), 0.0)
+fr_for_vtxline = line_fr_map.get(_line_key(_VTX_line), 0.0)
+fr_for_uline   = line_fr_map.get(_line_key(_U_line), 0.0)
 
-# 補完の買い目（これだけを出す）
+note_sections.append(f"【順流】◎ライン {_free_fmt_nums(_FR_line)}：想定FR={fr_for_frline:.3f}")
+note_sections.append(f"【渦】候補ライン：{_free_fmt_nums(_VTX_line)}：想定FR={fr_for_vtxline:.3f}")
+note_sections.append(f"【逆流】無ライン {_free_fmt_nums(_U_line)}：想定FR={fr_for_uline:.3f}")
+
+# 買い目
 note_sections.append(_bets.get("note", "【買い目】出力なし"))
 
-# ==== 診断（安全ガード付き） ====
+# 診断（全体値）
 try:
-    _dbg_lines_list = globals().get('_lines_list') or globals().get('lines_list') or '—'
-    _dbg_marks      = globals().get('marks', {}) or '—'
-    _dbg_scores_all = globals().get('scores', {})
-    try:
-        _dbg_scores_keys = sorted((_dbg_scores_all or {}).keys())
-    except Exception:
-        _dbg_scores_keys = '—'
-
-    _dbg_lines_str = globals().get('lines_str', '')
-    _flow_diag_raw = compute_flow_indicators(_dbg_lines_str, _dbg_marks, _dbg_scores_all)
-    _flow_diag     = _flow_diag_raw if isinstance(_flow_diag_raw, dict) else {}
-
-    note_sections.append(
-        "【Tesla369診断】"
-        f"\nFR={_flow_diag.get('FR',0.0):.3f}  "
-        f"VTX={_flow_diag.get('VTX',0.0):.3f}  "
-        f"U={_flow_diag.get('U',0.0):.3f}"
-    )
-
-    _dbg = _flow_diag.get("dbg", {}) if isinstance(_flow_diag, dict) else {}
-    if isinstance(_dbg, dict) and _dbg:
+    note_sections.append("【Tesla369診断】")
+    note_sections.append(f"FR={FRv:.3f}  VTX={float(_bets.get('VTXv', 0.0) or 0.0):.3f}  U={float(_bets.get('Uv', 0.0) or 0.0):.3f}")
+    dbg = _flow.get("dbg", {})
+    if isinstance(dbg, dict) and dbg:
         note_sections.append(
-            f"[FR内訳] blend_star={_dbg.get('blend_star',0.0):.3f} "
-            f"blend_none={_dbg.get('blend_none',0.0):.3f} "
-            f"sd={_dbg.get('sd',0.0):.3f} "
-            f"nu={_dbg.get('nu',0.0):.3f}"
+            f"[FR内訳] blend_star={dbg.get('blend_star',0.0):.3f} "
+            f"blend_none={dbg.get('blend_none',0.0):.3f} "
+            f"sd={dbg.get('sd',0.0):.3f} "
+            f"nu={dbg.get('nu',0.0):.3f}"
         )
-except Exception as _e:
-    note_sections.append(f"⚠ compute_flow_indicators(診断)エラー: {type(_e).__name__}: {str(_e)}")
+except Exception:
+    pass
+
 
 # ===================== /T369｜FREE-ONLY 完全置換ブロック =====================
 
