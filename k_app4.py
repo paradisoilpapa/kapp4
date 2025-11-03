@@ -3957,76 +3957,66 @@ def _free_norm_marks(marks_any):
             pass
     return out
 
-def trio_free_completion(scores, marks_any, risk_label="", flow_ctx=None) -> str:
+def trio_free_completion(scores, marks_any, flow_ctx=None) -> str:
     """
-    逆流補完型（流れ崩壊固定）
-    軸：
-      - 失速危険「高」かつ 危険ライン=◎ライン → ◎を避けて「非◎トップ」
-      - 失速危険「高」かつ 危険ライン=〇ライン → 軸=◎（あれば）
-      - それ以外 → 「非◎トップ」（◎不在なら全体トップ）
-    相手4：軸を除く偏差値上位4（α補完は最下位置換＆末尾）
-    出力：<軸>-<相手4>-<相手4>
+    FRベース三連複フォーメーション
+    手順：
+      1) レース全体のFRをとる（なければ従来ロジックにフォールバック）
+      2) 各ラインの「偏差値合計」でラインFRを割り振る（合計でFRになる）
+      3) 各ライン内をさらに偏差値比で割る → 車番ごとのFRになる
+      4) 車番FRでソートして 1-2345-2345 型を返す
     """
+    # 偏差値dictにそろえる
     hens = {int(k): float(v) for k, v in (scores or {}).items() if str(k).isdigit()}
     if not hens:
         return "—"
 
-    # 印正規化
-    def _norm(m):
-        m = dict(m or {})
-        if m and all(isinstance(v, int) for v in m.values()):
-            out = {}
-            for k, v in m.items():
-                try: out[int(v)] = str(k)
-                except: pass
-            return out
-        out = {}
-        for k, v in m.items():
-            try: out[int(k)] = str(v)
-            except: pass
-        return out
+    flow_ctx = dict(flow_ctx or {})
+    overall_fr = float(flow_ctx.get("FR", 0.0) or 0.0)
 
-    marks = _norm(marks_any)
-    natural = sorted(hens.keys(), key=lambda k: (hens[k], k), reverse=True)
+    # ライン情報をとる（flowにあるやつを信じる）
+    lines = flow_ctx.get("lines")
+    if not lines:
+        # lines_strから拾う場合はここでparseしても良い
+        return "—"
 
-    star_id    = next((cid for cid, m in marks.items() if str(m).strip() == "◎"), None)
-    circle_id  = next((cid for cid, m in marks.items() if str(m).strip() == "〇"), None)
+    # --- FRが無いときは従来ロジックに落とす ---
+    if overall_fr <= 0.0:
+        # 旧来の「非◎トップ」だけ返す簡易フォールバック
+        natural = sorted(hens.keys(), key=lambda k: (hens[k], k), reverse=True)
+        axis = natural[0]
+        base = natural[1:5]
+        group = ''.join(str(x) for x in base)
+        return f"{axis}-{group}-{group}"
 
-    # 危険ライン（generate_tesla_bets 側で FR_line を入れて渡す）
-    risky_line = list(((flow_ctx or {}).get("risky_line") or []))
+    # 1) ラインの強さ＝偏差値の合計
+    line_sums = []
+    for ln in lines:
+        ln = [int(x) for x in ln]
+        s = sum(hens.get(x, 0.0) for x in ln)
+        line_sums.append((ln, s))
 
-    # ---- 軸決定（対称ルール対応）----
-    axis = None
-    if str(risk_label) == "高":
-        # 危険ラインが〇側 → 軸=◎（あれば）
-        if isinstance(circle_id, int) and (circle_id in risky_line) and isinstance(star_id, int):
-            axis = star_id
-        # 危険ラインが◎側 → ◎を避けて非◎トップ
-        elif isinstance(star_id, int) and (star_id in risky_line):
-            axis = next((n for n in natural if n != star_id), None)
+    total_line_strength = sum(s for _, s in line_sums) or 1.0  # 0割防止
 
-    # 通常（または未決）→ 非◎トップ（◎が無ければ全体トップ）
-    if axis is None:
-        if isinstance(star_id, int):
-            axis = next((n for n in natural if n != star_id), None)
-        if axis is None:
-            axis = natural[0]
+    # 2) ラインFRを偏差値合計で割る
+    car_fr = {}  # 車番→FR
+    for ln, ls in line_sums:
+        # このラインに渡すFR
+        line_fr = overall_fr * (ls / total_line_strength)
+        ls = ls or 1.0  # 0割防止
+        # 3) ライン内をまた偏差値比で割る
+        for cid in ln:
+            h = hens.get(cid, 0.0)
+            car_fr[cid] = line_fr * (h / ls)
 
-    # 相手4
-    base = [n for n in natural if n != axis][:4]
+    # 4) 車番FRで並べる（同値は車番若い順）
+    ordered = sorted(car_fr.keys(), key=lambda c: (car_fr[c], hens.get(c, 0.0), -c), reverse=True)
 
-    # α補完（最下位と置換→αを末尾）
-    alpha_id = next((cid for cid, m in marks.items() if str(m).strip() == "α"), None)
-    if isinstance(alpha_id, int) and (alpha_id in hens):
-        if alpha_id != axis and alpha_id not in base:
-            if base:
-                drop = min(base, key=lambda x: hens.get(x, 0.0))
-                base = [x for x in base if x != drop] + [alpha_id]
-            else:
-                base = [alpha_id]
-
-    group = ''.join(str(x) for x in base)
+    axis = ordered[0]
+    rest = ordered[1:5]
+    group = ''.join(str(x) for x in rest)
     return f"{axis}-{group}-{group}"
+
 
 # ---- generate_tesla_bets（補完のみ／旧三連複ロジックは使わない） -----------------
 def generate_tesla_bets(flow, lines_str, marks_any, scores):
@@ -4034,42 +4024,37 @@ def generate_tesla_bets(flow, lines_str, marks_any, scores):
     scores = {int(k): float(v) for k, v in (scores or {}).items() if str(k).isdigit()}
     marks  = _free_norm_marks(marks_any)
 
-    # 表示用（FR/VTX/U と各ラインは“見せるだけ”）
     FRv  = float(flow.get("FR", 0.0) or 0.0)
     VTXv = float(flow.get("VTX", 0.0) or 0.0)
     Uv   = float(flow.get("U", 0.0) or 0.0)
 
     lines = list(flow.get("lines") or [])
-    def _avg(ln):
-        xs = [scores.get(n, 0.0) for n in (ln or [])]
-        return (sum(xs) / len(xs)) if xs else -1e9
 
-    star_id = next((cid for cid, m in marks.items() if m == "◎"), None)
-    FR_line = next((ln for ln in lines if isinstance(star_id, int) and star_id in ln), [])
+    # 表示用は今までどおり
+    FR_line  = flow.get("FR_line")
+    VTX_line = flow.get("VTX_line")
+    U_line   = flow.get("U_line")
 
-    vtx_bid = str(flow.get("vtx_bid") or "")
-    VTX_line = next((ln for ln in lines if "".join(map(str, ln)) == vtx_bid), [])
-    if not VTX_line:
-        VTX_line = next((ln for ln in sorted([g for g in lines if g != FR_line], key=_avg, reverse=True)), [])
+    note_lines = ["【買い目】"]
 
-    none_id = next((cid for cid, m in marks.items() if m == "無"), None)
-    U_line  = next((ln for ln in lines if isinstance(none_id, int) and none_id in ln), [])
-    if not U_line:
-        remain = [g for g in lines if g not in (FR_line, VTX_line)]
-        remain.sort(key=_avg)
-        U_line = remain[0] if remain else []
+    # ★ここでさっきのFRベース三連複を使う
+    trio_text = trio_free_completion(
+        scores,
+        marks,
+        flow_ctx={
+            "FR": FRv,
+            "lines": lines,
+        }
+    )
+    note_lines.append(f"三連複：{trio_text}")
 
-        # …（FR_line / VTX_line / U_line / FRv などの算出はそのまま）
+    return {
+        "FR_line": FR_line, "VTX_line": VTX_line, "U_line": U_line,
+        "FRv": FRv, "VTXv": VTXv, "Uv": Uv,
+        "trios": [],
+        "note": "\n".join(note_lines),
+    }
 
-        note_lines = ["【買い目】"]
-        risk_lbl = _free_risk_out(FRv)  # ← 追加：'低'/'中'/'高'
-        trio_text = trio_free_completion(
-            scores,                      # 偏差値
-            marks,                       # 印（正規化前でもOK）
-            risk_label=risk_lbl,         # ← 追加
-            flow_ctx={"risky_line": FR_line}  # ← 追加：失速判定ラインを渡す
-        )
-        note_lines.append(f"三連複：{trio_text}")
 
 
     return {
