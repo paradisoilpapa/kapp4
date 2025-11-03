@@ -4113,7 +4113,7 @@ def _free_kill_old(s: str) -> bool:
     t = s.strip()
     return (t.startswith("DBG:") or
             t.startswith("【買い目】") or
-            t.startswith("三連複（補完）：") or
+            t.startswith("三連複：") or
             "三連複フォーメーション" in t or
             "フォーメーション（固定" in t)
 note_sections = [s for s in note_sections if not _free_kill_old(s)]
