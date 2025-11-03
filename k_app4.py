@@ -3925,14 +3925,9 @@ def _free_fmt_marks_line(marks_dict: dict, used_ids: list) -> tuple[str, str]:
     return marks_str, f"無{('—' if '無' in marks_dict else '')}{no_str}"
 
 def _free_infer_eval(flow):
-    FRv  = float((flow or {}).get("FR", 0.0))
-    VTXv = float((flow or {}).get("VTX", 0.0))
-    Uv   = float((flow or {}).get("U", 0.0))
-    if (FRv >= 0.40) and (0.54 <= VTXv <= 0.66) and (Uv >= 0.60):
-        return "優位"
-    if (FRv >= 0.20) and (0.50 <= VTXv <= 0.72) and (Uv >= 0.50):
-        return "互角"
-    return "混戦"
+    FRv = float((flow or {}).get("FR", 0.0))
+    return f"FR={FRv:.3f}"
+
 
 def _free_risk_out(fr):
     fr = float(fr or 0.0)
