@@ -3959,36 +3959,7 @@ def _free_norm_marks(marks_any):
 
 # ===== FRベース三連複・想定FR表示版 =====
 
-# 既存ヘルパがない場合だけ簡易定義
-try:
-    _free_fmt_nums
-except NameError:
-    def _free_fmt_nums(x):
-        if not x:
-            return ""
-        if isinstance(x, (list, tuple)):
-            return "".join(str(i) for i in x)
-        return str(x)
 
-try:
-    _free_fmt_hens
-except NameError:
-    def _free_fmt_hens(hens, order):
-        return "\n".join(f"{cid}: {hens.get(str(cid)) or hens.get(cid) or ''}" for cid in order)
-
-try:
-    _free_fmt_marks_line
-except NameError:
-    def _free_fmt_marks_line(marks, order):
-        # marks: {car: '◎' ...}
-        sym, no = [], []
-        for cid in order:
-            m = str(marks.get(cid) or "").strip()
-            if m:
-                sym.append(f"{m}{cid}")
-            else:
-                no.append(str(cid))
-        return " ".join(sym), ("を除く未指名：" + " ".join(no)) if no else ""
 
 
 # ---------- 1) FRで車番を並べる ----------
