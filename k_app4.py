@@ -797,7 +797,7 @@ race_day = st.sidebar.date_input("開催日（風の取得基準日）", value=d
 
 wind_dir = st.sidebar.selectbox("風向", ["無風","左上","上","右上","左","右","左下","下","右下"], index=0, key="wind_dir_input")
 wind_speed_default = st.session_state.get("wind_speed", 3.0)
-wind_speed = st.sidebar.number_input("風速(m/s)", 0.0, 30.0, float(wind_speed_default), 0.1)
+wind_speed = st.sidebar.number_input("風速(m/s)", 0.0, 60.0, float(wind_speed_default), 0.1)
 
 with st.sidebar.expander("🌀 風をAPIで自動取得（Open-Meteo）", expanded=False):
     api_date = st.date_input("開催日（風の取得基準日）", value=pd.to_datetime("today").date(), key="api_date")
