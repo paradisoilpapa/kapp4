@@ -4113,6 +4113,36 @@ def _safe_generate(flow, lines_str, marks, scores):
         return {"note": f"⚠ generate_tesla_betsエラー: {type(e).__name__}: {e}"}
 
 
+# ===================== /T369｜FREE-ONLY 出力一括ブロック（完全置換） =====================
+
+# --- 3区分バンド（◎視点）
+def _band3_fr(fr: float) -> str:
+    if fr >= 0.61: return "不利域"
+    if fr >= 0.46: return "標準域"
+    return "有利域"
+
+def _band3_vtx(v: float) -> str:
+    if v > 0.60:  return "不利域"
+    if v >= 0.52: return "標準域"
+    return "有利域"
+
+def _band3_u(u: float) -> str:
+    if u > 0.65:  return "不利域"
+    if u >= 0.55: return "標準域"
+    return "有利域"
+
+# --- 優位/互角/混戦 判定（FR+VTX+U+軸ライン取り分%）
+def infer_eval_with_share(FRv: float, VTXv: float, Uv: float, share_pct: float | None) -> str:
+    fr_low, fr_high = 0.40, 0.60
+    vtx_strong, u_strong = 0.60, 0.65
+    share_lo, share_hi = 25.0, 33.0  # %
+
+    if FRv > fr_high and VTXv <= vtx_strong and Uv <= u_strong and (share_pct is not None and share_pct >= share_hi):
+        return "優位"
+    if (FRv < fr_low) or (VTXv > vtx_strong and Uv > u_strong) or (share_pct is not None and share_pct <= share_lo):
+        return "混戦"
+    return "互角"
+
 # ---------- 4) 出力本体 ----------
 _flow = _safe_flow(globals().get("lines_str", ""), globals().get("marks", {}), globals().get("scores", {}))
 _bets = _safe_generate(_flow, globals().get("lines_str", ""), globals().get("marks", {}), globals().get("scores", {}))
@@ -4132,7 +4162,6 @@ def _free_kill_old(s: str) -> bool:
         or "三連複フォーメーション" in t
         or "フォーメーション（固定" in t
     )
-
 note_sections = [s for s in note_sections if not _free_kill_old(s)]
 
 # 見出し
@@ -4155,14 +4184,12 @@ axis_line = next((ln for ln in all_lines if isinstance(axis_id, int) and axis_id
 axis_line_fr = float(line_fr_map.get(_line_key(axis_line), 0.0) or 0.0)
 
 if axis_line:
-    # 例：展開評価：ラインFR=0.199（軸=7／ライン=72）
     note_sections.append(
         f"展開評価：ラインFR={axis_line_fr:.3f}（軸={axis_id}／ライン={_free_fmt_nums(axis_line)}）"
     )
 else:
     # フォールバック（ライン特定できない場合はレースFR）
     note_sections.append(f"展開評価：ラインFR={FRv:.3f}")
-
 
 # 時刻・クラス
 race_time  = str(globals().get("race_time", "") or "")
@@ -4207,7 +4234,7 @@ try:
 except Exception:
     note_sections.append("偏差値データなし\n")
 
-# --- ここで想定FRを表示する ---
+# --- ライン想定FRの表示 ---
 _FR_line  = _bets.get("FR_line", _flow.get("FR_line"))
 _VTX_line = _bets.get("VTX_line", _flow.get("VTX_line"))
 _U_line   = _bets.get("U_line",  _flow.get("U_line"))
@@ -4219,7 +4246,7 @@ def _line_key(ln):
         return ""
     return "".join(str(x) for x in ln)
 
-# まずメイン3本
+# メイン3本
 note_sections.append(
     f"【順流】◎ライン {_free_fmt_nums(_FR_line)}：想定FR={line_fr_map.get(_line_key(_FR_line), 0.0):.3f}"
 )
@@ -4229,35 +4256,41 @@ note_sections.append(
 note_sections.append(
     f"【逆流】無ライン {_free_fmt_nums(_U_line)}：想定FR={line_fr_map.get(_line_key(_U_line), 0.0):.3f}"
 )
-
-# 残りのラインも全部出す
+# 残りラインも列挙
 for ln in all_lines:
-    # すでに出した3本はスキップ
     if ln == _FR_line or ln == _VTX_line or ln == _U_line:
         continue
     key = _line_key(ln)
     val = line_fr_map.get(key, 0.0)
     note_sections.append(f"　　　その他ライン {_free_fmt_nums(ln)}：想定FR={val:.3f}")
 
-
-# 買い目
-note_sections.append(_bets.get("note", "【買い目】出力なし"))
+# 買い目（trio_free_completion の戻り値が文字/タプルどちらでも対応）
+_trio_res = _bets.get("note", "")
+if not _trio_res:
+    # 追加安全：必要なら再生成
+    try:
+        _res = trio_free_completion(globals().get("scores", {}), globals().get("marks", {}), flow_ctx=_flow)
+        if isinstance(_res, tuple) and len(_res) >= 1:
+            _trio_text = _res[0]
+        else:
+            _trio_text = str(_res)
+        _trio_res = "【買い目】\n三連複：" + _trio_text
+    except Exception:
+        _trio_res = "【買い目】出力なし"
+note_sections.append(_trio_res)
 
 # 診断（レースFRベース／記事と整合）
 try:
     note_sections.append("【Tesla369診断（レースFRベース）】")
-    # レース全体の指標を明示
     VTXv = float(_bets.get("VTXv", 0.0) or 0.0)
     Uv   = float(_bets.get("Uv", 0.0) or 0.0)
     note_sections.append(f"レースFR={FRv:.3f}  VTX={VTXv:.3f}  U={Uv:.3f}")
 
-    # 参考：先頭見出しと整合する“軸ラインFR”も併記
     if axis_line:
         note_sections.append(
             f"（参考）軸ラインFR={axis_line_fr:.3f}［軸={axis_id}／ライン={_free_fmt_nums(axis_line)}］"
         )
 
-    # FR内訳は“レース”の内訳であることを明示
     dbg = _flow.get("dbg", {})
     if isinstance(dbg, dict) and dbg:
         note_sections.append(
@@ -4269,6 +4302,47 @@ try:
         )
 except Exception:
     pass
+
+# === 短評（コンパクト）＋ 判定 ===
+try:
+    VTXv = float(_bets.get("VTXv", 0.0) or 0.0)
+    Uv   = float(_bets.get("Uv", 0.0) or 0.0)
+
+    lines_out = ["＜短評＞"]
+    lines_out.append(f"・レースFR={{FRv:.3f}}［{{_band3_fr(FRv)}}］")
+
+    share_pct = None
+    if axis_line:
+        key = "".join(str(x) for x in axis_line)
+        axis_line_fr = float(line_fr_map.get(key, 0.0) or 0.0)
+        share_pct = (axis_line_fr / FRv * 100.0) if FRv > 0 else None
+        lines_out.append(
+            f"・軸ラインFR={axis_line_fr:.3f}（取り分≈{(share_pct or 0.0):.1f}%：軸={axis_id}／ライン={_free_fmt_nums(axis_line)}）"
+        )
+
+    lines_out.append(f"・VTX={VTXv:.3f}［{_band3_vtx(VTXv)}］")
+    lines_out.append(f"・U={Uv:.3f}［{_band3_u(Uv)}］")
+
+    if isinstance(dbg, dict) and dbg:
+        bs = float(dbg.get("blend_star",0.0) or 0.0)
+        bn = float(dbg.get("blend_none",0.0) or 0.0)
+        sd = float(dbg.get("sd",0.0) or 0.0)
+        nu = float(dbg.get("nu",0.0) or 0.0)
+        star_txt = "先頭負担:強" if bs <= -0.60 else ("先頭負担:中" if bs <= -0.30 else "先頭負担:小")
+        none_txt = "無印押上げ:強" if bn >= 1.20 else ("無印押上げ:中" if bn >= 0.60 else "無印押上げ:小")
+        sd_txt   = "ライン偏差:大" if sd >= 0.60 else ("ライン偏差:中" if sd >= 0.30 else "ライン偏差:小")
+        nu_txt   = "正規化:小" if 0.90 <= nu <= 1.10 else "正規化:補正強"
+        lines_out.append(f"・内訳要約：{star_txt}／{none_txt}／{sd_txt}／{nu_txt}")
+
+    note_sections += lines_out
+
+    tier = infer_eval_with_share(FRv, VTXv, Uv, share_pct)
+    note_sections.append(f"\n判定：{tier}")
+except Exception:
+    pass
+
+# ===================== /T369｜FREE-ONLY 出力一括ブロック（完全置換） =====================
+
 
 
 
