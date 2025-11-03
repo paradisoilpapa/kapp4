@@ -3912,20 +3912,34 @@ def _free_fmt_hens(ts_map: dict, ids) -> str:
         lines.append(f"{n}: {float(v):.1f}" if isinstance(v, (int, float)) else f"{n}: —")
     return "\n".join(lines)
 
-def _free_fmt_marks_line(marks_dict: dict, used_ids: list) -> tuple[str, str]:
-    # marks_dict は {car:int -> '◎'} 形式を想定
+# これで既存の _free_fmt_marks_line を置換
+def _free_fmt_marks_line(raw_marks: dict, used_ids: list) -> tuple[str, str]:
+    """
+    raw_marks: {車番:int -> '◎'} または { '◎' -> 車番:int } の両方に対応
+    used_ids:  表示対象の車番リスト（スコア順など）
+    戻り値: ("◎5 〇3 ▲1 △2 ×6 α7", "を除く未指名：...") のタプル
+    """
     used_ids = [int(x) for x in (used_ids or [])]
-    marks_dict = {int(k): v for k, v in (marks_dict or {}).items() if str(k).isdigit()}
-    sym = []
-    for s in ["◎", "〇", "▲", "△", "×", "α"]:
-        # s を付けている車番を探す（複数でも左から）
-        ks = [cid for cid, v in marks_dict.items() if str(v).strip() == s]
-        if ks:
-            sym.extend([f"{s}{cid}" for cid in ks])
-    no_mark_ids = [cid for cid in used_ids if cid not in marks_dict]
-    marks_str = " ".join(sym)
-    no_str = ("を除く未指名：" + " ".join(map(str, no_mark_ids))) if no_mark_ids else ""
+
+    # まず統一フォーマット {車番:int -> 印:str} に揃える
+    marks = _free_norm_marks(raw_marks)  # 既存ヘルパを再利用（{car:int: symbol}へ正規化）
+
+    # シンボル表示（◎→αの優先順で、同シンボル内は used_ids の順 → 次に車番昇順）
+    prio = ["◎", "〇", "▲", "△", "×", "α"]
+    parts = []
+    for s in prio:
+        ids = [cid for cid, sym in marks.items() if sym == s]
+        ids_sorted = sorted(ids, key=lambda c: (used_ids.index(c) if c in used_ids else 10**9, c))
+        parts.extend([f"{s}{cid}" for cid in ids_sorted])
+
+    marks_str = " ".join(parts)
+
+    # 未指名は used_ids にあるが marks に含まれない車番
+    un = [cid for cid in used_ids if cid not in marks]
+    no_str = ("を除く未指名：" + " ".join(map(str, un))) if un else ""
+
     return marks_str, no_str
+
 
 def _free_norm_marks(marks_any):
     marks_any = dict(marks_any or {})
