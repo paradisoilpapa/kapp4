@@ -4051,13 +4051,14 @@ def trio_free_completion(scores, marks_any, flow_ctx=None):
 def generate_tesla_bets(flow, lines_str, marks_any, scores):
     flow   = dict(flow or {})
     scores = {int(k): float(v) for k, v in (scores or {}).items() if str(k).isdigit()}
+    marks  = _free_norm_marks(marks_any)
 
     FRv  = float(flow.get("FR", 0.0) or 0.0)
     VTXv = float(flow.get("VTX", 0.0) or 0.0)
     Uv   = float(flow.get("U", 0.0) or 0.0)
     lines = list(flow.get("lines") or [])
 
-    # ラインごとの想定FR（＝レースFRをライン力で割ったもの）
+    # ラインごとの想定FRをつくる
     line_fr_map = {}
     if FRv > 0.0 and lines:
         line_sums = []
@@ -4069,12 +4070,44 @@ def generate_tesla_bets(flow, lines_str, marks_any, scores):
         for ln, s in line_sums:
             key = "".join(str(x) for x in ln)
             line_fr_map[key] = FRv * (s / total)
+    else:
+        line_sums = []
 
+    # ここから表示用ラインを決める
     FR_line  = flow.get("FR_line")
     VTX_line = flow.get("VTX_line")
     U_line   = flow.get("U_line")
 
-    trio_text, axis_id, axis_fr = trio_free_completion(scores, marks_any, flow_ctx=flow)
+    # ★ フォールバック：flowが持ってないときはこちらで決める
+    if (FR_line is None or FR_line == []) and lines:
+        # 1) ◎が乗ってるライン
+        star_id = next((cid for cid, m in marks.items() if m == "◎"), None)
+        if isinstance(star_id, int):
+            cand = [ln for ln in lines if star_id in ln]
+            FR_line = cand[0] if cand else lines[0]
+        else:
+            FR_line = lines[0]
+
+    if (VTX_line is None or VTX_line == []) and lines:
+        # 想定FRが最も大きい、かつFRラインでないもの
+        def _key_of(ln):
+            return line_fr_map.get("".join(str(x) for x in ln), 0.0)
+        others = [ln for ln in lines if ln != FR_line]
+        VTX_line = max(others, key=_key_of) if others else (FR_line or [])
+
+    if (U_line is None or U_line == []) and lines:
+        # 想定FRが一番小さいやつ
+        def _key_of(ln):
+            return line_fr_map.get("".join(str(x) for x in ln), 0.0)
+        others = [ln for ln in lines if ln not in (FR_line, VTX_line)]
+        U_line = min(others, key=_key_of) if others else (VTX_line or FR_line or [])
+
+    # 三連複（FR版）
+    trio_text, axis_id, axis_fr = trio_free_completion(
+        scores,
+        marks,
+        flow_ctx=flow,
+    )
 
     note_lines = ["【買い目】", f"三連複：{trio_text}"]
 
@@ -4090,6 +4123,7 @@ def generate_tesla_bets(flow, lines_str, marks_any, scores):
         "line_fr_map": line_fr_map,
         "note": "\n".join(note_lines),
     }
+
 
 
 # ---------- 3) 安全ラッパ ----------
@@ -4207,6 +4241,7 @@ fr_for_uline   = line_fr_map.get(_line_key(_U_line), 0.0)
 note_sections.append(f"【順流】◎ライン {_free_fmt_nums(_FR_line)}：想定FR={fr_for_frline:.3f}")
 note_sections.append(f"【渦】候補ライン：{_free_fmt_nums(_VTX_line)}：想定FR={fr_for_vtxline:.3f}")
 note_sections.append(f"【逆流】無ライン {_free_fmt_nums(_U_line)}：想定FR={fr_for_uline:.3f}")
+
 
 # 買い目
 note_sections.append(_bets.get("note", "【買い目】出力なし"))
