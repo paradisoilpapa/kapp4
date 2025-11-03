@@ -4196,6 +4196,8 @@ else:
     # 軸ラインが特定できない場合のフォールバック
     note_sections.append(f"ラインFR=—")
 
+note_sections.append("")  
+
 # === 時刻・クラス ===
 race_time  = str(globals().get("race_time", "") or "")
 race_class = str(globals().get("race_class", "") or "")
