@@ -4142,14 +4142,27 @@ if venue or race_no:
     _rn = race_no if (race_no.endswith("R") or race_no == "") else f"{race_no}R"
     note_sections.append(f"{venue}{_rn}")
 
-# 展開評価：今回の“軸”のFRだけを出す
-axis_id = _bets.get("axis_id")
-axis_fr = _bets.get("axis_fr")
-FRv     = float(_bets.get("FRv", 0.0) or 0.0)
-if axis_id is not None and axis_fr is not None:
-    note_sections.append(f"展開評価：FR={axis_fr:.3f}")
+# 展開評価：今回の“軸が属するライン”の想定FRを出す（note記事と整合）
+axis_id     = _bets.get("axis_id")
+FRv         = float(_bets.get("FRv", 0.0) or 0.0)
+line_fr_map = _bets.get("line_fr_map", {}) or {}
+all_lines   = list(_flow.get("lines") or [])
+
+def _line_key(ln):
+    return "" if not ln else "".join(str(x) for x in ln)
+
+axis_line = next((ln for ln in all_lines if isinstance(axis_id, int) and axis_id in ln), [])
+axis_line_fr = float(line_fr_map.get(_line_key(axis_line), 0.0) or 0.0)
+
+if axis_line:
+    # 例：展開評価：ラインFR=0.199（軸=7／ライン=72）
+    note_sections.append(
+        f"展開評価：ラインFR={axis_line_fr:.3f}（軸={axis_id}／ライン={_free_fmt_nums(axis_line)}）"
+    )
 else:
-    note_sections.append(f"展開評価：FR={FRv:.3f}")
+    # フォールバック（ライン特定できない場合はレースFR）
+    note_sections.append(f"展開評価：ラインFR={FRv:.3f}")
+
 
 # 時刻・クラス
 race_time  = str(globals().get("race_time", "") or "")
