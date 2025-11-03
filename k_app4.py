@@ -4243,20 +4243,33 @@ for ln in all_lines:
 # 買い目
 note_sections.append(_bets.get("note", "【買い目】出力なし"))
 
-# 診断（全体値）
+# 診断（レースFRベース／記事と整合）
 try:
-    note_sections.append("【Tesla369診断】")
-    note_sections.append(f"FR={FRv:.3f}  VTX={float(_bets.get('VTXv', 0.0) or 0.0):.3f}  U={float(_bets.get('Uv', 0.0) or 0.0):.3f}")
+    note_sections.append("【Tesla369診断（レースFRベース）】")
+    # レース全体の指標を明示
+    VTXv = float(_bets.get("VTXv", 0.0) or 0.0)
+    Uv   = float(_bets.get("Uv", 0.0) or 0.0)
+    note_sections.append(f"レースFR={FRv:.3f}  VTX={VTXv:.3f}  U={Uv:.3f}")
+
+    # 参考：先頭見出しと整合する“軸ラインFR”も併記
+    if axis_line:
+        note_sections.append(
+            f"（参考）軸ラインFR={axis_line_fr:.3f}［軸={axis_id}／ライン={_free_fmt_nums(axis_line)}］"
+        )
+
+    # FR内訳は“レース”の内訳であることを明示
     dbg = _flow.get("dbg", {})
     if isinstance(dbg, dict) and dbg:
         note_sections.append(
-            f"[FR内訳] blend_star={dbg.get('blend_star',0.0):.3f} "
+            f"[FR内訳（レース）] "
+            f"blend_star={dbg.get('blend_star',0.0):.3f} "
             f"blend_none={dbg.get('blend_none',0.0):.3f} "
             f"sd={dbg.get('sd',0.0):.3f} "
             f"nu={dbg.get('nu',0.0):.3f}"
         )
 except Exception:
     pass
+
 
 
 # ===================== /T369｜FREE-ONLY 完全置換ブロック =====================
