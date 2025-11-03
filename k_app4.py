@@ -4117,14 +4117,20 @@ def generate_tesla_bets(flow, lines_str, marks_any, scores):
         others = [ln for ln in lines if ln not in (FR_line, VTX_line)]
         U_line = min(others, key=_key_of) if others else (VTX_line or FR_line or [])
 
-    # 三連複（FR版）
-    trio_text, axis_id, axis_fr = trio_free_completion(
-        scores,
-        marks,
-        flow_ctx=flow,
-    )
+# --- 三連複（FR版） ---
+res = trio_free_completion(scores, marks, flow_ctx=flow)
 
-    note_lines = ["【買い目】", f"三連複：{trio_text}"]
+if isinstance(res, (tuple, list)):
+    trio_text, axis_id, axis_fr = (tuple(res) + (None, None, None))[:3]
+else:
+    trio_text, axis_id, axis_fr = (str(res or "—"), None, None)
+
+note_lines = [
+    "【買い目】",
+    f"三連複：{trio_text}",
+]
+
+
 
     return {
         "FR_line": FR_line,
