@@ -3963,37 +3963,23 @@ def _free_norm_marks(marks_any):
 
 
 # ---------- 1) FRで車番を並べる ----------
-def trio_free_completion(scores, marks_any, flow_ctx=None):
+def trio_free_completion(scores, marks_any, flow_ctx=None) -> str:
     """
-    1) レースFRをとる
-    2) 各ラインの偏差値合計でラインFRを割る
-    3) ライン内を偏差値比で割る
-    4) 車番FRでソートして 1-2345-2345
+    FRベース三連複フォーメーション（軸＝FR帯ルールに整合）
+    1) レースFRをライン→車番に配分して car_fr を作る
+    2) FR帯で軸を切替（低〜中は◎、高帯は番手〇へ）
+    3) 軸以外の上位4で 1-2345-2345 を返す（FR>=0.76 は◎を2列から除外）
     """
+    # --- 既存どおり：偏差値・FR取得 ---
     hens = {int(k): float(v) for k, v in (scores or {}).items() if str(k).isdigit()}
     if not hens:
-        return "—", None, None
+        return "—"
 
     flow_ctx = dict(flow_ctx or {})
-    overall_fr = float(flow_ctx.get("FR", 0.0) or 0.0)
-    lines = flow_ctx.get("lines") or []
-    if not lines:
-        # ラインがないときは偏差値順
-        natural = sorted(hens.keys(), key=lambda k: (hens[k], k), reverse=True)
-        axis = natural[0]
-        base = natural[1:5]
-        g = "".join(str(x) for x in base)
-        return f"{axis}-{g}-{g}", axis, None
+    FRv  = float(flow_ctx.get("FR", 0.0) or 0.0)
+    lines = list(flow_ctx.get("lines") or [])
 
-    if overall_fr <= 0.0:
-        # FRが無いときも偏差値順
-        natural = sorted(hens.keys(), key=lambda k: (hens[k], k), reverse=True)
-        axis = natural[0]
-        base = natural[1:5]
-        g = "".join(str(x) for x in base)
-        return f"{axis}-{g}-{g}", axis, None
-
-    # ラインごとの偏差値合計
+    # ライン→偏差値合計
     line_sums = []
     for ln in lines:
         ln = [int(x) for x in ln]
@@ -4001,21 +3987,79 @@ def trio_free_completion(scores, marks_any, flow_ctx=None):
         line_sums.append((ln, s))
     total_line_strength = sum(s for _, s in line_sums) or 1.0
 
-    # ラインFR→車番FR
+    # ラインFR配分→車番FR配分
     car_fr = {}
     for ln, ls in line_sums:
-        line_fr = overall_fr * (ls / total_line_strength)
-        ls = ls or 1.0
+        line_fr = FRv * ((ls or 0.0) / total_line_strength)
+        z = ls or 1.0
         for cid in ln:
-            h = hens.get(cid, 0.0)
-            car_fr[cid] = line_fr * (h / ls)
+            car_fr[cid] = line_fr * (hens.get(cid, 0.0) / z)
 
-    # 並べる：FR降順、同値なら車番小さい方
-    ordered = sorted(car_fr.keys(), key=lambda c: (car_fr[c], -c), reverse=True)
-    axis = ordered[0]
-    rest = ordered[1:5]
-    g = "".join(str(x) for x in rest)
-    return f"{axis}-{g}-{g}", axis, float(car_fr.get(axis, 0.0))
+    # 印整形
+    def _norm(m):
+        m = dict(m or {})
+        out = {}
+        for k, v in m.items():
+            try: out[int(k)] = str(v).strip()
+            except: pass
+        return out
+    marks = _norm(marks_any)
+
+    star_id   = next((cid for cid, m in marks.items() if m == "◎"), None)
+    circle_id = next((cid for cid, m in marks.items() if m == "〇"), None)
+
+    # ◎ラインと番手候補（同ライン2番手）を特定
+    star_line = next((ln for ln, _ in line_sums if isinstance(star_id, int) and star_id in ln), [])
+    # 同ラインを偏差値で降順→1番手=◎、2番手=“番手候補”
+    band_head = None
+    if star_line:
+        order_in_line = sorted(star_line, key=lambda c: (hens.get(c, 0.0), c), reverse=True)
+        band_head = next((c for c in order_in_line if c != star_id), None)
+
+    # --- 軸の決め方：FR帯ルール ---
+    axis = None
+    if FRv <= 0.45:
+        # 低〜中：◎を優先（無ければcar_frトップ）
+        axis = star_id if isinstance(star_id, int) else max(car_fr, key=car_fr.get)
+    elif FRv <= 0.60:
+        # 注意帯：◎と番手が拮抗なら番手へ（9割基準）
+        if isinstance(star_id, int) and isinstance(band_head, int):
+            if car_fr.get(band_head, 0.0) >= 0.90 * car_fr.get(star_id, 0.0):
+                axis = band_head
+            else:
+                axis = star_id
+        else:
+            axis = max(car_fr, key=car_fr.get)
+    elif FRv <= 0.75:
+        # 不利寄り：番手（〇 or 同ライン2番手）
+        if isinstance(circle_id, int):
+            axis = circle_id
+        elif isinstance(band_head, int):
+            axis = band_head
+        else:
+            axis = max(car_fr, key=car_fr.get)
+    else:
+        # かなり不利：番手固定（〇>番手候補>その他）
+        if isinstance(circle_id, int):
+            axis = circle_id
+        elif isinstance(band_head, int):
+            axis = band_head
+        else:
+            axis = max(car_fr, key=car_fr.get)
+
+    # --- 2列目候補を構成 ---
+    # 基本：car_frで降順、axisを除いて上位4
+    ordered = sorted(car_fr.keys(), key=lambda c: (car_fr[c], hens.get(c, 0.0), -c), reverse=True)
+    rest = [c for c in ordered if c != axis]
+
+    # FR>=0.76（かなり不利）では◎を2列目から外す（3列目想定）
+    if FRv >= 0.76 and isinstance(star_id, int):
+        rest = [c for c in rest if c != star_id]
+
+    rest = rest[:4]
+    group = ''.join(str(x) for x in rest)
+    return f"{axis}-{group}-{group}"
+
 
 
 # ---------- 2) 想定FRをラインごとに作る ----------
