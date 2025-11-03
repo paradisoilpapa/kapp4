@@ -4074,7 +4074,7 @@ def generate_tesla_bets(flow, lines_str, marks_any, scores):
             risk_label=risk_lbl,         # ← 追加
             flow_ctx={"risky_line": FR_line}  # ← 追加：失速判定ラインを渡す
         )
-        note_lines.append(f"三連複（補完）：{trio_text}")
+        note_lines.append(f"三連複：{trio_text}")
 
 
     return {
