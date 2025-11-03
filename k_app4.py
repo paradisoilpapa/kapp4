@@ -4258,6 +4258,8 @@ for ln in all_lines:
         continue
     note_sections.append(f"　　　その他ライン {_free_fmt_nums(ln)}：想定FR={_line_fr_val(ln):.3f}")
 
+note_sections.append("")  
+
 # === 買い目（trio_free_completionの戻り値：文字/タプル両対応） ===
 _trio_block = _bets.get("note", "")
 if not _trio_block:
