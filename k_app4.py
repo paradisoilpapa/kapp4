@@ -4199,19 +4199,32 @@ _FR_line  = _bets.get("FR_line", _flow.get("FR_line"))
 _VTX_line = _bets.get("VTX_line", _flow.get("VTX_line"))
 _U_line   = _bets.get("U_line",  _flow.get("U_line"))
 line_fr_map = _bets.get("line_fr_map", {}) or {}
+all_lines = list(_flow.get("lines") or [])
 
 def _line_key(ln):
     if not ln:
         return ""
     return "".join(str(x) for x in ln)
 
-fr_for_frline  = line_fr_map.get(_line_key(_FR_line), 0.0)
-fr_for_vtxline = line_fr_map.get(_line_key(_VTX_line), 0.0)
-fr_for_uline   = line_fr_map.get(_line_key(_U_line), 0.0)
+# まずメイン3本
+note_sections.append(
+    f"【順流】◎ライン {_free_fmt_nums(_FR_line)}：想定FR={line_fr_map.get(_line_key(_FR_line), 0.0):.3f}"
+)
+note_sections.append(
+    f"【渦】候補ライン：{_free_fmt_nums(_VTX_line)}：想定FR={line_fr_map.get(_line_key(_VTX_line), 0.0):.3f}"
+)
+note_sections.append(
+    f"【逆流】無ライン {_free_fmt_nums(_U_line)}：想定FR={line_fr_map.get(_line_key(_U_line), 0.0):.3f}"
+)
 
-note_sections.append(f"【順流】◎ライン {_free_fmt_nums(_FR_line)}：想定FR={fr_for_frline:.3f}")
-note_sections.append(f"【渦】候補ライン：{_free_fmt_nums(_VTX_line)}：想定FR={fr_for_vtxline:.3f}")
-note_sections.append(f"【逆流】無ライン {_free_fmt_nums(_U_line)}：想定FR={fr_for_uline:.3f}")
+# 残りのラインも全部出す
+for ln in all_lines:
+    # すでに出した3本はスキップ
+    if ln == _FR_line or ln == _VTX_line or ln == _U_line:
+        continue
+    key = _line_key(ln)
+    val = line_fr_map.get(key, 0.0)
+    note_sections.append(f"　　　その他ライン {_free_fmt_nums(ln)}：想定FR={val:.3f}")
 
 
 # 買い目
