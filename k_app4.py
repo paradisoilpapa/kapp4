@@ -3669,11 +3669,38 @@ def select_tri_opponents_v2(
             if len(picks) >= n_opps:
                 break
 
-    # ユニーク＆サイズ調整
-    seen = set()
-    picks = [x for x in picks if not (x in seen or seen.add(x))][:n_opps]
-    return picks
+# ==== 3車ラインの「3番手」保証（FR帯 0.25〜0.65 限定） ====
+BAND_LO, BAND_HI = 0.25, 0.65
+THIRD_MIN = 52.0   # 3番手に要求する最低偏差値
+
+# FR参照（この関数に FRv 引数が無い場合でも動く安全版）
+_FRv = float(locals().get("FRv", globals().get("FRv", 0.0)) or 0.0)
+
+if BAND_LO <= _FRv <= BAND_HI:
+    # 軸ライン優先。なければ“最厚”の3車(以上)ライン
+    target = (
+        axis_line if (axis_line and len(axis_line) >= 3)
+        else (best_thick_other if (best_thick_other and len(best_thick_other) >= 3) else None)
+    )
+    if target:
+        g_sorted = sorted(target, key=lambda x: hens.get(x, 0.0), reverse=True)
+        if len(g_sorted) >= 3:
+            third = g_sorted[2]
+            # まだ picks に居ない & しきい値以上 → 強制採用
+            if (third not in picks) and (hens.get(third, 0.0) >= THIRD_MIN):
+                # 落とす候補：target 外で最もスコア低い1名
+                drop_cands = [x for x in picks if x not in target]
+                if drop_cands:
+                    worst = min(drop_cands, key=lambda x: scores_local.get(x, -1e9))
+                    if worst != third:
+                        picks = [x for x in picks if x != worst] + [third]
+
+# ユニーク＆サイズ調整
+seen = set()
+picks = [x for x in picks if not (x in seen or seen.add(x))][:n_opps]
+return picks
 # === /v2.2 ===
+
 
 
 def format_tri_1x4(axis: int, opps: List[int]) -> str:
