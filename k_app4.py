@@ -6,7 +6,7 @@ import unicodedata, re
 import math, json, requests
 from statistics import mean, pstdev
 from itertools import combinations
-from datetime import datetime軸ライン「3番手」, date, time, timedelta, timezone
+from datetime import datetime, date, time, timedelta, timezone
 
 # ==============================
 # ページ設定
