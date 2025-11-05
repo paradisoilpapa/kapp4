@@ -3671,7 +3671,7 @@ def select_tri_opponents_v2(
 
     # ==== 3車ラインの「3番手」保証（FR帯 0.25〜0.65 限定） ====
     BAND_LO, BAND_HI = 0.25, 0.65
-    THIRD_MIN = 52.0   # 3番手に要求する最低偏差値
+    THIRD_MIN = 40.0   # 3番手に要求する最低偏差値
 
     # FRはグローバル側（出力統合ブロック）で定義済みの FRv を参照
     _FRv = float(globals().get("FRv", 0.0) or 0.0)
