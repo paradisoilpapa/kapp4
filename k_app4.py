@@ -6,7 +6,7 @@ import unicodedata, re
 import math, json, requests
 from statistics import mean, pstdev
 from itertools import combinations
-from datetime import datetime, date, time, timedelta, timezone
+from datetime import datetime軸ライン「3番手」, date, time, timedelta, timezone
 
 # ==============================
 # ページ設定
@@ -4758,6 +4758,55 @@ def generate_tesla_bets(flow, lines_str, marks_any, scores):
                     worst = min(drop_cands, key=lambda x: scores.get(x, -1e9))
                     if worst in opps:
                         opps = [x for x in opps if x != worst] + [missing[0]]
+
+
+    # === 軸ライン3番手の強制補完（FR0.25〜0.65 & 偏差>=40） ===
+    try:
+        _FRv = float(FRv)
+    except Exception:
+        _FRv = float(flow.get("FR", 0.0) or 0.0)
+
+    BAND_LO, BAND_HI = 0.25, 0.65
+    THIRD_MIN = 40.0  # ← 閾値はここで調整可能
+
+    # 軸ライン内の3番手取得
+    axis_third = None
+    if axis_line_for_fmt and len(axis_line_for_fmt) >= 3:
+        g_sorted = sorted(axis_line_for_fmt, key=lambda x: scores.get(x, 0.0), reverse=True)
+        axis_third = g_sorted[2]  # ← ここが「3番手」
+
+    # 対抗ライン上位2名
+    opp_top2 = sorted(
+        [x for x in opp_line if x != axis_id],
+        key=lambda x: (scores.get(x, 0.0), -int(x)),
+        reverse=True
+    )[:2]
+
+    # 軸ラインの相方（番手）
+    partner = None
+    if axis_line_for_fmt:
+        cands = [x for x in axis_line_for_fmt if x != axis_id]
+        if cands:
+            partner = max(cands, key=lambda x: (scores.get(x, 0.0), -int(x)))
+
+    # 必須枠：相方＋対抗2名＋（条件を満たせば3番手）
+    required = set(opp_top2)
+    if isinstance(partner, int):
+        required.add(partner)
+    if (
+        BAND_LO <= _FRv <= BAND_HI and
+        isinstance(axis_third, int) and
+        scores.get(axis_third, 0.0) >= THIRD_MIN
+    ):
+        required.add(axis_third)
+
+    # opps に required が含まれない場合 → 必須外の最弱を落として補完
+    for need in sorted(required, key=lambda x: scores.get(x, 0.0), reverse=True):
+        if need not in opps:
+            drop_cands = [x for x in opps if x not in required]
+            if drop_cands:
+                worst = min(drop_cands, key=lambda x: scores.get(x, -1e9))
+                opps = [x for x in opps if x != worst] + [need]
 
     
     # --- 買い目テキスト（軸・相方 明示 + 対抗2名 → 軸3番手） ---
