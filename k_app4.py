@@ -4163,31 +4163,29 @@ def infer_eval_with_share(fr_v: float, vtx_v: float, u_v: float, share_pct: floa
 
 # ===== FRベース三連複・想定FR表示版 =====
 
-# ---------- 1) FRで車番を並べる ----------
+# ---------- 1) FRで車番を並べる（最小主義・厳密版） ----------
 def trio_free_completion(scores, marks_any, flow_ctx=None):
     """
-    FRベース三連複フォーメーション（軸＝FR帯ルールに整合）
+    FRをライン→車番へ比例配分して car_fr を作る。
+    軸はFR帯ルール（従来どおり）。2列目は car_fr 降順の軸除く上位4を厳密採用。
+    FR>=0.76 のときのみ◎を2列目から除外（従来互換）。
     戻り値: (trio_text, axis_id, axis_car_fr)
-      1) レースFRをライン→車番に配分して car_fr を作る
-      2) FR帯で軸を切替（低〜中は◎、高帯は番手〇へ）
-      3) 軸以外の上位4で 1-2345-2345 を返す（FR>=0.76 は◎を2列から除外）
     """
     hens = {int(k): float(v) for k, v in (scores or {}).items() if str(k).isdigit()}
     if not hens:
         return ("—", None, None)
 
     flow_ctx = dict(flow_ctx or {})
-    FRv  = float(flow_ctx.get("FR", 0.0) or 0.0)
+    FRv   = float(flow_ctx.get("FR", 0.0) or 0.0)
     lines = [list(map(int, ln)) for ln in (flow_ctx.get("lines") or [])]
 
-    # ライン強度と配分
+    # --- ライン強度 → ラインFR ---
     line_sums = []
     for ln in lines:
         s = sum(hens.get(x, 0.0) for x in ln)
         line_sums.append((ln, s))
     total_line_strength = sum(s for _, s in line_sums) or 1.0
 
-    # ラインFR→車番FR
     car_fr = {}
     for ln, ls in line_sums:
         line_fr = FRv * ((ls or 0.0) / total_line_strength)
@@ -4195,7 +4193,7 @@ def trio_free_completion(scores, marks_any, flow_ctx=None):
         for cid in ln:
             car_fr[cid] = line_fr * (hens.get(cid, 0.0) / z)
 
-    # 印
+    # --- 印（軸決定でのみ使用） ---
     marks = _free_norm_marks(marks_any)
     star_id   = next((cid for cid, m in marks.items() if m == "◎"), None)
     circle_id = next((cid for cid, m in marks.items() if m == "〇"), None)
@@ -4207,7 +4205,7 @@ def trio_free_completion(scores, marks_any, flow_ctx=None):
         order_in_line = sorted(star_line, key=lambda c: (hens.get(c, 0.0), c), reverse=True)
         band_head = next((c for c in order_in_line if c != star_id), None)
 
-    # 軸決定
+    # --- 軸決定（従来互換） ---
     axis = None
     if FRv <= 0.45:
         axis = star_id if isinstance(star_id, int) else max(car_fr, key=car_fr.get)
@@ -4216,14 +4214,8 @@ def trio_free_completion(scores, marks_any, flow_ctx=None):
             axis = band_head if car_fr.get(band_head, 0.0) >= 0.90 * car_fr.get(star_id, 0.0) else star_id
         else:
             axis = max(car_fr, key=car_fr.get)
-    elif FRv <= 0.75:
-        if isinstance(circle_id, int):
-            axis = circle_id
-        elif isinstance(band_head, int):
-            axis = band_head
-        else:
-            axis = max(car_fr, key=car_fr.get)
     else:
+        # 0.60超は番手/〇優先。ただし存在しなければcarFR最大
         if isinstance(circle_id, int):
             axis = circle_id
         elif isinstance(band_head, int):
@@ -4231,17 +4223,18 @@ def trio_free_completion(scores, marks_any, flow_ctx=None):
         else:
             axis = max(car_fr, key=car_fr.get)
 
-    # 2列目候補
+    # --- 2列目4枠：carFRで厳密採用 ---
     ordered = sorted(car_fr.keys(), key=lambda c: (car_fr[c], hens.get(c, 0.0), -c), reverse=True)
     rest = [c for c in ordered if c != axis]
     if FRv >= 0.76 and isinstance(star_id, int):
         rest = [c for c in rest if c != star_id]
-    rest = rest[:4]
+    rest = rest[:4]  # ← ここが“常に carFRの上位4”の核心
 
     group = "".join(str(x) for x in rest)
     trio_text = f"{axis}-{group}-{group}"
     axis_car_fr = car_fr.get(axis, None)
     return (trio_text, axis, axis_car_fr)
+
 
 # === 新規追加：carFR順位を作る（ラインFR→車番配分→順位テキスト） ==================
 def compute_carFR_ranking(lines, hensa_map, line_fr_map):
