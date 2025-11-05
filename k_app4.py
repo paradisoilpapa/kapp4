@@ -1296,11 +1296,35 @@ class Rider:
     num: int; hensa: float; line_id: int; role: str; style: str
 
 # ❻ 偏差値（Tスコア）を “合計_SBなし_raw” から作る（なければ Form で代用）
+# ❻ 安定版：偏差値（Tスコア）を安全に作る
 def _hensa_map_from_df(df: pd.DataFrame) -> dict[int,float]:
     col = "合計_SBなし_raw" if "合計_SBなし_raw" in df.columns else None
-    base = [float(df.loc[df["車番"]==no, col].values[0]) if col else float(form_T_map[no]) for no in active_cars]
-    T, _, _, _ = t_score_from_finite(np.array(base, dtype=float))
+
+    # 生値ベクトルを取る（欠損があればフォールバックして補完）
+    base = []
+    for no in active_cars:
+        try:
+            v = float(df.loc[df["車番"]==no, col].values[0]) if col else float(form_T_map[no])
+        except:
+            v = float(form_T_map[no])  # fallback（=従来 Form 偏差値）
+        base.append(v)
+
+    base = np.array(base, dtype=float)
+
+    # === 分散チェック：標準偏差が小さすぎる場合の暴走回避 ===
+    sd = np.std(base)
+    if sd < 1e-6:   # ← 安定化の本丸
+        # 全員ほぼ同じ → 差が「無い」ので偏差値の差も付けない
+        return {no: 50.0 for no in active_cars}
+
+    # 通常の偏差値化
+    T = 50 + 10 * (base - np.mean(base)) / sd
+
+    # 浮動誤差対策で丸め
+    T = np.clip(T, 20, 80)
+
     return {no: float(T[i]) for i,no in enumerate(active_cars)}
+
 
 # ❼ RIDERS を“実データ”で構築（脚質は ❹、偏差値は ❻）
 bank_str = _bank_str_from_lengths(bank_length)
