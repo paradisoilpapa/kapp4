@@ -4056,7 +4056,8 @@ def _format_tri_axis_partner_rest(axis: int, opps: list, axis_line: list,
                                   hens: dict, lines: list) -> str:
     """
     出力形式： 軸・相方 － 残り3枠 － 残り3枠
-    並び規則：対抗ラインの2名（番号昇順）→ 軸ラインの3番手（存在時）
+    並び規則：対抗ラインの2名（番号昇順）→ 軸ラインの3番手（存在時）→ 残りをスコア順で充填
+    ※ 常に 3 枠埋め切る
     """
     if not isinstance(axis, int) or axis <= 0 or not isinstance(opps, list):
         return "—"
@@ -4092,24 +4093,35 @@ def _format_tri_axis_partner_rest(axis: int, opps: list, axis_line: list,
     # 残り3枠（相方を除く）
     pool = [x for x in opps if x != partner]
 
-    # まず対抗ラインの2名（昇順）
+    # まず対抗ラインの2名（昇順で最大2名まで）
     opp_two = sorted([x for x in pool if x in (opp_line or [])])[:2]
 
     rest_three = []
     rest_three.extend(opp_two)
 
-    # 3枠目：軸3番手を優先、無ければ残りの最小番号
+    # 軸3番手を優先的に追加（まだ入っておらず、プールに居るなら）
     if axis_third is not None and axis_third in pool and axis_third not in rest_three:
         rest_three.append(axis_third)
-    else:
-        remain = [x for x in pool if x not in rest_three]
-        remain_sorted = sorted(remain)
-        if remain_sorted:
-            rest_three.append(remain_sorted[0])
 
+    # ★不足充填：3枠になるまでスコア（偏差）降順→番号昇順で埋める
+    if len(rest_three) < 3:
+        remain = [x for x in pool if x not in rest_three]
+        remain_sorted = sorted(remain, key=lambda x: (hens.get(x, 0.0), -int(x)), reverse=True)
+        take = 3 - len(rest_three)
+        rest_three.extend(remain_sorted[:take])
+
+    # 最終整形（ちょうど3つ）
     rest_three = rest_three[:3]
-    rest_str = ''.join(str(x) for x in rest_three)
+    # 表示は「対抗2名（昇順） → 軸3番手（ある場合）」の並びを保つ
+    def _fmt(rest):
+        # 対抗に入っているものは昇順、残りはそのままの順を尊重
+        in_opp = [x for x in rest if x in (opp_line or [])]
+        not_opp = [x for x in rest if x not in (opp_line or [])]
+        return ''.join(str(x) for x in (sorted(in_opp) + not_opp))
+    rest_str = _fmt(rest_three)
+
     return f"{axis}・{partner} － {rest_str} － {rest_str}"
+
 
 
 
@@ -4724,6 +4736,30 @@ def generate_tesla_bets(flow, lines_str, marks_any, scores):
         fr_v=FRv,  # ★重要
     )
 
+    # === 対抗ライン 2名の強制補完（軸ラインが3車以上のとき） ===
+    axis_line_for_fmt = next((ln for ln in lines if isinstance(axis_id, int) and axis_id in ln), [])
+    def _line_avg(g): return sum(scores.get(x, 0.0) for x in g)/len(g) if g else -1e9
+    other_lines = [g for g in (lines or []) if g != axis_line_for_fmt]
+    opp_line = max(other_lines, key=_line_avg) if other_lines else []
+
+    if axis_line_for_fmt and len(axis_line_for_fmt) >= 3 and len(opp_line) >= 2 and isinstance(axis_id, int):
+        partner = None
+        if axis_id in axis_line_for_fmt:
+            cands = [x for x in axis_line_for_fmt if x != axis_id]
+            if cands:
+                partner = max(cands, key=lambda x: (scores.get(x, 0.0), -int(x)))
+        have = [x for x in opps if x in opp_line]
+        if len(have) < 2:
+            missing = sorted([x for x in opp_line if x not in opps],
+                             key=lambda x: (scores.get(x, 0.0), -int(x)), reverse=True)
+            if missing:
+                drop_cands = [x for x in opps if x not in opp_line and x != partner]
+                if drop_cands:
+                    worst = min(drop_cands, key=lambda x: scores.get(x, -1e9))
+                    if worst in opps:
+                        opps = [x for x in opps if x != worst] + [missing[0]]
+
+    
     # --- 買い目テキスト（軸・相方 明示 + 対抗2名 → 軸3番手） ---
     axis_line_for_fmt = next((ln for ln in lines if isinstance(axis_id, int) and axis_id in ln), [])
     if isinstance(axis_id, int) and opps:
