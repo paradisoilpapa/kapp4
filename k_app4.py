@@ -4760,7 +4760,7 @@ def generate_tesla_bets(flow, lines_str, marks_any, scores):
                         opps = [x for x in opps if x != worst] + [missing[0]]
 
 
-    # === 軸ライン3番手の強制補完（FR0.25〜0.65 & 偏差>=40） ===
+        # === 軸ライン3番手の強制補完（FR0.25〜0.65 & 偏差>=40） ===
     try:
         _FRv = float(FRv)
     except Exception:
@@ -4807,6 +4807,7 @@ def generate_tesla_bets(flow, lines_str, marks_any, scores):
             if drop_cands:
                 worst = min(drop_cands, key=lambda x: scores.get(x, -1e9))
                 opps = [x for x in opps if x != worst] + [need]
+
 
     
     # --- 買い目テキスト（軸・相方 明示 + 対抗2名 → 軸3番手） ---
