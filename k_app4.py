@@ -3698,44 +3698,73 @@ def select_tri_opponents_v2(
             if len(picks) >= n_opps:
                 break
 
-    # ==== 3車ラインの「3番手」保証（FR帯 0.25〜0.65 限定） ====
+       # ==== 3車ラインの「3番手」保証（FR帯 0.25〜0.65 限定） ====
     BAND_LO, BAND_HI = 0.25, 0.65
-    THIRD_MIN   = 40.0
-    REL_DIFF_MAX = 10.0
-    _fr = float(fr_v or 0.0)  # ← globals()に頼らず引数で受ける
+    THIRD_MIN = 40.0  # しきい値はあなたの設定どおり
+    _FRv = float(fr_v or 0.0)
 
-    if BAND_LO <= _fr <= BAND_HI:
+    # --- 二車軸ロック（相方は絶対保持） ---
+    axis_partner = _t369p_best_in_group(axis_line, hens, exclude=axis) if axis_line else None
+    if (axis_partner is not None) and (axis_partner not in picks):
+        # 相方を必ず入れる（相方以外を1名落とす）
+        drop_cands = [x for x in picks if x not in (axis_line or []) or x == _t369p_best_in_group(axis_line, hens, exclude=axis_partner)]
+        if drop_cands:
+            worst = min(drop_cands, key=lambda x: scores_local.get(x, -1e9))
+            picks = [x for x in picks if x != worst] + [axis_partner]
+        else:
+            picks.append(axis_partner)
+
+    # --- 3番手保証（相方は落とさない） ---
+    if BAND_LO <= _FRv <= BAND_HI:
         target = axis_line if (axis_line and len(axis_line) >= 3) else (
             best_thick_other if (best_thick_other and len(best_thick_other) >= 3) else None
         )
         if target:
             g_sorted = sorted(target, key=lambda x: hens.get(x, 0.0), reverse=True)
             if len(g_sorted) >= 3:
-                first, second, third = g_sorted[0], g_sorted[1], g_sorted[2]
-                cond_rel = (hens.get(second, 0.0) - hens.get(third, 0.0)) <= REL_DIFF_MAX
-                cond_abs = hens.get(third, 0.0) >= THIRD_MIN
-                if (third not in picks) and (cond_rel or cond_abs):
-                    drop_cands = [x for x in picks if x not in target]
+                third = g_sorted[2]
+                if (third not in picks) and (hens.get(third, 0.0) >= THIRD_MIN):
+                    # 相方を落とさない・target外から落とす
+                    drop_cands = [x for x in picks if (x not in target) and (x != axis_partner)]
                     if drop_cands:
                         worst = min(drop_cands, key=lambda x: scores_local.get(x, -1e9))
                         if worst != third:
                             picks = [x for x in picks if x != worst] + [third]
-                    else:
-                        protect = {axis}
-                        if axis_line:
-                            axis_partner = _t369p_best_in_group(axis_line, hens, exclude=axis)
-                            if axis_partner is not None:
-                                protect.add(axis_partner)
-                        drop_cands_in = [x for x in picks if (x in target) and (x not in protect) and (x != third)]
-                        if drop_cands_in:
-                            worst = min(drop_cands_in, key=lambda x: scores_local.get(x, -1e9))
+                    # どうしても対象が無ければ“target内の相方以外の末位”と置換
+                    elif len(picks) >= n_opps:
+                        target_inside = [x for x in picks if (x in target) and (x not in (axis, axis_partner))]
+                        if target_inside:
+                            worst = min(target_inside, key=lambda x: scores_local.get(x, -1e9))
                             if worst != third:
                                 picks = [x for x in picks if x != worst] + [third]
+                        else:
+                            # 入りきらない場合でも相方は守る
+                            if len(picks) < n_opps:
+                                picks.append(third)
 
-    # ユニーク＆サイズ調整
+    # --- 二車軸の最終確認（相方が必ず残るよう再チェック） ---
+    if (axis_partner is not None) and (axis_partner not in picks):
+        # 相方復帰（相方以外の最低スコアを落とす）
+        drop_cands = [x for x in picks if x != axis_partner]
+        if drop_cands:
+            worst = min(drop_cands, key=lambda x: scores_local.get(x, -1e9))
+            picks = [x for x in picks if x != worst] + [axis_partner]
+        else:
+            picks.append(axis_partner)
+
+    # --- ユニーク＆サイズ調整 ---
     seen = set()
-    picks = [x for x in picks if not (x in seen or seen.add(x))][:n_opps]
+    picks = [x for x in picks if not (x in seen or seen.add(x))]
+    if len(picks) > n_opps:
+        # 相方を保護しつつ超過を落とす
+        to_drop = len(picks) - n_opps
+        cand = [x for x in picks if x != axis_partner]
+        cand_sorted = sorted(cand, key=lambda x: scores_local.get(x, -1e9))
+        for i in range(min(to_drop, len(cand_sorted))):
+            picks.remove(cand_sorted[i])
+
     return picks
+
 
 
 # === /v2.2 ===
