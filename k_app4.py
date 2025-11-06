@@ -4736,7 +4736,7 @@ def generate_tesla_bets(flow, lines_str, marks_any, scores):
         fr_v=FRv,  # ★重要
     )
 
-    # === 対抗ライン 2名の強制補完（軸ラインが3車以上のとき） ===
+        # === 対抗ライン 2名の強制補完（軸ラインが3車以上のとき） ===
     axis_line_for_fmt = next((ln for ln in lines if isinstance(axis_id, int) and axis_id in ln), [])
     def _line_avg(g): return sum(scores.get(x, 0.0) for x in g)/len(g) if g else -1e9
     other_lines = [g for g in (lines or []) if g != axis_line_for_fmt]
@@ -4758,6 +4758,7 @@ def generate_tesla_bets(flow, lines_str, marks_any, scores):
                     worst = min(drop_cands, key=lambda x: scores.get(x, -1e9))
                     if worst in opps:
                         opps = [x for x in opps if x != worst] + [missing[0]]
+
 
 
             # === 軸ライン「3番手」強制補完（FR帯 0.25〜0.65 & 偏差>=40） ===
