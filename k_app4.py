@@ -2645,9 +2645,20 @@ if len(tri_exc)<3:
         tri_exc.append((a,b,c,s,tag)); seen.add(k)
         if len(tri_exc)>=3: break
 
-o_list(rows): return " / ".join(f"{a}-{b}-{c}" for a,b,c,_,_ in rows) if rows else "—"
-st.markdown(f"**戦術（三連複）** ◎入り3点: {_fmt_trio_list(tri_inc)}　｜　◎抜き3点: {_fmt_trio_list(tri_exc)}")
-# st.write は削除
+def o_list(rows):
+    if not rows:
+        return "—"
+    parts = []
+    for t in rows:
+        # t がタプル/リストで3要素以上ある前提で安全に切り出し
+        try:
+            a, b, c = t[0], t[1], t[2]
+            parts.append(f"{a}-{b}-{c}")
+        except Exception:
+            # 形が合わない行はスキップ
+            continue
+    return " / ".join(parts) if parts else "—"
+
 
 
 
