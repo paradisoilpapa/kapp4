@@ -5022,12 +5022,21 @@ for ln in all_lines:
 
 # === carFR順位（表示） ===
 try:
+    import re, statistics  # 追加
     _scores_for_rank = {int(k): float(v) for k, v in (globals().get("scores", {}) or {}).items() if str(k).isdigit()}
     _carfr_txt, _carfr_rank, _carfr_map = compute_carFR_ranking(all_lines, _scores_for_rank, line_fr_map)
     note_sections.append("\n【carFR順位】")
     note_sections.append(_carfr_txt)
+
+    # ↓↓↓ ここから追加（平均値を出して追記）
+    _vals = [float(x) for x in re.findall(r'\((\d+\.\d+)\)', _carfr_txt)]
+    _avg = statistics.mean(_vals) if _vals else 0.0
+    note_sections.append(f"\n平均値 {_avg:.5f}")
+    # ↑↑↑ ここまで
+
 except Exception:
     pass
+
 
 note_sections.append("")  # 空行
 
