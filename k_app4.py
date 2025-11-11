@@ -4512,12 +4512,10 @@ def format_tri_1x4(axis: int, opps: List[int]) -> str:
 # ---------- 1) FRで車番を並べる（最小主義・厳密版） ----------
 def trio_free_completion(scores, marks_any, flow_ctx=None):
     """
-    【変更点】
-    ・carFR順位の 1位を軸、2〜5位を相手（順位順のまま）で三連複 1-2345-2345 を返す。
-    ・他の指標や除外ルールは使わない（明示仕様化）。
+    carFR順位の 1位を軸、2〜5位を相手（順位順のまま）で
+    三連複：1位-2345位-2345位 を返す。
     戻り値: (trio_text, axis_id, axis_car_fr)
     """
-    # 偏差値（=車個体強度）
     hens = {int(k): float(v) for k, v in (scores or {}).items() if str(k).isdigit()}
     if not hens:
         return ("—", None, None)
@@ -4526,90 +4524,51 @@ def trio_free_completion(scores, marks_any, flow_ctx=None):
     FRv   = float(flow_ctx.get("FR", 0.0) or 0.0)
     lines = [list(map(int, ln)) for ln in (flow_ctx.get("lines") or [])]
 
-    # ラインFRを FRv を各ライン強度(s)に比例配分して推定
+    # 表示系と同じ推定ラインFRを作成（整合性キープ）
     line_fr_map = {}
     if FRv > 0.0 and lines:
-        line_sums = []
-        for ln in lines:
-            s = sum(hens.get(x, 0.0) for x in ln)
-            line_sums.append((ln, s))
+        line_sums = [(ln, sum(hens.get(x, 0.0) for x in ln)) for ln in lines]
         total = sum(s for _, s in line_sums) or 1.0
         for ln, s in line_sums:
-            key = "".join(str(x) for x in ln)
-            line_fr_map[key] = FRv * (s / total)
+            line_fr_map["".join(map(str, ln))] = FRv * (s / total)
 
-    # 各車の car_fr = 所属ラインFR ×（その車の偏差/ライン内合計）
-    car_fr = {}
-    for ln in (lines or []):
-        key = "".join(str(x) for x in ln)
-        lfr = float(line_fr_map.get(key, 0.0))
-        if not ln:
-            continue
-        s = sum(hens.get(x, 0.0) for x in ln)
-        if s <= 0.0:
-            # ゼロ割回避（均等割り）
-            w = [1.0/len(ln)] * len(ln)
-        else:
-            w = [hens.get(x, 0.0)/s for x in ln]
-        for c, wj in zip(ln, w):
-            car_fr[int(c)] = car_fr.get(int(c), 0.0) + lfr * wj
-
-    if not car_fr:
+    # carFR順位（表示関数と同じロジックを使う）
+    _carfr_txt, _carfr_rank, _carfr_map = compute_carFR_ranking(lines, hens, line_fr_map)
+    # _carfr_rank は [(cid, val), ...]
+    if not _carfr_rank or len(_carfr_rank) < 3:
         return ("—", None, None)
 
-    # carFR順位（tie-break：car_fr降順 → 偏差降順 → 車番昇順の逆＝ -id ）
-    ordered = sorted(car_fr.keys(),
-                     key=lambda c: (car_fr[c], hens.get(c, 0.0), -int(c)),
-                     reverse=True)
-
-    if len(ordered) < 3:
-        return ("—", None, None)
-
-    axis = int(ordered[0])
-    opps = []
-    for c in ordered[1:]:
-        if c == axis:
-            continue
-        opps.append(int(c))
-        if len(opps) >= 4:
-            break
+    ordered_ids = [int(cid) for (cid, _) in _carfr_rank]
+    axis = ordered_ids[0]
+    opps = [c for c in ordered_ids[1:] if c != axis][:4]
     if len(opps) < 2:
         return ("—", None, None)
 
-    mid = "".join(map(str, opps))  # 例: 2345
+    mid = "".join(map(str, opps))  # 例: 2345（順位順のまま）
     trio_text = f"{axis}-{mid}-{mid}"
-    return (trio_text, axis, car_fr.get(axis, None))
+    return (trio_text, axis, _carfr_map.get(axis, None))
+
 
 
 # === 想定FRをラインごとに作り、相手4枠を決めて買目を確定 ===
 def generate_tesla_bets(flow, lines_str, marks_any, scores):
-    """
-    【変更点】
-    ・買い目テキストは trio_free_completion() の carFR順位固定フォーマットをそのまま採用。
-    ・それ以外（FR/VTX/U、ライン表示、軸ID/axis_fr、line_fr_map生成など）は従来通り維持。
-    """
     flow   = dict(flow or {})
     scores = {int(k): float(v) for k, v in (scores or {}).items() if str(k).isdigit()}
 
-    # 印正規化（表示・従来互換のため残す）
+    # 印正規化（表示に使うだけ）
     def _free_norm_marks(marks_any):
         marks_any = dict(marks_any or {})
-        if not marks_any:
-            return {}
+        if not marks_any: return {}
         if all(isinstance(v, int) for v in marks_any.values()):
             out = {}
             for k, v in marks_any.items():
-                try:
-                    out[int(v)] = str(k)
-                except Exception:
-                    pass
+                try: out[int(v)] = str(k)
+                except Exception: pass
             return out
         out = {}
         for k, v in marks_any.items():
-            try:
-                out[int(k)] = str(v)
-            except Exception:
-                pass
+            try: out[int(k)] = str(v)
+            except Exception: pass
         return out
 
     marks = _free_norm_marks(marks_any)
@@ -4619,30 +4578,21 @@ def generate_tesla_bets(flow, lines_str, marks_any, scores):
     Uv   = float(flow.get("U", 0.0) or 0.0)
     lines = [list(map(int, ln)) for ln in (flow.get("lines") or [])]
 
-    # ラインごとの想定FR（表示用は従来どおり作る）
+    # 表示用ラインFR（従来どおり）
     line_fr_map = {}
     if FRv > 0.0 and lines:
-        line_sums = []
-        for ln in lines:
-            s = sum(scores.get(x, 0.0) for x in ln)
-            line_sums.append((ln, s))
+        line_sums = [(ln, sum(scores.get(x, 0.0) for x in ln)) for ln in lines]
         total = sum(s for _, s in line_sums) or 1.0
         for ln, s in line_sums:
-            key = "".join(str(x) for x in ln)
-            line_fr_map[key] = FRv * (s / total)
+            line_fr_map["".join(map(str, ln))] = FRv * (s / total)
 
-    # 表示用ライン（空なら従来フォールバック）
     FR_line  = flow.get("FR_line")
     VTX_line = flow.get("VTX_line")
     U_line   = flow.get("U_line")
 
     if (FR_line is None or FR_line == []) and lines:
         star_id = next((cid for cid, m in marks.items() if m == "◎"), None)
-        if isinstance(star_id, int):
-            cand = [ln for ln in lines if star_id in ln]
-            FR_line = cand[0] if cand else lines[0]
-        else:
-            FR_line = lines[0]
+        FR_line = next((ln for ln in lines if isinstance(star_id, int) and star_id in ln), lines[0])
 
     if (VTX_line is None or VTX_line == []) and lines:
         def _key_of(ln): return line_fr_map.get("".join(map(str, ln)), 0.0)
@@ -4654,22 +4604,9 @@ def generate_tesla_bets(flow, lines_str, marks_any, scores):
         others = [ln for ln in lines if ln not in (FR_line, VTX_line)]
         U_line = min(others, key=_key_of) if others else (VTX_line or FR_line or [])
 
-    # ★買い目は carFR順位フォーマットで統一
+    # ★買い目は carFR順位フォーマットをそのまま採用
     trio_text, axis_id, axis_fr = trio_free_completion(scores, marks, flow_ctx=flow)
-    if trio_text in (None, "—") or not isinstance(axis_id, int):
-        # フォールバック（従来互換）
-        try:
-            _tres = trio_free_completion(scores, marks, flow_ctx=flow)  # 再試行
-            trio_text = _tres[0] if (isinstance(_tres, tuple) and len(_tres) >= 1) else "—"
-            axis_id   = _tres[1] if (isinstance(_tres, tuple) and len(_tres) >= 2) else None
-            axis_fr   = _tres[2] if (isinstance(_tres, tuple) and len(_tres) >= 3) else None
-        except Exception:
-            trio_text = "—"
-
-    note_lines = [
-        "【買い目】",
-        f"三連複：{trio_text}",
-    ]
+    note_lines = ["【買い目】", f"三連複：{trio_text}" if trio_text not in (None, "—") else "三連複：—"]
 
     return {
         "FR_line": FR_line,
