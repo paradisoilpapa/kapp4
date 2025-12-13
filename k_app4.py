@@ -2088,32 +2088,6 @@ L3 = sorted(L3, key=lambda c: (-race_t.get(int(c), 50.0), int(c)))[:L3_TOPK]
 # --- 差し込みここまで ---
 
 
-# =========================
-#  フォーメーション表示
-# =========================
-def _fmt_form(col):
-    return "".join(str(x) for x in col) if col else "—"
-
-form_L1 = _fmt_form(L1)
-form_L2 = _fmt_form(L2)
-form_L3 = _fmt_form(L3)
-formation_label = f"{form_L1}-{form_L2}-{form_L3}"
-st.markdown(f"**フォーメーション**：{formation_label}")
-
-# 既存：三連複/三連単の基礎スコア計算関数が無い場合の保険
-if '_trio_score' not in globals():
-    S_BASE_MAP = {int(i): float(race_t.get(int(i), 50.0)) for i in USED_IDS}
-    def _trio_score(a, b, c):
-        return S_BASE_MAP.get(int(a), 0.0) + S_BASE_MAP.get(int(b), 0.0) + S_BASE_MAP.get(int(c), 0.0)
-
-# 既存：三連単の順序付きスコアが無い場合の保険
-if '_santan_score' not in globals():
-    def _santan_score(a:int, b:int, c:int) -> float:
-        base = _trio_score(a,b,c)
-        bonus = 0.0
-        if 'anchor_no' in globals() and a == anchor_no:
-            bonus += 2.0
-        return base + bonus
 
 # =========================
 #  印の取得
