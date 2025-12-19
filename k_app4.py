@@ -165,6 +165,126 @@ RANK_STATS_TOTAL = {
     "無": {"p1": 0.003, "pTop2": 0.118, "pTop3": 0.256},
 }
 
+# --- FR順位と印・どの確率を使うかの対応表 ---
+
+def compute_weighted_rank_from_carfr_text(carfr_text: str):
+    """
+    【carFR順位】のテキスト(_carfr_txt)を解析して、
+    「FR値 ×（印ごとの 1着率／2着率／3着率）」でスコアを計算し、
+    高い順に並べたリストを返す。
+
+    戻り値: list[dict]
+      {
+        "final_rank": 最終順位(1〜),
+        "car_no":     車番,
+        "fr_rank":    FR順位(1〜),
+        "fr_value":   FR値,
+        "mark":       使った印（◎,〇,▲,△,×,α,無）, 
+        "prob_label": "1着率" / "2着率" / "3着率",
+        "prob":       掛け合わせた確率値,
+        "score":      fr_value * prob
+      }
+    """
+    import re
+
+    if not carfr_text:
+        return []
+
+    # carFRテキストから「順位・車番・FR値」を抜き出す
+    # 例: "1位：2 (0.0927)"
+    pattern = r"(\d+)位：(\d+) \((\d+\.\d+)\)"
+    rows = []
+    for m in re.finditer(pattern, carfr_text):
+        fr_rank = int(m.group(1))    # 1〜7位
+        car_no  = int(m.group(2))    # 車番
+        fr_val  = float(m.group(3))  # FR値
+        rows.append((fr_rank, car_no, fr_val))
+
+    if not rows:
+        return []
+
+    n = len(rows)
+
+    # --- FR順位 → 印 の対応（6車 / 7車で切り替え） ---
+    rank_to_mark_7 = {
+        1: "〇",
+        2: "◎",
+        3: "△",
+        4: "▲",
+        5: "無",
+        6: "α",
+        7: "×",
+    }
+
+    rank_to_mark_6 = {
+        1: "〇",
+        2: "◎",
+        3: "△",
+        4: "▲",
+        5: "α",
+        6: "×",
+    }
+
+    if n >= 7:
+        rank_to_mark = rank_to_mark_7
+    elif n == 6:
+        rank_to_mark = rank_to_mark_6
+    else:
+        # 想定外（5車立て等）は、とりあえず7車版の上から n 個を流用
+        rank_to_mark = {r: rank_to_mark_7[r] for r in range(1, n + 1) if r in rank_to_mark_7}
+
+    def _calc_prob_and_label(mark: str, fr_rank: int):
+        """
+        指定された印とFR順位に応じて、
+        1着率 / 2着率 / 3着率 を返す。
+        """
+        stats = RANK_STATS_TOTAL.get(mark)
+        if not stats:
+            return 0.0, "不明"
+
+        p1    = float(stats.get("p1", 0.0))
+        pTop2 = float(stats.get("pTop2", 0.0))
+        pTop3 = float(stats.get("pTop3", 0.0))
+
+        # 2着率・3着率を「ちょうどその着」の確率として再計算する
+        p2 = max(pTop2 - p1, 0.0)        # 2着率
+        p3 = max(pTop3 - pTop2, 0.0)     # 3着率
+
+        if fr_rank in (1, 2):
+            return p1, "1着率"
+        elif fr_rank in (3, 4):
+            return p2, "2着率"
+        else:
+            return p3, "3着率"
+
+    scored = []
+    for fr_rank, car_no, fr_val in rows:
+        mark = rank_to_mark.get(fr_rank)
+        if not mark:
+            continue
+
+        prob, label = _calc_prob_and_label(mark, fr_rank)
+        score = fr_val * prob
+
+        scored.append(
+            {
+                "car_no":     car_no,
+                "fr_rank":    fr_rank,
+                "fr_value":   fr_val,
+                "mark":       mark,
+                "prob_label": label,
+                "prob":       prob,
+                "score":      score,
+            }
+        )
+
+    # スコアの高い順に並べて、final_rankを付与
+    scored.sort(key=lambda r: r["score"], reverse=True)
+    for i, r in enumerate(scored, start=1):
+        r["final_rank"] = i
+
+    return scored
+
 
 
 
@@ -3212,20 +3332,32 @@ for ln in all_lines:
 
 # === carFR順位（表示） ===
 try:
-    import re, statistics  # 追加
+    import re, statistics
     _scores_for_rank = {int(k): float(v) for k, v in (globals().get("scores", {}) or {}).items() if str(k).isdigit()}
     _carfr_txt, _carfr_rank, _carfr_map = compute_carFR_ranking(all_lines, _scores_for_rank, line_fr_map)
     note_sections.append("\n【carFR順位】")
     note_sections.append(_carfr_txt)
 
-    # ↓↓↓ ここから追加（平均値を出して追記）
+    # 平均値を出して追記
     _vals = [float(x) for x in re.findall(r'\((\d+\.\d+)\)', _carfr_txt)]
     _avg = statistics.mean(_vals) if _vals else 0.0
     note_sections.append(f"\n平均値 {_avg:.5f}")
-    # ↑↑↑ ここまで
+
+    # FR×印着内率スコアによる最終順位を追記
+    _weighted_rows = compute_weighted_rank_from_carfr_text(_carfr_txt)
+    if _weighted_rows:
+        note_sections.append("\n【carFR×印着内率スコア順位】")
+        for r in _weighted_rows:
+            note_sections.append(
+                f"{r['final_rank']}位：{r['car_no']} "
+                f"(スコア={r['score']:.6f})"
+            )
+
+
 
 except Exception:
     pass
+
 
 
 note_sections.append("")  # 空行
