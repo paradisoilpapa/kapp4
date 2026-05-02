@@ -3983,6 +3983,52 @@ try:
                 key=lambda x: (-x["sort_score"], -x["fr"], _fmt_line(x["line"]))
             )
 
+                # =====================================================
+        # 全ラインが順流域に吸収された場合の強制分割
+        # 目的：順流・渦・逆流メインが全部同じになるのを防ぐ
+        # =====================================================
+        try:
+            if (
+                len(zones.get("順流域", [])) >= 3
+                and len(zones.get("渦域", [])) == 0
+                and len(zones.get("逆流域", [])) == 0
+            ):
+                all_top_items = list(zones["順流域"])
+
+                # まずFR順で並べる
+                all_top_items = sorted(
+                    all_top_items,
+                    key=lambda x: (-float(x["fr"]), _fmt_line(x["line"]))
+                )
+
+                # ◎ラインは順流域に残す
+                fr_items = [x for x in all_top_items if "◎" in x.get("tags", [])]
+
+                if fr_items:
+                    keep_jun = fr_items[0]
+                else:
+                    keep_jun = all_top_items[0]
+
+                rest = [x for x in all_top_items if x is not keep_jun]
+
+                # 残りの中でFR最上位を渦域へ
+                rest = sorted(
+                    rest,
+                    key=lambda x: (-float(x["fr"]), _fmt_line(x["line"]))
+                )
+
+                keep_vtx = rest[0] if rest else None
+                rest2 = [x for x in rest if x is not keep_vtx]
+
+                zones["順流域"] = [keep_jun]
+                zones["渦域"] = [keep_vtx] if keep_vtx is not None else []
+                zones["逆流域"] = rest2
+
+        except Exception:
+            pass
+
+        
+
         # KO隊列用：ラインごとの新ゾーン分類を保存
         _LINE_ZONE_MAP = {}
 
