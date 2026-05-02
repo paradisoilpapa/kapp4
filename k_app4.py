@@ -4068,7 +4068,7 @@ try:
             ("逆流→渦→順流", ["逆流", "渦", "順流"]),
         ]
 
-                def _infer_line_zone(ln):
+        def _infer_line_zone(ln):
             s = _norm_line(ln)
 
             # 新方式：ライン評価グループを優先
