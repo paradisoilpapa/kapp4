@@ -491,10 +491,27 @@ def t_score_from_finite(values: np.ndarray, eps: float = 1e-9):
     T[~finite] = 50.0
     return T, mu, sd, k
 
-def extract_car_list(s, nmax):
-    s = str(s or "").strip()
-    return [int(c) for c in s if c.isdigit() and 1 <= int(c) <= nmax]
+def extract_car_list(s, n_cars=None):
+    """
+    ライン入力文字列から車番を抽出する。
+    出走数n_carsでは車番を制限しない。
+    5車立てでも 12346 のような欠番ありを許可する。
+    """
+    cars = []
+    seen = set()
 
+    for ch in str(s):
+        if not ch.isdigit():
+            continue
+
+        v = int(ch)
+
+        # 競輪の車番として1〜9だけ許可
+        if 1 <= v <= 9 and v not in seen:
+            cars.append(v)
+            seen.add(v)
+
+    return cars
 def build_line_maps(lines):
     labels = "ABCDEFG"
     line_def = {labels[i]: lst for i,lst in enumerate(lines) if lst}
