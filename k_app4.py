@@ -4124,18 +4124,40 @@ try:
 
         _car_zone_map = _build_car_zone_map(all_lines)
 
-        _car_line_size = {}
+    　  _car_line_size = {}
+        _car_line_pos = {}
+
         for ln in (all_lines or []):
             ds = _digits_of_line(ln)
             sz = len(ds)
-            for c in ds:
-                _car_line_size[int(c)] = sz if sz > 0 else 1
 
-        def _pos_adj(i):
-            if i == 0:
+            for idx, c in enumerate(ds):
+                _car_line_size[int(c)] = sz if sz > 0 else 1
+                _car_line_pos[int(c)] = int(idx)
+
+        def _pos_adj_for_car(car):
+            """
+            位置補正は隊列全体の何番目かではなく、
+            その車が所属ライン内で何番手かを見る。
+            単騎は番手利を与えない。
+            """
+            car = int(car)
+            sz = int(_car_line_size.get(car, 1) or 1)
+            pos = int(_car_line_pos.get(car, 0) or 0)
+
+            # 単騎は位置補正なし
+            if sz <= 1:
+                return 0.0
+
+            # ライン先頭
+            if pos == 0:
                 return -0.040
-            if i == 1:
+
+            # ライン2番手
+            if pos == 1:
                 return +0.020
+
+            # 3番手以降
             return 0.0
 
         _FR_K_MAIN = 0.18
@@ -4191,8 +4213,7 @@ try:
 
             def _final_at(car, i):
                 base = float(score_map.get(int(car), 0.0))
-                return base + _pos_adj(int(i)) + _fr_bonus_for_car(int(car), main_zone)
-
+                return base + _pos_adj_for_car(int(car)) + _fr_bonus_for_car(int(car), main_zone)
             # ====== PATCH: venue-aware pass_m / available_m + speed-based MAX_PASSES ======
             pass_m = 14.0 + 0.35 * straight_m
             pass_m *= (1.0 + 0.25 * max(0.0, style))
