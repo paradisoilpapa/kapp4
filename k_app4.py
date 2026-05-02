@@ -3970,7 +3970,7 @@ try:
 
             sort_score = fr + (0.030 if item["is_h"] else 0.0)
 
-                        zones[zone].append({
+            zones[zone].append({
                 "line": ln,
                 "fr": fr,
                 "tags": tags,
