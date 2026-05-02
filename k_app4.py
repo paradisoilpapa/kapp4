@@ -4139,7 +4139,7 @@ try:
             main_zone = (svr[0] if (svr and len(svr) >= 1) else "順流")
             outs[pname] = _run_ko(q, main_zone)
 
-                def _fmt_seq(seq, max_n=None):
+        def _fmt_seq(seq, max_n=None):
             xs = [int(x) for x in (seq or []) if str(x).isdigit()]
             if max_n is None:
                 max_n = int(globals().get("n_cars", len(xs)))
