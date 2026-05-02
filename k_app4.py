@@ -3970,14 +3970,14 @@ try:
 
             sort_score = fr + (0.030 if item["is_h"] else 0.0)
 
-            zones[zone].append({
+                        zones[zone].append({
                 "line": ln,
                 "fr": fr,
                 "tags": tags,
                 "sort_score": sort_score,
             })
 
-                for z in zones:
+        for z in zones:
             zones[z] = sorted(
                 zones[z],
                 key=lambda x: (-x["sort_score"], -x["fr"], _fmt_line(x["line"]))
@@ -4002,16 +4002,13 @@ try:
 
         globals()["LINE_ZONE_MAP"] = _LINE_ZONE_MAP
 
-         globals()["LINE_ZONE_MAP"] = _LINE_ZONE_MAP
-
-         note_sections.append("【ライン評価グループ】")
+        note_sections.append("【ライン評価グループ】")
 
         for zone_name in ["順流域", "渦域", "逆流域"]:
             items = zones.get(zone_name, [])
             if not items:
                 note_sections.append(f"{zone_name}：—")
                 continue
-
             parts = []
             for item in items:
                 tag_txt = ""
