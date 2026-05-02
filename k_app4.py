@@ -3829,19 +3829,136 @@ try:
             pass
         return "".join(map(str, ln)) if isinstance(ln, (list, tuple)) and ln else "—"
 
-    note_sections.append(f"【順流】◎ライン {_fmt_line(FR_line)}：想定FR={_lfr(FR_line):.3f}")
+        # =========================================================
+    # ライン評価グループ（順流域／渦域／逆流域）
+    # =========================================================
+    def _fmt_line(ln):
+        try:
+            f = globals().get("_free_fmt_nums")
+            if callable(f):
+                return f(ln)
+        except Exception:
+            pass
+        return "".join(map(str, ln)) if isinstance(ln, (list, tuple)) and ln else "—"
 
-    if VTX_line and _lfr(VTX_line) > 0:
-        note_sections.append(f"【渦】候補ライン：{_fmt_line(VTX_line)}：想定FR={_lfr(VTX_line):.3f}")
+    def _same_line(a, b):
+        return tuple(int(x) for x in (a or [])) == tuple(int(x) for x in (b or []))
+
+    try:
+        h_line_members = line_def.get(home_top_gid, []) if home_top_gid is not None else []
+    except Exception:
+        h_line_members = []
+
+    valid_lines = [ln for ln in (all_lines or []) if ln]
+    line_items = []
+
+    for ln in valid_lines:
+        fr = float(_lfr(ln))
+        line_items.append({
+            "line": ln,
+            "fr": fr,
+            "is_fr": _same_line(ln, FR_line),
+            "is_vtx": _same_line(ln, VTX_line),
+            "is_u": _same_line(ln, U_line),
+            "is_h": _same_line(ln, h_line_members),
+        })
+
+    line_items = sorted(line_items, key=lambda x: (-x["fr"], _fmt_line(x["line"])))
+
+    if line_items:
+        top_fr = float(line_items[0]["fr"])
+
+        # FR差による範囲判定
+        # 7車以下はやや狭め、8・9車は広め
+        if int(n_cars) >= 8:
+            upper_gap = 0.120
+            middle_ratio = 0.45
+            h_gap = 0.150
+        else:
+            upper_gap = 0.050
+            middle_ratio = 0.45
+            h_gap = 0.090
+
+        zones = {
+            "順流域": [],
+            "渦域": [],
+            "逆流域": [],
+        }
+
+        for item in line_items:
+            ln = item["line"]
+            fr = float(item["fr"])
+            gap = top_fr - fr
+            ratio = (fr / top_fr) if top_fr > 1e-12 else 0.0
+
+            tags = []
+            if item["is_fr"]:
+                tags.append("◎")
+            if item["is_h"]:
+                tags.append("H主導")
+            if item["is_vtx"]:
+                tags.append("旧渦")
+            if item["is_u"]:
+                tags.append("旧逆流")
+
+            # 順流域：
+            # FRトップ、またはFRトップとの差が小さいライン
+            if item["is_fr"] or gap <= upper_gap:
+                zone = "順流域"
+
+            # H主導ラインは、FR2位級なら実質上位へ寄せる
+            elif item["is_h"] and (gap <= h_gap or ratio >= 0.55):
+                zone = "順流域"
+                tags.append("実質上位")
+
+            # 中位以上の別線は渦域
+            elif ratio >= middle_ratio:
+                zone = "渦域"
+
+            # 低FR・単騎・押上げ側は逆流域
+            else:
+                zone = "逆流域"
+
+            sort_score = fr + (0.030 if item["is_h"] else 0.0)
+
+            zones[zone].append({
+                "line": ln,
+                "fr": fr,
+                "tags": tags,
+                "sort_score": sort_score,
+            })
+
+        for z in zones:
+            zones[z] = sorted(
+                zones[z],
+                key=lambda x: (-x["sort_score"], -x["fr"], _fmt_line(x["line"]))
+            )
+
+        note_sections.append("【ライン評価グループ】")
+
+        for zone_name in ["順流域", "渦域", "逆流域"]:
+            items = zones.get(zone_name, [])
+            if not items:
+                note_sections.append(f"{zone_name}：—")
+                continue
+
+            parts = []
+            for item in items:
+                tag_txt = ""
+                if item["tags"]:
+                    tag_txt = "・" + "・".join(item["tags"])
+
+                parts.append(
+                    f"{_fmt_line(item['line'])}［FR={item['fr']:.3f}{tag_txt}］"
+                )
+
+            note_sections.append(f"{zone_name}：" + "／".join(parts))
+
     else:
-        note_sections.append("【渦】候補ライン：—：想定FR=0.000")
-
-    note_sections.append(f"【逆流】無ライン {_fmt_line(U_line)}：想定FR={_lfr(U_line):.3f}")
-
-    for ln in (all_lines or []):
-        if ln == FR_line or ln == VTX_line or ln == U_line:
-            continue
-        note_sections.append(f"　　　その他ライン {_fmt_line(ln)}：想定FR={_lfr(ln):.3f}")
+        note_sections.append("【ライン評価グループ】")
+        note_sections.append("順流域：—")
+        note_sections.append("渦域：—")
+        note_sections.append("逆流域：—")
 
     note_sections.append("")
 
