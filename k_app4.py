@@ -3996,11 +3996,15 @@ try:
             short_zone = _zone_to_short.get(zone_name, "その他")
             for item in items:
                 try:
-                    _LINE_ZONE_MAP[_line_key(item["line"])] = short_zone
+                   key = "".join(ch for ch in str(item["line"]) if ch.isdigit())
+                   if key:
+                       _LINE_ZONE_MAP[key] = short_zone
                 except Exception:
-                    pass
+                   pass
 
         globals()["LINE_ZONE_MAP"] = _LINE_ZONE_MAP
+
+        # st.write("DEBUG LINE_ZONE_MAP", _LINE_ZONE_MAP)
 
         note_sections.append("【ライン評価グループ】")
 
