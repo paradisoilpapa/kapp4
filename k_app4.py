@@ -3871,7 +3871,7 @@ try:
         # FR差による範囲判定
         # 7車以下はやや狭め、8・9車は広め
         if int(n_cars) >= 8:
-            upper_gap = 0.120
+            upper_gap = 0.080
             middle_ratio = 0.45
             h_gap = 0.150
         else:
