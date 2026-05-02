@@ -4124,7 +4124,7 @@ try:
 
         _car_zone_map = _build_car_zone_map(all_lines)
 
-    　  _car_line_size = {}
+        _car_line_size = {}
         _car_line_pos = {}
 
         for ln in (all_lines or []):
