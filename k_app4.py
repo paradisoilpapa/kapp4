@@ -427,6 +427,55 @@ def h_home_bonus(no: int, role: str, H_Z: dict[int, float]) -> float:
     return round(clamp(raw, -H_SCORE_CAP, H_SCORE_CAP), 3)
 
 
+def h_lead_line_bonus(
+    no: int,
+    role: str,
+    H: dict,
+    B: dict,
+    line_def: dict,
+    home_top_gid,
+) -> float:
+    """
+    H主導ラインの先頭車だけを下支えする補正。
+    目的：H主導ライン先頭がKO最下位まで沈む現象を防ぐ。
+    """
+    try:
+        if home_top_gid is None:
+            return 0.0
+
+        members = line_def.get(home_top_gid, [])
+        if not members:
+            return 0.0
+
+        head = int(members[0])
+
+        # H主導ラインの先頭車だけ対象
+        if int(no) != head:
+            return 0.0
+
+        # 役割が先頭でないなら対象外
+        if role != "head":
+            return 0.0
+
+        h_val = float(H.get(int(no), 0.0) or 0.0)
+        b_val = float(B.get(int(no), 0.0) or 0.0)
+
+        # Hが低いなら補正しない
+        if h_val < 3.0:
+            return 0.0
+
+        # Hを主、Bを補助にする
+        bonus = 0.035 + 0.004 * h_val + 0.002 * b_val
+
+        # 暴走防止
+        return round(clamp(bonus, 0.0, 0.090), 3)
+
+    except Exception:
+        return 0.0
+    raw = H_SCORE_SCALE * float(H_Z.get(int(no), 0.0)) * role_mult
+    return round(clamp(raw, -H_SCORE_CAP, H_SCORE_CAP), 3)
+
+
 def t_score_from_finite(values: np.ndarray, eps: float = 1e-9):
     """NaNを除いた母集団でT=50+10*(x-μ)/σを作り、NaNは50に置換して返す"""
     v = values.astype(float, copy=True)
