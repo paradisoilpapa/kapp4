@@ -3983,7 +3983,26 @@ try:
                 key=lambda x: (-x["sort_score"], -x["fr"], _fmt_line(x["line"]))
             )
 
-        note_sections.append("【ライン評価グループ】")
+         # KO隊列用：ラインごとの新ゾーン分類を保存
+         _LINE_ZONE_MAP = {}
+
+         _zone_to_short = {
+             "順流域": "順流",
+             "渦域": "渦",
+             "逆流域": "逆流",
+        }
+
+        for zone_name, items in zones.items():
+            short_zone = _zone_to_short.get(zone_name, "その他")
+            for item in items:
+                try:
+                    _LINE_ZONE_MAP[_line_key(item["line"])] = short_zone
+                except Exception:
+                    pass
+
+         globals()["LINE_ZONE_MAP"] = _LINE_ZONE_MAP
+
+         note_sections.append("【ライン評価グループ】")
 
         for zone_name in ["順流域", "渦域", "逆流域"]:
             items = zones.get(zone_name, [])
@@ -4050,14 +4069,25 @@ try:
             ("逆流→渦→順流", ["逆流", "渦", "順流"]),
         ]
 
-        def _infer_line_zone(ln):
+                def _infer_line_zone(ln):
             s = _norm_line(ln)
+
+            # 新方式：ライン評価グループを優先
+            try:
+                zmap = globals().get("LINE_ZONE_MAP", {})
+                if isinstance(zmap, dict) and s in zmap:
+                    return zmap.get(s, "その他")
+            except Exception:
+                pass
+
+            # 保険：旧方式
             if s and FR_line and s == _norm_line(FR_line):
                 return "順流"
             if VTX_line and s == _norm_line(VTX_line):
                 return "渦"
             if s and U_line and s == _norm_line(U_line):
                 return "逆流"
+
             return "その他"
 
         def _queue_for_pattern(lines, svr_order):
