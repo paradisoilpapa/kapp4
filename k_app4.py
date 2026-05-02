@@ -3977,19 +3977,19 @@ try:
                 "sort_score": sort_score,
             })
 
-        for z in zones:
+                for z in zones:
             zones[z] = sorted(
                 zones[z],
                 key=lambda x: (-x["sort_score"], -x["fr"], _fmt_line(x["line"]))
             )
 
-         # KO隊列用：ラインごとの新ゾーン分類を保存
-         _LINE_ZONE_MAP = {}
+        # KO隊列用：ラインごとの新ゾーン分類を保存
+        _LINE_ZONE_MAP = {}
 
-         _zone_to_short = {
-             "順流域": "順流",
-             "渦域": "渦",
-             "逆流域": "逆流",
+        _zone_to_short = {
+            "順流域": "順流",
+            "渦域": "渦",
+            "逆流域": "逆流",
         }
 
         for zone_name, items in zones.items():
@@ -3999,6 +3999,8 @@ try:
                     _LINE_ZONE_MAP[_line_key(item["line"])] = short_zone
                 except Exception:
                     pass
+
+        globals()["LINE_ZONE_MAP"] = _LINE_ZONE_MAP
 
          globals()["LINE_ZONE_MAP"] = _LINE_ZONE_MAP
 
