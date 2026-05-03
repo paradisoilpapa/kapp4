@@ -1953,7 +1953,11 @@ SD_L200 = float(globals().get("SD_L200", 0.22))  # ← 追加。まず0.22〜0.3
 # 安定度（raw）と、ENVのベース（= 合計_SBなし_raw から安定度だけ除いたもの）
 STAB_RAW = {int(df.loc[i, "車番"]): float(df.loc[i, "安定度"]) for i in df.index}
 ENV_BASE = {
-    int(df.loc[i, "車番"]): float(df.loc[i, "合計_SBなし_raw"]) - float(df.loc[i, "安定度"])
+    int(df.loc[i, "車番"]): (
+        float(df.loc[i, "合計_SBなし_raw"])
+        - float(df.loc[i, "安定度"])
+        - float(df.loc[i, "ラスト200"])
+    )
     for i in df.index
 }
 
