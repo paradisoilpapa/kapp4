@@ -1218,8 +1218,22 @@ bank_length     = st.sidebar.number_input("周長(m)", 300.0, 500.0, float(info[
 st.session_state["bank_length"] = float(bank_length)
 
 base_laps = st.sidebar.number_input("周回（通常4）", 1, 10, 4, 1)
-day_label = st.sidebar.selectbox("開催日", ["初日","2日目","最終日"], 0)
-eff_laps  = int(base_laps) + {"初日":1,"2日目":2,"最終日":3}[day_label]
+day_label = st.sidebar.selectbox(
+    "開催日",
+    ["初日", "2日目", "3日目", "4日目", "5日目", "最終日"],
+    0
+)
+
+DAY_LAP_ADD = {
+    "初日": 1,
+    "2日目": 2,
+    "3日目": 3,
+    "4日目": 4,
+    "5日目": 5,
+    "最終日": 6,
+}
+
+eff_laps = int(base_laps) + DAY_LAP_ADD[day_label]
 
 race_class = st.sidebar.selectbox("級別", ["Ｓ級","Ａ級","Ａ級チャレンジ","ガールズ"], 0)
 
@@ -1262,7 +1276,14 @@ CLASS_FACTORS = {
 }
 cf = CLASS_FACTORS[race_class]
 
-DAY_FACTOR = {"初日":1.00, "2日目":1.00, "最終日":1.00}
+DAY_FACTOR = {
+    "初日": 1.00,
+    "2日目": 1.00,
+    "3日目": 0.99,
+    "4日目": 0.98,
+    "5日目": 0.97,
+    "最終日": 0.96,
+}
 day_factor = DAY_FACTOR[day_label]
 
 cap_base = clamp(0.06 + 0.02*style, 0.04, 0.08)
@@ -1273,7 +1294,14 @@ if race_time == "ミッドナイト":
     cap_SB_eff *= 0.95
 
 # ===== 日程・級別・頭数で“周回疲労の効き”を薄くシフト（出力には出さない） =====
-DAY_SHIFT = {"初日": -0.5, "2日目": 0.0, "最終日": +0.5}
+DAY_SHIFT = {
+    "初日": -0.5,
+    "2日目": 0.0,
+    "3日目": +0.2,
+    "4日目": +0.4,
+    "5日目": +0.6,
+    "最終日": +0.8,
+}
 CLASS_SHIFT = {"Ｓ級": 0.0, "Ａ級": +0.10, "Ａ級チャレンジ": +0.20, "ガールズ": -0.10}
 HEADCOUNT_SHIFT = {5: -0.20, 6: -0.10, 7: -0.05, 8: 0.0, 9: +0.10}
 
@@ -1286,6 +1314,11 @@ def fatigue_extra(eff_laps: int, day_label: str, n_cars: int, race_class: str) -
 
 # === PATCH-L200:（以下そのまま） ==========================================
 # ...（あなたの last200_bonus 以降は変更なし）
+
+fatigue_value = fatigue_extra(eff_laps, day_label, n_cars, race_class)
+
+globals()["fatigue_value"] = float(fatigue_value)
+globals()["fatigue_extra_value"] = float(fatigue_value)
 
 # sidebarの直後あたり（straight_length/style/wind_speedが確定した後）
 globals()["straight_length"] = float(straight_length)
