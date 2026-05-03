@@ -4759,6 +4759,7 @@ try:
             pass
 
                 # H反映チェック表示
+                        # H反映チェック表示
         try:
             if h_style is not None:
                 if h_changed:
@@ -4768,20 +4769,32 @@ try:
         except Exception:
             pass
 
-        lines_out.append(
-            f"・推奨戦法：{recommend_style}［信頼度{confidence}］"
+        # =====================================================
+        # 推奨戦法を＜短評＞の上に表示
+        # =====================================================
+        recommend_lines = []
+        recommend_lines.append(
+            f"推奨戦法：{recommend_style}［信頼度{confidence}］"
         )
+        recommend_lines.append("")
+
+        # 推奨理由は短評内に残す
         lines_out.append(
             f"・推奨理由：{'／'.join(recommend_reason)}"
         )
 
     except Exception as _e:
-        lines_out.append(
-            f"・推奨戦法：判定不可（{_e}）"
+        recommend_lines = []
+        recommend_lines.append(
+            f"推奨戦法：判定不可（{_e}）"
         )
+        recommend_lines.append("")
 
+    note_sections.extend(recommend_lines)
     note_sections.extend(lines_out)
     note_sections.append("")
+
+    globals()["note_sections"] = note_sections
 
     globals()["note_sections"] = note_sections
 
