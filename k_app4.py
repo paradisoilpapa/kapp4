@@ -1660,7 +1660,7 @@ for no in active_cars:
 
     # 周回疲労（DAY×頭数×級別を反映）
     extra = fatigue_extra(eff_laps, day_label, n_cars, race_class)
-    extra = min(extra, 1.5)   # 応急上限（暴走止め）
+    extra = min(extra, 3.0)   # 応急上限（暴走止め）
 
     fatigue_scale = (
         1.0  if race_class == "Ｓ級" else
@@ -1678,7 +1678,7 @@ for no in active_cars:
     if race_class == "ガールズ":
         laps_adj *= 0.3
 
-    laps_adj = clamp(laps_adj, -0.15, 0.15)
+    laps_adj = clamp(laps_adj, -0.22, 0.18)
 
     # 環境・個人補正（既存）
     wind     = _wind_func(eff_wind_dir, float(eff_wind_speed or 0.0), role, float(prof_escape[no]))
