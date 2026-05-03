@@ -1159,7 +1159,7 @@ info = KEIRIN_DATA[track]
 st.session_state["track"] = track
 
 race_time = st.sidebar.selectbox("開催区分", ["モーニング","デイ","ナイター","ミッドナイト"], 1)
-race_day  = st.sidebar.date_input("開催日（風の取得基準日）", value=date.today())
+race_day = st.sidebar.date_input("日付（風取得用）", value=date.today())
 
 wind_dir = st.sidebar.selectbox(
     "風向", ["無風","左上","上","右上","左","右","左下","下","右下"],
@@ -1170,24 +1170,15 @@ wind_speed_default = st.session_state.get("wind_speed", 3.0)
 wind_speed = st.sidebar.number_input("風速(m/s)", 0.0, 60.0, float(wind_speed_default), 0.1)
 
 with st.sidebar.expander("🌀 風をAPIで自動取得（Open-Meteo）", expanded=False):
-    # ★ sidebarに統一（UIが迷子にならない）
-    api_date = st.sidebar.date_input(
-        "開催日（風の取得基準日）",
-        value=pd.to_datetime("today").date(),
-        key="api_date"
-    )
     st.sidebar.caption("基準時刻：モ=8時 / デ=11時 / ナ=18時 / ミ=22時（JST・tzなしで取得）")
 
-   
-
-    # ★ sidebarに統一
     if st.sidebar.button("APIで取得→風速に反映", use_container_width=True):
         info_xy = VELODROME_MASTER.get(track)
         if not info_xy or info_xy.get("lat") is None or info_xy.get("lon") is None:
             st.sidebar.error(f"{track} の座標が未登録です（VELODROME_MASTER に lat/lon を入れてください）")
         else:
             try:
-                target = build_openmeteo_target_dt(api_date, race_time)
+                target = build_openmeteo_target_dt(race_day, race_time)
                 data = fetch_openmeteo_hour(info_xy["lat"], info_xy["lon"], target)
 
                 st.session_state["wind_speed"] = round(float(data["speed_ms"]), 2)
