@@ -4925,16 +4925,26 @@ try:
                 cur_fr = _style_fr_for_recommend(recommend_style)
 
                 if race_class != "ガールズ":
-                    if (
-                        h_style is not None
-                        and h_style != recommend_style
-                        and confidence in ("B", "C")
-                        and h_fr >= cur_fr - 0.01
-                    ):
-                        recommend_reason.append(f"H主導により{h_style}寄せ")
-                        recommend_style = h_style
-                        h_changed = True
-                        confidence = "B"
+                                    # H主導寄せは、明確にFR優位な場合だけ行う
+                # 0.025未満の差は「ほぼ同格」と見て、H主導だけでは戦法変更しない
+                H_SHIFT_MARGIN = 0.025
+
+                if (
+                    h_style is not None
+                    and h_style != recommend_style
+                    and confidence in ("B", "C")
+                    and h_fr >= cur_fr + H_SHIFT_MARGIN
+                ):
+                    recommend_reason.append(f"H主導により{h_style}寄せ")
+                    recommend_style = h_style
+                    h_changed = True
+                    confidence = "B"
+                elif (
+                    h_style is not None
+                    and h_style != recommend_style
+                    and confidence in ("B", "C")
+                ):
+                    recommend_reason.append("H主導は僅差のため戦法変更なし")
                 else:
                     recommend_reason.append("ガールズのためH主導による戦法変更なし")
 
