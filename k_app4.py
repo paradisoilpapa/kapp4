@@ -1682,7 +1682,7 @@ for no in active_cars:
     no = int(no)
     role = role_in_line(no, line_def)
 
-    # 周回疲労（DAY×頭数×級別を反映）
+       # 周回疲労（DAY×頭数×級別を反映）
     extra = fatigue_extra(eff_laps, day_label, n_cars, race_class)
     extra = min(extra, 3.0)   # 応急上限（暴走止め）
 
@@ -1693,11 +1693,25 @@ for no in active_cars:
         1.05
     )
 
-       # =====================================================
+    # =====================================================
+    # 周回疲労補正
+    # =====================================================
+    laps_adj = (
+        -0.10 * extra * (1.0 if float(prof_escape[no]) > 0.5 else 0.0)
+        + 0.05 * extra * (1.0 if float(prof_oikomi[no]) > 0.4 else 0.0)
+    ) * fatigue_scale
+
+    # ガールズは周回疲労を弱める
+    if race_class == "ガールズ":
+        laps_adj *= 0.3
+
+    # 周回疲労の暴走防止
+    laps_adj = clamp(laps_adj, -0.22, 0.18)
+
+    # =====================================================
     # 自力コメント補正
     #   前検コメントで「自力」「自力自在」「自力基本」「自分で」等がある選手を加点
     #   減点ではなく、必ずプラス方向のみ
-    #   z化・KOで薄まるため、0.045では弱すぎる
     # =====================================================
 
     jiryoku_comment_map = globals().get("jiryoku_comment", {})
@@ -1725,11 +1739,8 @@ for no in active_cars:
         if race_class == "ガールズ":
             jiryoku_comment_bonus *= 0.60
 
-    # 暴走防止
+    # 自力コメント補正の暴走防止
     jiryoku_comment_bonus = clamp(jiryoku_comment_bonus, 0.0, 0.190)
-
-    # 周回疲労の暴走防止
-    laps_adj = clamp(laps_adj, -0.22, 0.18)
 
     # 環境・個人補正（既存）
     wind     = _wind_func(eff_wind_dir, float(eff_wind_speed or 0.0), role, float(prof_escape[no]))
