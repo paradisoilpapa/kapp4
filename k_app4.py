@@ -1226,7 +1226,13 @@ DAY_LAP_ADD = {
 
 eff_laps = int(base_laps) + DAY_LAP_ADD[day_label]
 
-race_class = st.sidebar.selectbox("級別", ["Ｓ級","Ａ級","Ａ級チャレンジ","ガールズ"], 0)
+race_class = st.sidebar.selectbox(
+    "級別",
+    ["Ｓ級", "Ａ級", "Ａ級チャレンジ", "ガールズ", "アドバンス"],
+    0
+)
+
+is_girls_like = race_class in ("ガールズ", "アドバンス")
 
 # === 会場styleを「得意会場平均」を基準に再定義
 zL, zTH, dC = venue_z_terms(straight_length, bank_angle, bank_length)
@@ -1264,6 +1270,7 @@ CLASS_FACTORS = {
     "Ａ級":           {"spread":0.90, "line":0.85},
     "Ａ級チャレンジ": {"spread":0.80, "line":0.70},
     "ガールズ":       {"spread":0.85, "line":1.00},
+    "アドバンス":     {"spread":0.85, "line":1.00},
 }
 cf = CLASS_FACTORS[race_class]
 
@@ -1293,7 +1300,13 @@ DAY_SHIFT = {
     "5日目": +0.6,
     "最終日": +0.8,
 }
-CLASS_SHIFT = {"Ｓ級": 0.0, "Ａ級": +0.10, "Ａ級チャレンジ": +0.20, "ガールズ": -0.10}
+CLASS_SHIFT = {
+    "Ｓ級": 0.0,
+    "Ａ級": +0.10,
+    "Ａ級チャレンジ": +0.20,
+    "ガールズ": -0.10,
+    "アドバンス": -0.10,
+}
 HEADCOUNT_SHIFT = {5: -0.20, 6: -0.10, 7: -0.05, 8: 0.0, 9: +0.10}
 
 def fatigue_extra(eff_laps: int, day_label: str, n_cars: int, race_class: str) -> float:
@@ -1725,7 +1738,7 @@ for no in active_cars:
     ) * fatigue_scale
 
     # ガールズは周回疲労を弱める
-    if race_class == "ガールズ":
+    if is_girls_like:
         laps_adj *= 0.3
 
     # 周回疲労の暴走防止
@@ -1766,7 +1779,7 @@ for no in active_cars:
             pass
 
         # ガールズはラインがないため少し薄め
-        if race_class == "ガールズ":
+        if is_girls_like:
             jiryoku_comment_bonus *= 0.60
 
     jiryoku_comment_bonus = clamp(jiryoku_comment_bonus, 0.0, 0.170)
@@ -1821,7 +1834,7 @@ for no in active_cars:
         seri_penalty = -0.100
 
         # ガールズは基本的に競りの意味が薄いので弱め
-        if race_class == "ガールズ":
+        if is_girls_like:
             seri_penalty *= 0.50
 
     seri_penalty = clamp(seri_penalty, -0.120, 0.0)
@@ -2186,7 +2199,7 @@ if bad:
 v_wo = dict(sb_map)
 
 # 4) 以降 KO
-_is_girls = (race_class == "ガールズ")
+_is_girls = is_girls_like
 head_scale = KO_HEADCOUNT_SCALE.get(int(n_cars), 1.0)
 ko_scale_raw = (KO_GIRLS_SCALE if _is_girls else 1.0) * head_scale
 KO_SCALE_MAX = 0.45
@@ -4924,30 +4937,19 @@ try:
 
                 cur_fr = _style_fr_for_recommend(recommend_style)
 
-            if race_class != "ガールズ":
-                                    # H主導寄せは、明確にFR優位な場合だけ行う
-                # 0.025未満の差は「ほぼ同格」と見て、H主導だけでは戦法変更しない
-                H_SHIFT_MARGIN = 0.025
-
-                if (
-                    h_style is not None
-                    and h_style != recommend_style
-                    and confidence in ("B", "C")
-                    and h_fr >= cur_fr + H_SHIFT_MARGIN
-                ):
-                    recommend_reason.append(f"H主導により{h_style}寄せ")
-                    recommend_style = h_style
-                    h_changed = True
-                    confidence = "B"
-                elif (
-                    h_style is not None
-                    and h_style != recommend_style
-                    and confidence in ("B", "C")
-                ):
-                    recommend_reason.append("H主導は僅差のため戦法変更なし")
+                            if not is_girls_like:
+                    if (
+                        h_style is not None
+                        and h_style != recommend_style
+                        and confidence in ("B", "C")
+                        and h_fr >= cur_fr - 0.01
+                    ):
+                        recommend_reason.append(f"H主導により{h_style}寄せ")
+                        recommend_style = h_style
+                        h_changed = True
+                        confidence = "B"
                 else:
-                    recommend_reason.append("ガールズのためH主導による戦法変更なし")
-
+                    recommend_reason.append("ガールズ/アドバンスのためH主導による戦法変更なし")
         except Exception:
             pass
 
@@ -4957,7 +4959,7 @@ try:
         #   ※ガールズはライン戦ではないため、H主導で信頼度も上下させない
         # =====================================================
         try:
-            if race_class != "ガールズ":
+            if not is_girls_like:
                 if home_top_line != "主導なし":
                     h_line = line_def.get(home_top_gid, []) if home_top_gid is not None else []
                     h_zone = _current_zone_for_line(h_line)
@@ -5010,9 +5012,9 @@ try:
         #   無印押上げだけで渦に寄せすぎない
         # =====================================================
         try:
-            if race_class == "ガールズ" and recommend_style == "渦":
+            if is_girls_like and recommend_style == "渦":
                 recommend_style = "順流"
-                recommend_reason.append("ガールズのため渦寄せを順流扱いに補正")
+                recommend_reason.append("ガールズ/アドバンスのため渦寄せを順流扱いに補正")
         except Exception:
             pass
 
