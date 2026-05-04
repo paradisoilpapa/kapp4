@@ -1695,8 +1695,9 @@ for no in active_cars:
 
         # =====================================================
     # 自力コメント補正
+    #   前検コメントで「自力」「自力自在」「自力基本」「自分で」等がある選手を加点
     #   減点ではなく、必ずプラス方向のみ
-    #   LINE_ZONE_MAP はこの時点で未生成の可能性があるため使わない
+    #   z化・KOで薄まるため、0.045では弱すぎる
     # =====================================================
 
     jiryoku_comment_map = globals().get("jiryoku_comment", {})
@@ -1705,17 +1706,27 @@ for no in active_cars:
     jiryoku_comment_bonus = 0.0
 
     if is_jiryoku_comment:
+        # 基本加点
         jiryoku_comment_bonus = 0.120
 
-        # ライン先頭の自力コメントは追加
+        # ライン先頭の自力コメントは、実際に動く役割なので追加
         if role == "head":
-            jiryoku_comment_bonus += 0.060
+            jiryoku_comment_bonus += 0.030
 
-        # ガールズは薄め
+        # H主導ラインの先頭なら、さらに追加
+        try:
+            h_line = line_def.get(home_top_gid, []) if home_top_gid is not None else []
+            if h_line and int(h_line[0]) == int(no):
+                jiryoku_comment_bonus += 0.040
+        except Exception:
+            pass
+
+        # ガールズはラインがないため少し薄め
         if race_class == "ガールズ":
             jiryoku_comment_bonus *= 0.60
 
-    jiryoku_comment_bonus = clamp(jiryoku_comment_bonus, 0.0, 0.180)
+    # 暴走防止
+    jiryoku_comment_bonus = clamp(jiryoku_comment_bonus, 0.0, 0.190)
     laps_adj = clamp(laps_adj, -0.22, 0.18)
 
     # 環境・個人補正（既存）
