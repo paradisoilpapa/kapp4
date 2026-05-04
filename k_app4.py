@@ -1423,24 +1423,45 @@ ratings_val = {no: (ratings[no] if ratings[no] is not None else 55.0) for no in 
 # =====================================================
 # コメントチェック表
 #   前検コメントを見て手動チェック
-#   自力 / 自力自在 / 自力基本 / 自分で / 前で / 何でも 等
+#   自力：自力 / 自力自在 / 自力基本 / 自分で / 前で 等
+#   番手：○○君 / ○○へ / 任せる / 近畿勢 等
+#   競り：競り対象の車番にチェック
 # =====================================================
 st.subheader("コメントチェック")
 
 jiryoku_comment = {}
+target_comment = {}
+seri_comment = {}
 
-comment_cols = st.columns(3)
+comment_cols = st.columns(n_cars)
 
 for i, no in enumerate(active_cars):
     no = int(no)
-    with comment_cols[i % 3]:
+    with comment_cols[i]:
+        st.markdown(f"**{no}番**")
+
         jiryoku_comment[no] = st.checkbox(
-            f"{no}番 自力",
+            "自力",
             value=False,
             key=f"jiryoku_comment_r{race_no}_{no}"
         )
 
+        target_comment[no] = st.checkbox(
+            "番手",
+            value=False,
+            key=f"target_comment_r{race_no}_{no}"
+        )
+
+        seri_comment[no] = st.checkbox(
+            "競り",
+            value=False,
+            key=f"seri_comment_r{race_no}_{no}"
+        )
+
 globals()["jiryoku_comment"] = jiryoku_comment
+globals()["target_comment"] = target_comment
+globals()["seri_comment"] = seri_comment
+
 
 # H：最終ホーム想定ライン
 home_line_scores = calc_home_line_scores(line_def, H, B, active_cars)
@@ -1682,7 +1703,9 @@ for no in active_cars:
     no = int(no)
     role = role_in_line(no, line_def)
 
-       # 周回疲労（DAY×頭数×級別を反映）
+    # =====================================================
+    # 周回疲労（DAY×頭数×級別を反映）
+    # =====================================================
     extra = fatigue_extra(eff_laps, day_label, n_cars, race_class)
     extra = min(extra, 3.0)   # 応急上限（暴走止め）
 
@@ -1709,14 +1732,21 @@ for no in active_cars:
     laps_adj = clamp(laps_adj, -0.22, 0.18)
 
     # =====================================================
-    # 自力コメント補正
-    #   前検コメントで「自力」「自力自在」「自力基本」「自分で」等がある選手を加点
-    #   減点ではなく、必ずプラス方向のみ
+    # コメント補正
+    #   自力：本人をプラス補正
+    #   番手：本人ではなく、前の自力先頭をライン連動で格上げ
+    #   競り：競り対象者を減点
     # =====================================================
-
     jiryoku_comment_map = globals().get("jiryoku_comment", {})
-    is_jiryoku_comment = bool(jiryoku_comment_map.get(int(no), False))
+    target_comment_map  = globals().get("target_comment", {})
+    seri_comment_map    = globals().get("seri_comment", {})
 
+    is_jiryoku_comment = bool(jiryoku_comment_map.get(int(no), False))
+    is_seri_comment    = bool(seri_comment_map.get(int(no), False))
+
+    # -----------------------------------------------------
+    # 自力コメント補正
+    # -----------------------------------------------------
     jiryoku_comment_bonus = 0.0
 
     if is_jiryoku_comment:
@@ -1739,10 +1769,67 @@ for no in active_cars:
         if race_class == "ガールズ":
             jiryoku_comment_bonus *= 0.60
 
-    # 自力コメント補正の暴走防止
     jiryoku_comment_bonus = clamp(jiryoku_comment_bonus, 0.0, 0.190)
 
+    # -----------------------------------------------------
+    # ライン連動補正
+    #   後ろの選手が「番手・目標」チェックありなら、
+    #   その前のライン先頭を少し格上げする。
+    #   例：42で2が「小原君」なら、4を少し救う。
+    # -----------------------------------------------------
+    line_cushion_bonus = 0.0
+
+    try:
+        gid = car_to_group.get(int(no), None)
+        members = line_def.get(gid, []) if gid is not None else []
+
+        # 自分がそのラインの先頭かどうか
+        is_line_head = bool(members and int(members[0]) == int(no))
+
+        if is_line_head:
+            behind_members = [int(x) for x in members[1:]]
+
+            has_target_behind = any(
+                bool(target_comment_map.get(int(x), False))
+                for x in behind_members
+            )
+
+            if has_target_behind:
+                # 番手・後位が前を指名しているなら、先頭車を少し救う
+                line_cushion_bonus = 0.070
+
+                # H主導ラインの先頭なら、ライン成立度を少し上乗せ
+                try:
+                    h_line = line_def.get(home_top_gid, []) if home_top_gid is not None else []
+                    if h_line and int(h_line[0]) == int(no):
+                        line_cushion_bonus += 0.030
+                except Exception:
+                    pass
+
+    except Exception:
+        line_cushion_bonus = 0.0
+
+    line_cushion_bonus = clamp(line_cushion_bonus, 0.0, 0.100)
+
+    # -----------------------------------------------------
+    # 競り補正
+    #   ライン入力は崩さず、競り対象者だけを減点する。
+    #   例：12345 67 のまま、2・3に競りチェック。
+    # -----------------------------------------------------
+    seri_penalty = 0.0
+
+    if is_seri_comment:
+        seri_penalty = -0.100
+
+        # ガールズは基本的に競りの意味が薄いので弱め
+        if race_class == "ガールズ":
+            seri_penalty *= 0.50
+
+    seri_penalty = clamp(seri_penalty, -0.120, 0.0)
+
+    # =====================================================
     # 環境・個人補正（既存）
+    # =====================================================
     wind     = _wind_func(eff_wind_dir, float(eff_wind_speed or 0.0), role, float(prof_escape[no]))
     bank_b   = bank_character_bonus(bank_angle, straight_length, prof_escape[no], prof_sashi[no], bank_length)
     length_b = bank_length_adjust(bank_length, prof_oikomi[no])
@@ -1756,15 +1843,23 @@ for no in active_cars:
         is_wet=st.session_state.get("is_wet", False)
     )
 
+    # =====================================================
+    # 合計スコア
+    # =====================================================
     total_raw = (
         prof_base[no]
         + wind
         + cf["spread"] * tens_corr.get(no, 0.0)
-        + bank_b + length_b
-        + laps_adj + indiv + stab
+        + bank_b
+        + length_b
+        + laps_adj
+        + indiv
+        + stab
         + h_bonus
         + l200
         + jiryoku_comment_bonus
+        + line_cushion_bonus
+        + seri_penalty
     )
 
     rows.append([
@@ -1779,14 +1874,18 @@ for no in active_cars:
         round(stab, 3),
         round(h_bonus, 3),
         round(l200, 3),
+        round(jiryoku_comment_bonus, 3),
+        round(line_cushion_bonus, 3),
+        round(seri_penalty, 3),
         float(total_raw)
     ])
 
 df = pd.DataFrame(rows, columns=[
     "車番", "役割", "脚質基準(会場)", "風補正", "得点補正", "バンク補正",
-    "周長補正", "周回補正", "個人補正", "安定度", "H補正", "ラスト200", "合計_SBなし_raw",
+    "周長補正", "周回補正", "個人補正", "安定度", "H補正", "ラスト200",
+    "自力コメント補正", "ライン連動補正", "競り補正",
+    "合計_SBなし_raw",
 ])
-
 
 # ===== [PATCH] dfの型を確定させ、SBなし母集団(v_wo/v_final)を必ず作る =====
 # 1) dfが空のときも落とさない
