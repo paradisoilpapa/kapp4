@@ -4924,7 +4924,7 @@ try:
 
                 cur_fr = _style_fr_for_recommend(recommend_style)
 
-                if race_class != "ガールズ":
+            if race_class != "ガールズ":
                                     # H主導寄せは、明確にFR優位な場合だけ行う
                 # 0.025未満の差は「ほぼ同格」と見て、H主導だけでは戦法変更しない
                 H_SHIFT_MARGIN = 0.025
