@@ -1420,6 +1420,30 @@ for i, no in enumerate(active_cars):
         x_out[no]= st.number_input("着外", 0, 99, 0, key=f"xo_{no}")
 
 ratings_val = {no: (ratings[no] if ratings[no] is not None else 55.0) for no in active_cars}
+# =====================================================
+# コメントチェック表
+#   前検コメントを見て手動チェック
+#   自力 / 自力自在 / 自力基本 / 自分で / 前で / 何でも 等
+# =====================================================
+st.subheader("コメントチェック")
+
+jiryoku_comment = {}
+
+comment_cols = st.columns(3)
+
+for i, no in enumerate(active_cars):
+    no = int(no)
+    with comment_cols[i % 3]:
+        jiryoku_comment[no] = st.checkbox(
+            f"{no}番 自力",
+            value=False,
+            key=f"jiryoku_comment_{no}"
+        )
+
+globals()["jiryoku_comment"] = jiryoku_comment
+
+# H：最終ホーム想定ライン
+home_line_scores = calc_home_line_scores(line_def, H, B, active_cars)
 
 # H：最終ホーム想定ライン
 home_line_scores = calc_home_line_scores(line_def, H, B, active_cars)
