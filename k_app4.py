@@ -4937,7 +4937,7 @@ try:
 
                 cur_fr = _style_fr_for_recommend(recommend_style)
 
-                            if not is_girls_like:
+                if not is_girls_like:
                     if (
                         h_style is not None
                         and h_style != recommend_style
