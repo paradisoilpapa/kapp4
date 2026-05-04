@@ -1427,7 +1427,7 @@ ratings_val = {no: (ratings[no] if ratings[no] is not None else 55.0) for no in 
 # =====================================================
 st.subheader("コメントチェック")
 
- = {}
+jiryoku_comment = {}
 
 comment_cols = st.columns(3)
 
