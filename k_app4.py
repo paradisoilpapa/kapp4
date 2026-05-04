@@ -1683,46 +1683,46 @@ for no in active_cars:
     role = role_in_line(no, line_def)
 
     # 周回疲労（DAY×頭数×級別を反映）
-extra = fatigue_extra(eff_laps, day_label, n_cars, race_class)
-extra = min(extra, 3.0)   # 応急上限（暴走止め）
+    extra = fatigue_extra(eff_laps, day_label, n_cars, race_class)
+    extra = min(extra, 3.0)   # 応急上限（暴走止め）
 
-fatigue_scale = (
-    1.0  if race_class == "Ｓ級" else
-    1.1  if race_class == "Ａ級" else
-    1.2  if race_class == "Ａ級チャレンジ" else
-    1.05
-)
+    fatigue_scale = (
+        1.0  if race_class == "Ｓ級" else
+        1.1  if race_class == "Ａ級" else
+        1.2  if race_class == "Ａ級チャレンジ" else
+        1.05
+    )
 
-# =====================================================
-# 周回疲労補正
-#   自力コメントありは「強制加点」ではなく、
-#   逃げ・自力系の疲労減点を少し軽くするだけ
-# =====================================================
+    # =====================================================
+    # 周回疲労補正
+    #   自力コメントありは「強制加点」ではなく、
+    #   逃げ・自力系の疲労減点を少し軽くするだけ
+    # =====================================================
 
-jiryoku_comment_map = globals().get("jiryoku_comment", {})
-is_jiryoku_comment = bool(jiryoku_comment_map.get(int(no), False))
+    jiryoku_comment_map = globals().get("jiryoku_comment", {})
+    is_jiryoku_comment = bool(jiryoku_comment_map.get(int(no), False))
 
-is_escape = 1.0 if float(prof_escape[no]) > 0.5 else 0.0
-is_oikomi = 1.0 if float(prof_oikomi[no]) > 0.4 else 0.0
+    is_escape = 1.0 if float(prof_escape[no]) > 0.5 else 0.0
+    is_oikomi = 1.0 if float(prof_oikomi[no]) > 0.4 else 0.0
 
-# 従来の逃げ・自力系の疲労マイナス
-escape_penalty = -0.10 * extra * is_escape
+    # 従来の逃げ・自力系の疲労マイナス
+    escape_penalty = -0.10 * extra * is_escape
 
-# 自力コメントありなら、疲労マイナスを20%軽減
-# 例：-0.20 → -0.16
-if is_jiryoku_comment:
-    escape_penalty *= 0.80
+    # 自力コメントありなら、疲労マイナスを20%軽減
+    # 例：-0.20 → -0.16
+    if is_jiryoku_comment:
+        escape_penalty *= 0.80
 
-# 従来通り、追込型は開催後半で少しだけプラス
-oikomi_bonus = +0.05 * extra * is_oikomi
+    # 従来通り、追込型は開催後半で少しだけプラス
+    oikomi_bonus = +0.05 * extra * is_oikomi
 
-laps_adj = (escape_penalty + oikomi_bonus) * fatigue_scale
+    laps_adj = (escape_penalty + oikomi_bonus) * fatigue_scale
 
-# ガールズは周回疲労を弱める
-if race_class == "ガールズ":
-    laps_adj *= 0.3
+    # ガールズは周回疲労を弱める
+    if race_class == "ガールズ":
+        laps_adj *= 0.3
 
-laps_adj = clamp(laps_adj, -0.22, 0.18)
+    laps_adj = clamp(laps_adj, -0.22, 0.18)
 
     # 環境・個人補正（既存）
     wind     = _wind_func(eff_wind_dir, float(eff_wind_speed or 0.0), role, float(prof_escape[no]))
