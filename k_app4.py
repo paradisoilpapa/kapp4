@@ -4669,6 +4669,49 @@ try:
 
         fr_diff = abs(_vtx_fr - _u_fr)
 
+                # =====================================================
+        # 現在のライン評価グループでH主導ラインを判定する
+        #   旧FR_line / 旧VTX_line / 旧U_line ではなく、
+        #   LINE_ZONE_MAP を優先する
+        # =====================================================
+
+        def _norm_line_key_for_recommend(ln):
+            try:
+                if isinstance(ln, (list, tuple)):
+                    return "".join(str(int(x)) for x in ln if str(x).isdigit())
+            except Exception:
+                pass
+            return "".join(ch for ch in str(ln) if ch.isdigit())
+
+        def _current_zone_for_line(ln):
+            key = _norm_line_key_for_recommend(ln)
+
+            try:
+                zmap = globals().get("LINE_ZONE_MAP", {})
+                if isinstance(zmap, dict) and key in zmap:
+                    return zmap.get(key, "その他")
+            except Exception:
+                pass
+
+            # 保険：LINE_ZONE_MAPが無い場合だけ旧方式へフォールバック
+            if key and key == _norm_line_key_for_recommend(FR_line):
+                return "順流"
+            if key and key == _norm_line_key_for_recommend(VTX_line):
+                return "渦"
+            if key and key == _norm_line_key_for_recommend(U_line):
+                return "逆流"
+
+            return "その他"
+
+        def _style_fr_for_recommend(style_name):
+            if style_name == "順流":
+                return float(_lfr(FR_line) if FR_line else 0.0)
+            if style_name == "渦":
+                return float(_lfr(VTX_line) if VTX_line else 0.0)
+            if style_name == "逆流":
+                return float(_lfr(U_line) if U_line else 0.0)
+            return 0.0
+
         # =====================================================
         # 1. 展開評価（最優先）
         # =====================================================
@@ -4729,21 +4772,19 @@ try:
 
                
                 
-        # =====================================================
+                # =====================================================
         # H：推奨理由への反映
+        #   旧分類ではなく、現在のライン評価グループで判定
         # =====================================================
         try:
             if home_top_line == "主導なし":
                 recommend_reason.append("H主導ラインなし")
             else:
                 h_line = line_def.get(home_top_gid, []) if home_top_gid is not None else []
+                h_zone = _current_zone_for_line(h_line)
 
-                if h_line == FR_line:
-                    recommend_reason.append("H主導=順流ライン")
-                elif h_line == VTX_line:
-                    recommend_reason.append("H主導=渦ライン")
-                elif h_line == U_line:
-                    recommend_reason.append("H主導=逆流ライン")
+                if h_zone in ("順流", "渦", "逆流"):
+                    recommend_reason.append(f"H主導={h_zone}ライン")
                 else:
                     recommend_reason.append("H主導=その他ライン")
         except Exception:
@@ -4768,6 +4809,7 @@ try:
 
                 # =====================================================
         # H：低信頼時の推奨戦法切り替え
+        #   旧分類ではなく、現在のライン評価グループで判定
         # =====================================================
         h_style = None
         h_changed = False
@@ -4776,27 +4818,16 @@ try:
             if home_top_line != "主導なし":
                 h_line = line_def.get(home_top_gid, []) if home_top_gid is not None else []
 
-                if h_line == FR_line:
-                    h_style = "順流"
-                    h_fr = float(FRv)
-                elif h_line == VTX_line:
-                    h_style = "渦"
-                    h_fr = float(VTXv)
-                elif h_line == U_line:
-                    h_style = "逆流"
-                    h_fr = float(Uv)
+                h_zone = _current_zone_for_line(h_line)
+
+                if h_zone in ("順流", "渦", "逆流"):
+                    h_style = h_zone
+                    h_fr = float(_lfr(h_line) if h_line else 0.0)
                 else:
                     h_style = None
                     h_fr = 0.0
 
-                if recommend_style == "順流":
-                    cur_fr = float(FRv)
-                elif recommend_style == "渦":
-                    cur_fr = float(VTXv)
-                elif recommend_style == "逆流":
-                    cur_fr = float(Uv)
-                else:
-                    cur_fr = 0.0
+                cur_fr = _style_fr_for_recommend(recommend_style)
 
                 if (
                     h_style is not None
@@ -4811,23 +4842,23 @@ try:
 
         except Exception:
             pass
-        # =====================================================
-        # H：信頼度への反映（第3段階）
+                # =====================================================
+        # H：信頼度への反映
+        #   旧分類ではなく、現在のライン評価グループで判定
         # =====================================================
         try:
             if home_top_line != "主導なし":
                 h_line = line_def.get(home_top_gid, []) if home_top_gid is not None else []
+                h_zone = _current_zone_for_line(h_line)
 
                 h_match = (
-                    (recommend_style == "順流" and h_line == FR_line)
-                    or (recommend_style == "渦" and h_line == VTX_line)
-                    or (recommend_style == "逆流" and h_line == U_line)
+                    h_zone in ("順流", "渦", "逆流")
+                    and h_zone == recommend_style
                 )
 
                 h_conflict = (
-                    (recommend_style == "順流" and h_line != FR_line)
-                    or (recommend_style == "渦" and h_line != VTX_line)
-                    or (recommend_style == "逆流" and h_line != U_line)
+                    h_zone in ("順流", "渦", "逆流")
+                    and h_zone != recommend_style
                 )
 
                 if h_match:
