@@ -4902,9 +4902,10 @@ try:
         else:
             confidence = "C"
 
-                # =====================================================
+               # =====================================================
         # H：低信頼時の推奨戦法切り替え
         #   旧分類ではなく、現在のライン評価グループで判定
+        #   ※ガールズはライン戦ではないため、H主導で戦法を切り替えない
         # =====================================================
         h_style = None
         h_changed = False
@@ -4924,16 +4925,19 @@ try:
 
                 cur_fr = _style_fr_for_recommend(recommend_style)
 
-                if (
-                    h_style is not None
-                    and h_style != recommend_style
-                    and confidence in ("B", "C")
-                    and h_fr >= cur_fr - 0.01
-                ):
-                    recommend_reason.append(f"H主導により{h_style}寄せ")
-                    recommend_style = h_style
-                    h_changed = True
-                    confidence = "B"
+                if race_class != "ガールズ":
+                    if (
+                        h_style is not None
+                        and h_style != recommend_style
+                        and confidence in ("B", "C")
+                        and h_fr >= cur_fr - 0.01
+                    ):
+                        recommend_reason.append(f"H主導により{h_style}寄せ")
+                        recommend_style = h_style
+                        h_changed = True
+                        confidence = "B"
+                else:
+                    recommend_reason.append("ガールズのためH主導による戦法変更なし")
 
         except Exception:
             pass
