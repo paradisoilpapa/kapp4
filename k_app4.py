@@ -1427,7 +1427,7 @@ ratings_val = {no: (ratings[no] if ratings[no] is not None else 55.0) for no in 
 # =====================================================
 st.subheader("コメントチェック")
 
-jiryoku_comment = {}
+ = {}
 
 comment_cols = st.columns(3)
 
@@ -1437,7 +1437,7 @@ for i, no in enumerate(active_cars):
         jiryoku_comment[no] = st.checkbox(
             f"{no}番 自力",
             value=False,
-            key=f"jiryoku_comment_{no}"
+            key=f"jiryoku_comment_r{race_no}_{no}"
         )
 
 globals()["jiryoku_comment"] = jiryoku_comment
