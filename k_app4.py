@@ -4902,7 +4902,7 @@ try:
         else:
             confidence = "C"
 
-               # =====================================================
+                # =====================================================
         # H：低信頼時の推奨戦法切り替え
         #   旧分類ではなく、現在のライン評価グループで判定
         #   ※ガールズはライン戦ではないため、H主導で戦法を切り替えない
@@ -4913,7 +4913,6 @@ try:
         try:
             if home_top_line != "主導なし":
                 h_line = line_def.get(home_top_gid, []) if home_top_gid is not None else []
-
                 h_zone = _current_zone_for_line(h_line)
 
                 if h_zone in ("順流", "渦", "逆流"):
@@ -4941,49 +4940,51 @@ try:
 
         except Exception:
             pass
-                # =====================================================
+
+        # =====================================================
         # H：信頼度への反映
         #   旧分類ではなく、現在のライン評価グループで判定
+        #   ※ガールズはライン戦ではないため、H主導で信頼度も上下させない
         # =====================================================
         try:
-            if home_top_line != "主導なし":
-                h_line = line_def.get(home_top_gid, []) if home_top_gid is not None else []
-                h_zone = _current_zone_for_line(h_line)
+            if race_class != "ガールズ":
+                if home_top_line != "主導なし":
+                    h_line = line_def.get(home_top_gid, []) if home_top_gid is not None else []
+                    h_zone = _current_zone_for_line(h_line)
 
-                h_match = (
-                    h_zone in ("順流", "渦", "逆流")
-                    and h_zone == recommend_style
-                )
+                    h_match = (
+                        h_zone in ("順流", "渦", "逆流")
+                        and h_zone == recommend_style
+                    )
 
-                h_conflict = (
-                    h_zone in ("順流", "渦", "逆流")
-                    and h_zone != recommend_style
-                )
+                    h_conflict = (
+                        h_zone in ("順流", "渦", "逆流")
+                        and h_zone != recommend_style
+                    )
 
-                if h_match:
-                    if confidence == "C":
-                        confidence = "B"
-                    elif confidence == "B":
-                        confidence = "A"
+                    if h_match:
+                        if confidence == "C":
+                            confidence = "B"
+                        elif confidence == "B":
+                            confidence = "A"
 
-                elif h_conflict:
-                    if confidence == "A":
-                        confidence = "B"
-                    elif confidence == "B":
-                        confidence = "C"
+                    elif h_conflict:
+                        if confidence == "A":
+                            confidence = "B"
+                        elif confidence == "B":
+                            confidence = "C"
 
         except Exception:
             pass
 
-                # Hで戦法変更した場合は、過信防止で信頼度AをBに抑える
+        # Hで戦法変更した場合は、過信防止で信頼度AをBに抑える
         try:
             if h_changed and confidence == "A":
                 confidence = "B"
         except Exception:
             pass
 
-                # H反映チェック表示
-                        # H反映チェック表示
+        # H反映チェック表示
         try:
             if h_style is not None:
                 if h_changed:
