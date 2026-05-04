@@ -1749,19 +1749,19 @@ for no in active_cars:
     # -----------------------------------------------------
     jiryoku_comment_bonus = 0.0
 
-    if is_jiryoku_comment:
+        if is_jiryoku_comment:
         # 基本加点
         jiryoku_comment_bonus = 0.120
 
         # ライン先頭の自力コメントは、実際に動く役割なので追加
         if role == "head":
-            jiryoku_comment_bonus += 0.030
+            jiryoku_comment_bonus += 0.020
 
         # H主導ラインの先頭なら、さらに追加
         try:
             h_line = line_def.get(home_top_gid, []) if home_top_gid is not None else []
             if h_line and int(h_line[0]) == int(no):
-                jiryoku_comment_bonus += 0.040
+                jiryoku_comment_bonus += 0.030
         except Exception:
             pass
 
@@ -1769,7 +1769,7 @@ for no in active_cars:
         if race_class == "ガールズ":
             jiryoku_comment_bonus *= 0.60
 
-    jiryoku_comment_bonus = clamp(jiryoku_comment_bonus, 0.0, 0.190)
+    jiryoku_comment_bonus = clamp(jiryoku_comment_bonus, 0.0, 0.170)
 
     # -----------------------------------------------------
     # ライン連動補正
@@ -1796,20 +1796,20 @@ for no in active_cars:
 
             if has_target_behind:
                 # 番手・後位が前を指名しているなら、先頭車を少し救う
-                line_cushion_bonus = 0.070
+                line_cushion_bonus = 0.040
 
                 # H主導ラインの先頭なら、ライン成立度を少し上乗せ
                 try:
                     h_line = line_def.get(home_top_gid, []) if home_top_gid is not None else []
                     if h_line and int(h_line[0]) == int(no):
-                        line_cushion_bonus += 0.030
+                        line_cushion_bonus += 0.020
                 except Exception:
                     pass
 
     except Exception:
         line_cushion_bonus = 0.0
 
-    line_cushion_bonus = clamp(line_cushion_bonus, 0.0, 0.100)
+    line_cushion_bonus = clamp(line_cushion_bonus, 0.0, 0.060)
 
     # -----------------------------------------------------
     # 競り補正
