@@ -1709,40 +1709,68 @@ for no in active_cars:
     if race_class == "ガールズ":
         laps_adj *= 0.3
 
-        # =====================================================
+         # =====================================================
     # 自力コメント補正
-    #   前検コメントで「自力」「自力自在」「自力基本」「自分で」等がある選手を加点
-    #   減点ではなく、必ずプラス方向のみ
-    #   z化・KOで薄まるため、0.045では弱すぎる
+    #   自力コメントを一律加点しない。
+    #   現在のライン評価グループで「順流域」にいるライン先頭の自力を強めに評価する。
+    #   目的：順流域に入っている自力先頭を、先頭負担・疲労だけで落としすぎない。
     # =====================================================
 
     jiryoku_comment_map = globals().get("jiryoku_comment", {})
     is_jiryoku_comment = bool(jiryoku_comment_map.get(int(no), False))
 
-    jiryoku_comment_bonus = 0.0
-
-    if is_jiryoku_comment:
-        # 基本加点
-        jiryoku_comment_bonus = 0.120
-
-        # ライン先頭の自力コメントは、実際に動く役割なので追加
-        if role == "head":
-            jiryoku_comment_bonus += 0.030
-
-        # H主導ラインの先頭なら、さらに追加
+    def _norm_line_key_for_jiryoku(ln):
         try:
-            h_line = line_def.get(home_top_gid, []) if home_top_gid is not None else []
-            if h_line and int(h_line[0]) == int(no):
-                jiryoku_comment_bonus += 0.040
+            if isinstance(ln, (list, tuple)):
+                return "".join(str(int(x)) for x in ln if str(x).isdigit())
+        except Exception:
+            pass
+        return "".join(ch for ch in str(ln) if ch.isdigit())
+
+    def _current_zone_for_car(car_no):
+        try:
+            gid = car_to_group.get(int(car_no), None)
+            if gid is None or gid not in line_def:
+                return "その他"
+
+            ln = line_def.get(gid, [])
+            key = _norm_line_key_for_jiryoku(ln)
+
+            zmap = globals().get("LINE_ZONE_MAP", {})
+            if isinstance(zmap, dict) and key in zmap:
+                return zmap.get(key, "その他")
         except Exception:
             pass
 
-        # ガールズはラインがないため少し薄め
+        return "その他"
+
+    jiryoku_comment_bonus = 0.0
+
+    if is_jiryoku_comment:
+        zone_now = _current_zone_for_car(no)
+
+        # 基本補正：自力コメントあり。ただし一律では薄め。
+        jiryoku_comment_bonus = 0.040
+
+        # 本命修正：
+        # 順流域のライン先頭自力は、先頭負担・疲労で落としすぎない
+        if role == "head" and zone_now == "順流":
+            jiryoku_comment_bonus = 0.260
+
+        # 渦域の自力先頭は、順流ほどは上げない
+        elif role == "head" and zone_now == "渦":
+            jiryoku_comment_bonus = 0.120
+
+        # 逆流域・その他・単騎は基本補正のみ
+        else:
+            jiryoku_comment_bonus = 0.040
+
+        # ガールズはライン評価の意味が違うため薄め
         if race_class == "ガールズ":
             jiryoku_comment_bonus *= 0.60
 
     # 暴走防止
-    jiryoku_comment_bonus = clamp(jiryoku_comment_bonus, 0.0, 0.190)
+    jiryoku_comment_bonus = clamp(jiryoku_comment_bonus, 0.0, 0.280)
     laps_adj = clamp(laps_adj, -0.22, 0.18)
 
     # 環境・個人補正（既存）
