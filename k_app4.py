@@ -1744,7 +1744,7 @@ for no in active_cars:
         is_wet=st.session_state.get("is_wet", False)
     )
 
-    total_raw = (
+        total_raw = (
         prof_base[no]
         + wind
         + cf["spread"] * tens_corr.get(no, 0.0)
@@ -1752,6 +1752,7 @@ for no in active_cars:
         + laps_adj + indiv + stab
         + h_bonus
         + l200
+        + jiryoku_comment_bonus
     )
 
     rows.append([
