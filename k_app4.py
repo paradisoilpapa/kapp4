@@ -1693,35 +1693,41 @@ for no in active_cars:
         1.05
     )
 
-    # =====================================================
+        # =====================================================
     # 周回疲労補正
-    #   自力コメントありは「強制加点」ではなく、
-    #   逃げ・自力系の疲労減点を少し軽くするだけ
+    #   周回疲労は従来通り計算する。
+    #   自力コメントはここでは減点軽減に使わない。
+    #   ※自力コメントは別枠で「必ずプラス補正」として扱う
     # =====================================================
 
-    jiryoku_comment_map = globals().get("jiryoku_comment", {})
-    is_jiryoku_comment = bool(jiryoku_comment_map.get(int(no), False))
-
-    is_escape = 1.0 if float(prof_escape[no]) > 0.5 else 0.0
-    is_oikomi = 1.0 if float(prof_oikomi[no]) > 0.4 else 0.0
-
-    # 従来の逃げ・自力系の疲労マイナス
-    escape_penalty = -0.10 * extra * is_escape
-
-    # 自力コメントありなら、疲労マイナスを20%軽減
-    # 例：-0.20 → -0.16
-    if is_jiryoku_comment:
-        escape_penalty *= 0.80
-
-    # 従来通り、追込型は開催後半で少しだけプラス
-    oikomi_bonus = +0.05 * extra * is_oikomi
-
-    laps_adj = (escape_penalty + oikomi_bonus) * fatigue_scale
+    laps_adj = (
+        -0.10 * extra * (1.0 if float(prof_escape[no]) > 0.5 else 0.0)
+        + 0.05 * extra * (1.0 if float(prof_oikomi[no]) > 0.4 else 0.0)
+    ) * fatigue_scale
 
     # ガールズは周回疲労を弱める
     if race_class == "ガールズ":
         laps_adj *= 0.3
 
+    # =====================================================
+    # 自力コメント補正
+    #   前検コメントで「自力」「自力自在」「自力基本」「自分で」等がある選手を薄く加点
+    #   減点ではなく、必ずプラス方向のみ
+    # =====================================================
+
+    jiryoku_comment_map = globals().get("jiryoku_comment", {})
+    is_jiryoku_comment = bool(jiryoku_comment_map.get(int(no), False))
+
+    jiryoku_comment_bonus = 0.0
+
+    if is_jiryoku_comment:
+        jiryoku_comment_bonus = 0.045
+
+        # ガールズはラインがないため少し薄め
+        if race_class == "ガールズ":
+            jiryoku_comment_bonus *= 0.6
+
+    jiryoku_comment_bonus = clamp(jiryoku_comment_bonus, 0.0, 0.06)
     laps_adj = clamp(laps_adj, -0.22, 0.18)
 
     # 環境・個人補正（既存）
