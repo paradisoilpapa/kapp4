@@ -1744,12 +1744,12 @@ for no in active_cars:
     is_jiryoku_comment = bool(jiryoku_comment_map.get(int(no), False))
     is_seri_comment    = bool(seri_comment_map.get(int(no), False))
 
-    # -----------------------------------------------------
+        # -----------------------------------------------------
     # 自力コメント補正
     # -----------------------------------------------------
     jiryoku_comment_bonus = 0.0
 
-        if is_jiryoku_comment:
+    if is_jiryoku_comment:
         # 基本加点
         jiryoku_comment_bonus = 0.120
 
@@ -1770,7 +1770,6 @@ for no in active_cars:
             jiryoku_comment_bonus *= 0.60
 
     jiryoku_comment_bonus = clamp(jiryoku_comment_bonus, 0.0, 0.170)
-
     # -----------------------------------------------------
     # ライン連動補正
     #   後ろの選手が「番手・目標」チェックありなら、
