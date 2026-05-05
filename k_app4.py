@@ -4837,7 +4837,15 @@ try:
             raceFR = 1.0 - max_share
             raceFR = max(0.0, min(1.0, raceFR))
 
-    lines_out.append(f"・レースFR={raceFR:.3f}［{_band3_fr(raceFR)}］")
+        lines_out.append(f"・レースFR={raceFR:.3f}［{_band3_fr(raceFR)}］")
+
+    # レースレベル表示
+    try:
+        lines_out.append(
+            f"・レースレベル：{race_level_label}［平均得点={race_level_avg:.2f}／得点差={race_level_spread:.2f}］"
+        )
+    except Exception:
+        pass
 
     _vtx_fr = float(_lfr(VTX_line) if VTX_line else 0.0)
     _u_fr = float(_lfr(U_line) if U_line else 0.0)
