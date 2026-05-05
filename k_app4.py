@@ -4760,14 +4760,24 @@ try:
     _vtx_fr = float(_lfr(VTX_line) if VTX_line else 0.0)
     _u_fr = float(_lfr(U_line) if U_line else 0.0)
 
-    # VTX/U はラインFR（ズレ防止）
+        # VTX/U はラインFR（ズレ防止）
     _vtx_fr = float(_lfr(VTX_line) if VTX_line else 0.0)
     _u_fr   = float(_lfr(U_line) if U_line else 0.0)
+
+    # 混戦度表示
+    try:
+        lines_out.append(
+            f"・混戦度：{race_compact_label}［上位差={race_compact_gap:.2f}］"
+        )
+    except Exception:
+        pass
+
     lines_out.append(f"・VTXラインFR={_vtx_fr:.3f}［{_band3_vtx(_vtx_fr)}］")
     lines_out.append(f"・逆流ラインFR={_u_fr:.3f}［{_band3_u(_u_fr)}］")
 
         # 内訳要約（flow dbg）
     dbg = _flow.get("dbg", {}) if isinstance(_flow, dict) else {}
+    
     if isinstance(dbg, dict) and dbg:
 
         bs = float(dbg.get("blend_star", 0.0) or 0.0)
