@@ -1435,105 +1435,76 @@ for i, no in enumerate(active_cars):
 ratings_val = {no: (ratings[no] if ratings[no] is not None else 55.0) for no in active_cars}
 
 # =====================================================
-# レースレベル判定
-#   級別だけではなく、そのレースの平均得点・ばらつきで補正の効き方を変える
+# 混戦度判定
+#   平均得点ではなく、競走得点1位と2位の差で見る
+#   High   = 上位差が大きく、順当寄り
+#   Middle = 標準
+#   Low    = 上位差が小さく、波乱気味
+#
+#   ※スコア補正には使わない。まずは表示・検証用。
 # =====================================================
-def calc_race_level_factors(race_class: str, ratings_val: dict, active_cars: list):
+def calc_race_compactness(ratings_val: dict, active_cars: list):
     vals = []
+
     for no in active_cars:
         try:
-            vals.append(float(ratings_val.get(int(no), 0.0)))
+            v = float(ratings_val.get(int(no), 0.0))
+            if v > 0:
+                vals.append(v)
         except Exception:
             pass
 
-    if not vals:
+    if len(vals) < 2:
         return {
             "label": "Middle",
-            "avg": 0.0,
-            "spread": 0.0,
-            "rating_scale": 1.00,
-            "comment_scale": 1.00,
-            "line_scale": 1.00,
+            "top1": 0.0,
+            "top2": 0.0,
+            "top_gap": 0.0,
         }
 
-    avg = sum(vals) / len(vals)
-    spread = max(vals) - min(vals)
+    vals = sorted(vals, reverse=True)
 
-    # 級別ごとのざっくり基準
-    if race_class == "Ｓ級":
-        high_th = 105.0
-        low_th  = 101.0
-    elif race_class == "Ａ級":
-        high_th = 88.0
-        low_th  = 84.0
-    elif race_class == "Ａ級チャレンジ":
-        high_th = 73.0
-        low_th  = 68.0
-    elif race_class in ("ガールズ", "アドバンス"):
-        high_th = 54.0
-        low_th  = 50.0
+    top1 = vals[0]
+    top2 = vals[1]
+    top_gap = top1 - top2
+
+    if top_gap >= 2.00:
+        label = "High"      # 順当寄り
+    elif top_gap >= 1.00:
+        label = "Middle"    # 標準
     else:
-        high_th = avg + 999.0
-        low_th  = avg - 999.0
-
-    label = "Middle"
-    rating_scale = 1.00
-    comment_scale = 1.00
-    line_scale = 1.00
-
-    # 高レベル戦：地力重視。コメント・ライン連動は少し抑える
-    if avg >= high_th:
-        label = "High"
-        rating_scale = 1.06
-        comment_scale = 0.90
-        line_scale = 0.90
-
-    # 低レベル戦：展開・コメント・ライン連動を少し重視
-    elif avg <= low_th:
-        label = "Low"
-        rating_scale = 0.94
-        comment_scale = 1.08
-        line_scale = 1.08
-
-    # ばらつきが大きい場合は、得点差を少し尊重する
-    if spread >= 8.0:
-        rating_scale *= 1.03
-        comment_scale *= 0.97
-        line_scale *= 0.97
-        label += "・Gap"
-
-    # ばらつきが小さい場合は、コメント・展開を少し重視
-    elif spread <= 3.0:
-        rating_scale *= 0.98
-        comment_scale *= 1.03
-        line_scale *= 1.03
-        label += "・Flat"
+        label = "Low"       # 波乱気味
 
     return {
         "label": label,
-        "avg": float(avg),
-        "spread": float(spread),
-        "rating_scale": float(rating_scale),
-        "comment_scale": float(comment_scale),
-        "line_scale": float(line_scale),
+        "top1": float(top1),
+        "top2": float(top2),
+        "top_gap": float(top_gap),
     }
 
 
-race_level_info = calc_race_level_factors(race_class, ratings_val, active_cars)
+race_compact_info = calc_race_compactness(ratings_val, active_cars)
 
-race_level_label = race_level_info["label"]
-race_level_avg = race_level_info["avg"]
-race_level_spread = race_level_info["spread"]
-level_rating_scale = race_level_info["rating_scale"]
-level_comment_scale = race_level_info["comment_scale"]
-level_line_scale = race_level_info["line_scale"]
+race_compact_label = race_compact_info["label"]
+race_compact_top1 = race_compact_info["top1"]
+race_compact_top2 = race_compact_info["top2"]
+race_compact_gap = race_compact_info["top_gap"]
 
-globals()["race_level_info"] = race_level_info
-globals()["race_level_label"] = race_level_label
+globals()["race_compact_info"] = race_compact_info
+globals()["race_compact_label"] = race_compact_label
+globals()["race_compact_gap"] = race_compact_gap
+
+# =====================================================
+# 旧レースレベル補正は無効化
+#   平均得点High/Middle/Lowはスコアを歪めやすいため使わない
+# =====================================================
+level_rating_scale = 1.00
+level_comment_scale = 1.00
+level_line_scale = 1.00
+
 globals()["level_rating_scale"] = level_rating_scale
 globals()["level_comment_scale"] = level_comment_scale
 globals()["level_line_scale"] = level_line_scale
-
 # =====================================================
 # コメントチェック表
 #   前検コメントを見て手動チェック
@@ -4778,8 +4749,12 @@ try:
 
     lines_out.append(f"・レースFR={raceFR:.3f}［{_band3_fr(raceFR)}］")
     lines_out.append(
-    f"・レースレベル：{race_level_label}［平均得点={race_level_avg:.2f}／得点差={race_level_spread:.2f}］"
-)
+    try:
+    lines_out.append(
+        f"・混戦度：{race_compact_label}［上位差={race_compact_gap:.2f}］"
+    )
+except Exception:
+    pass
 
     # VTX/U はラインFR（ズレ防止）
     _vtx_fr = float(_lfr(VTX_line) if VTX_line else 0.0)
