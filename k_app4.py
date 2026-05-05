@@ -1433,6 +1433,107 @@ for i, no in enumerate(active_cars):
         x_out[no]= st.number_input("着外", 0, 99, 0, key=f"xo_{no}")
 
 ratings_val = {no: (ratings[no] if ratings[no] is not None else 55.0) for no in active_cars}
+
+# =====================================================
+# レースレベル判定
+#   級別だけではなく、そのレースの平均得点・ばらつきで補正の効き方を変える
+# =====================================================
+def calc_race_level_factors(race_class: str, ratings_val: dict, active_cars: list):
+    vals = []
+    for no in active_cars:
+        try:
+            vals.append(float(ratings_val.get(int(no), 0.0)))
+        except Exception:
+            pass
+
+    if not vals:
+        return {
+            "label": "標準",
+            "avg": 0.0,
+            "spread": 0.0,
+            "rating_scale": 1.00,
+            "comment_scale": 1.00,
+            "line_scale": 1.00,
+        }
+
+    avg = sum(vals) / len(vals)
+    spread = max(vals) - min(vals)
+
+    # 級別ごとのざっくり基準
+    if race_class == "Ｓ級":
+        high_th = 105.0
+        low_th  = 101.0
+    elif race_class == "Ａ級":
+        high_th = 88.0
+        low_th  = 84.0
+    elif race_class == "Ａ級チャレンジ":
+        high_th = 73.0
+        low_th  = 68.0
+    elif race_class in ("ガールズ", "アドバンス"):
+        high_th = 54.0
+        low_th  = 50.0
+    else:
+        high_th = avg + 999.0
+        low_th  = avg - 999.0
+
+    label = "標準"
+    rating_scale = 1.00
+    comment_scale = 1.00
+    line_scale = 1.00
+
+    # 高レベル戦：地力重視。コメント・ライン連動は少し抑える
+    if avg >= high_th:
+        label = "高レベル"
+        rating_scale = 1.06
+        comment_scale = 0.90
+        line_scale = 0.90
+
+    # 低レベル戦：展開・コメント・ライン連動を少し重視
+    elif avg <= low_th:
+        label = "低レベル"
+        rating_scale = 0.94
+        comment_scale = 1.08
+        line_scale = 1.08
+
+    # ばらつきが大きい場合は、得点差を少し尊重する
+    if spread >= 8.0:
+        rating_scale *= 1.03
+        comment_scale *= 0.97
+        line_scale *= 0.97
+        label += "・差大"
+
+    # ばらつきが小さい場合は、コメント・展開を少し重視
+    elif spread <= 3.0:
+        rating_scale *= 0.98
+        comment_scale *= 1.03
+        line_scale *= 1.03
+        label += "・横並び"
+
+    return {
+        "label": label,
+        "avg": float(avg),
+        "spread": float(spread),
+        "rating_scale": float(rating_scale),
+        "comment_scale": float(comment_scale),
+        "line_scale": float(line_scale),
+    }
+
+
+race_level_info = calc_race_level_factors(race_class, ratings_val, active_cars)
+
+race_level_label = race_level_info["label"]
+race_level_avg = race_level_info["avg"]
+race_level_spread = race_level_info["spread"]
+level_rating_scale = race_level_info["rating_scale"]
+level_comment_scale = race_level_info["comment_scale"]
+level_line_scale = race_level_info["line_scale"]
+
+globals()["race_level_info"] = race_level_info
+globals()["race_level_label"] = race_level_label
+globals()["level_rating_scale"] = level_rating_scale
+globals()["level_comment_scale"] = level_comment_scale
+globals()["level_line_scale"] = level_line_scale
+
 # =====================================================
 # コメントチェック表
 #   前検コメントを見て手動チェック
@@ -1861,7 +1962,7 @@ for no in active_cars:
     total_raw = (
         prof_base[no]
         + wind
-        + cf["spread"] * tens_corr.get(no, 0.0)
+        + cf["spread"] * level_rating_scale * tens_corr.get(no, 0.0)
         + bank_b
         + length_b
         + laps_adj
@@ -1878,7 +1979,7 @@ for no in active_cars:
         no, role,
         round(prof_base[no], 3),
         round(wind, 3),
-        round(cf["spread"] * tens_corr.get(no, 0.0), 3),
+        round(cf["spread"] * level_rating_scale * tens_corr.get(no, 0.0), 3),
         round(bank_b, 3),
         round(length_b, 3),
         round(laps_adj, 3),
