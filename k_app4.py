@@ -4036,12 +4036,48 @@ try:
     v_wo_map = _as_int_float_map(globals().get("v_wo"))
     scores_map = _as_int_float_map(globals().get("scores"))
 
-    score_map = dict(v_final_map or v_wo_map or scores_map or {})
+        score_map = dict(v_final_map or v_wo_map or scores_map or {})
 
     # active_cars を必ず含める（欠けを防ぐ）
     active_cars = [int(x) for x in (globals().get("active_cars") or []) if str(x).isdigit()]
     for n in active_cars:
         score_map.setdefault(int(n), 0.0)
+
+    # =========================================================
+    # KO母集団スコア補正：3番手追い込みの過大評価抑制
+    # =========================================================
+    try:
+        _line_def = globals().get("line_def", {})
+        _H = globals().get("H", {})
+        _B = globals().get("B", {})
+
+        _kyaku_map = (
+            globals().get("kyakushitsu_map")
+            or globals().get("kaku_map")
+            or globals().get("profile_map")
+            or globals().get("profiles")
+            or {}
+        )
+
+        for _n in list(score_map.keys()):
+            _car = int(_n)
+
+            _role = role_in_line(_car, _line_def) if isinstance(_line_def, dict) else "single"
+            _kyaku = str(_kyaku_map.get(_car, _kyaku_map.get(str(_car), "")))
+
+            _h_val = float(_H.get(_car, _H.get(str(_car), 0)) or 0)
+            _b_val = float(_B.get(_car, _B.get(str(_car), 0)) or 0)
+
+            if _kyaku == "追" and _role == "thirdplus":
+                if _h_val == 0 and _b_val == 0:
+                    score_map[_n] = float(score_map[_n]) - 0.15
+                else:
+                    score_map[_n] = float(score_map[_n]) - 0.08
+
+    except Exception as _e:
+        note_sections.append(f"※KO母集団補正エラー：{_e}")
+
+    
 
     # 0/None/NaN の床値補完
     vals_pos = [
