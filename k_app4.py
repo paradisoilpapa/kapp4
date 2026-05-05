@@ -4548,13 +4548,9 @@ try:
                 bonus = 0.0
             return bonus
 
-        def _run_ko(q, main_zone):
+                def _run_ko(q, main_zone):
             # ======================================================
             # 距離ベース（B）＋ KO閾値（C）
-            #   available_m = みなし直線[m]（サイドバー straight_length）
-            #   pass_m      = 追い抜き1回に必要な距離[m]（外回し込み）
-            #   MAX_PASSES  = 回数上限（今回は速度差ベース）
-            #   PASS_DELTA  = score_per_m * pass_m
             # ======================================================
             q = [int(x) for x in (q or []) if str(x).isdigit()]
 
@@ -4564,6 +4560,48 @@ try:
                 if c not in seen:
                     seen.add(c)
                     order.append(c)
+
+                    def _run_ko(q, main_zone):
+            # ======================================================
+            # 距離ベース（B）＋ KO閾値（C）
+            # ======================================================
+            q = [int(x) for x in (q or []) if str(x).isdigit()]
+
+            seen = set()
+            order = []
+            for c in q:
+                if c not in seen:
+                    seen.add(c)
+                    order.append(c)
+
+            # ======================================================
+            # KO内スコア補正：score_map下位の車を頭に残しすぎない
+            # ======================================================
+            try:
+                _score_vals = {int(k): float(v) for k, v in (score_map or {}).items()}
+                _score_rank = {
+                    c: i + 1
+                    for i, c in enumerate(
+                        sorted(_score_vals.keys(), key=lambda x: (-_score_vals[x], x))
+                    )
+                }
+
+                def _score_rank_penalty(car):
+                    r = int(_score_rank.get(int(car), 99))
+
+                    if r >= 7:
+                        return -0.120
+                    if r == 6:
+                        return -0.090
+                    if r == 5:
+                        return -0.060
+                    if r == 4:
+                        return -0.030
+                    return 0.0
+
+            except Exception:
+                def _score_rank_penalty(car):
+                    return 0.0
 
             tail = [int(c) for c in score_map.keys() if int(c) not in seen]
             tail.sort(key=lambda c: float(score_map.get(int(c), 0.0)), reverse=True)
@@ -4579,7 +4617,12 @@ try:
 
             def _final_at(car, i):
                 base = float(score_map.get(int(car), 0.0))
-                return base + _pos_adj_for_car(int(car)) + _fr_bonus_for_car(int(car), main_zone)
+                return (
+                    base
+                    + _pos_adj_for_car(int(car))
+                    + _fr_bonus_for_car(int(car), main_zone)
+                    + _score_rank_penalty(int(car))
+                )
             # ====== PATCH: venue-aware pass_m / available_m + speed-based MAX_PASSES ======
             pass_m = 14.0 + 0.35 * straight_m
             pass_m *= (1.0 + 0.25 * max(0.0, style))
