@@ -4761,7 +4761,7 @@ try:
         )
     else:
         lines_out.append(
-            f"・混戦度：{_compact_label}"
+            f"・順当度：{_compact_label}"
         )
 
     # VTX/U はラインFR（ズレ防止）
@@ -4842,11 +4842,11 @@ try:
 
     if _compact_gap is not None:
         lines_out.append(
-            f"・混戦度：{_compact_label}［上位差={float(_compact_gap):.2f}］"
+            f"・順当度：{_compact_label}［上位差={float(_compact_gap):.2f}］"
         )
     else:
         lines_out.append(
-            f"・混戦度：{_compact_label}"
+            f"・順当度：{_compact_label}"
         )
 
     lines_out.append(f"・VTXラインFR={_vtx_fr:.3f}［{_band3_vtx(_vtx_fr)}］")
