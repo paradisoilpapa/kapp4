@@ -1500,14 +1500,14 @@ def calc_race_level_factors(race_class: str, ratings_val: dict, active_cars: lis
         rating_scale *= 1.03
         comment_scale *= 0.97
         line_scale *= 0.97
-        label += "・差大"
+        label += "・Gap"
 
     # ばらつきが小さい場合は、コメント・展開を少し重視
     elif spread <= 3.0:
         rating_scale *= 0.98
         comment_scale *= 1.03
         line_scale *= 1.03
-        label += "・横並び"
+        label += "・Flat"
 
     return {
         "label": label,
