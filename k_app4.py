@@ -4043,32 +4043,25 @@ try:
     for n in active_cars:
         score_map.setdefault(int(n), 0.0)
 
-    # =========================================================
-    # KO母集団スコア補正：3番手追い込みの過大評価抑制
+        # =========================================================
+    # KO母集団スコア補正：ライン3番手以降・H0/B0の過大評価抑制
+    # ※脚質名に依存しない版。「追」ではなく「マーク」扱いでも効く。
     # =========================================================
     try:
         _line_def = globals().get("line_def", {})
         _H = globals().get("H", {})
         _B = globals().get("B", {})
 
-        _kyaku_map = (
-            globals().get("kyakushitsu_map")
-            or globals().get("kaku_map")
-            or globals().get("profile_map")
-            or globals().get("profiles")
-            or {}
-        )
-
         for _n in list(score_map.keys()):
             _car = int(_n)
 
             _role = role_in_line(_car, _line_def) if isinstance(_line_def, dict) else "single"
-            _kyaku = str(_kyaku_map.get(_car, _kyaku_map.get(str(_car), "")))
 
             _h_val = float(_H.get(_car, _H.get(str(_car), 0)) or 0)
             _b_val = float(_B.get(_car, _B.get(str(_car), 0)) or 0)
 
-            if _kyaku == "追" and _role == "thirdplus":
+            # 例：364 の 4番 = thirdplus、H0、B0 → 必ず減点
+            if _role == "thirdplus":
                 if _h_val == 0 and _b_val == 0:
                     score_map[_n] = float(score_map[_n]) - 0.15
                 else:
