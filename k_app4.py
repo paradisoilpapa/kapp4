@@ -4760,7 +4760,20 @@ try:
     _vtx_fr = float(_lfr(VTX_line) if VTX_line else 0.0)
     _u_fr = float(_lfr(U_line) if U_line else 0.0)
 
-        # VTX/U はラインFR（ズレ防止）
+        # 混戦度表示
+    _compact_label = globals().get("race_compact_label", "未判定")
+    _compact_gap = globals().get("race_compact_gap", None)
+
+    if _compact_gap is not None:
+        lines_out.append(
+            f"・混戦度：{_compact_label}［上位差={float(_compact_gap):.2f}］"
+        )
+    else:
+        lines_out.append(
+            f"・混戦度：{_compact_label}"
+        )   
+    
+    # VTX/U はラインFR（ズレ防止）
     _vtx_fr = float(_lfr(VTX_line) if VTX_line else 0.0)
     _u_fr   = float(_lfr(U_line) if U_line else 0.0)
 
