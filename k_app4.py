@@ -1469,11 +1469,11 @@ def calc_race_compactness(ratings_val: dict, active_cars: list):
     top_gap = top1 - top2
 
     if top_gap >= 2.00:
-        label = "High"      # 順当寄り
+        label = "順当寄り"
     elif top_gap >= 1.00:
-        label = "Middle"    # 標準
+        label = "標準"
     else:
-        label = "Low"       # 波乱気味
+        label = "波乱気味"
 
     return {
         "label": label,
@@ -4757,7 +4757,7 @@ try:
 
     if _compact_gap is not None:
         lines_out.append(
-            f"・混戦度：{_compact_label}［上位差={float(_compact_gap):.2f}］"
+            f"・順当度：{_compact_label}［上位差={float(_compact_gap):.2f}］"
         )
     else:
         lines_out.append(
