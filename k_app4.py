@@ -4036,7 +4036,7 @@ try:
     v_wo_map = _as_int_float_map(globals().get("v_wo"))
     scores_map = _as_int_float_map(globals().get("scores"))
 
-        score_map = dict(v_final_map or v_wo_map or scores_map or {})
+    score_map = dict(v_final_map or v_wo_map or scores_map or {})
 
     # active_cars を必ず含める（欠けを防ぐ）
     active_cars = [int(x) for x in (globals().get("active_cars") or []) if str(x).isdigit()]
