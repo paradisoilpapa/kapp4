@@ -4747,14 +4747,18 @@ try:
             if raceFR > 1.0:
                 raceFR = 1.0
 
-    lines_out.append(f"・レースFR={raceFR:.3f}［{_band3_fr(raceFR)}］")
-    lines_out.append(
+        lines_out.append(f"・レースFR={raceFR:.3f}［{_band3_fr(raceFR)}］")
+
+    # 混戦度表示
     try:
-    lines_out.append(
-        f"・混戦度：{race_compact_label}［上位差={race_compact_gap:.2f}］"
-    )
-except Exception:
-    pass
+        lines_out.append(
+            f"・混戦度：{race_compact_label}［上位差={race_compact_gap:.2f}］"
+        )
+    except Exception:
+        pass
+
+    _vtx_fr = float(_lfr(VTX_line) if VTX_line else 0.0)
+    _u_fr = float(_lfr(U_line) if U_line else 0.0)
 
     # VTX/U はラインFR（ズレ防止）
     _vtx_fr = float(_lfr(VTX_line) if VTX_line else 0.0)
