@@ -4768,6 +4768,8 @@ try:
     _vtx_fr = float(_lfr(VTX_line) if VTX_line else 0.0)
     _u_fr = float(_lfr(U_line) if U_line else 0.0)
 
+    lines_out.append("・混戦度テスト表示")
+
     lines_out.append(f"・VTXラインFR={_vtx_fr:.3f}［{_band3_vtx(_vtx_fr)}］")
     lines_out.append(f"・逆流ラインFR={_u_fr:.3f}［{_band3_u(_u_fr)}］")
 
