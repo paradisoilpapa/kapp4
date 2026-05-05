@@ -1448,7 +1448,7 @@ def calc_race_level_factors(race_class: str, ratings_val: dict, active_cars: lis
 
     if not vals:
         return {
-            "label": "標準",
+            "label": "Middle",
             "avg": 0.0,
             "spread": 0.0,
             "rating_scale": 1.00,
@@ -1476,21 +1476,21 @@ def calc_race_level_factors(race_class: str, ratings_val: dict, active_cars: lis
         high_th = avg + 999.0
         low_th  = avg - 999.0
 
-    label = "標準"
+    label = "Middle"
     rating_scale = 1.00
     comment_scale = 1.00
     line_scale = 1.00
 
     # 高レベル戦：地力重視。コメント・ライン連動は少し抑える
     if avg >= high_th:
-        label = "高レベル"
+        label = "High"
         rating_scale = 1.06
         comment_scale = 0.90
         line_scale = 0.90
 
     # 低レベル戦：展開・コメント・ライン連動を少し重視
     elif avg <= low_th:
-        label = "低レベル"
+        label = "Low"
         rating_scale = 0.94
         comment_scale = 1.08
         line_scale = 1.08
