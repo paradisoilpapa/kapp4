@@ -4720,7 +4720,7 @@ try:
     _append_ko_queue_predictions(note_sections, all_lines, score_map, FR_line, VTX_line, U_line, _lfr)
     # ここまでで note_sections を確実に保持
 
-    # =========================================================
+        # =========================================================
     # ＜短評＞（KOの成否に関係なく表示）※完全tryゼロ
     # =========================================================
     lines_out = ["＜短評＞"]
@@ -4738,6 +4738,7 @@ try:
             fv = float(s) if s not in ("", "None", "nan", "NaN") else 0.0
             if fv > 0.0 and fv == fv:
                 vals.append(fv)
+
         total = sum(vals)
         if total > 1e-12:
             max_share = max(fv / total for fv in vals)
@@ -4747,20 +4748,10 @@ try:
             if raceFR > 1.0:
                 raceFR = 1.0
 
-        lines_out.append(f"・レースFR={raceFR:.3f}［{_band3_fr(raceFR)}］")
+    # レースFR表示
+    lines_out.append(f"・レースFR={raceFR:.3f}［{_band3_fr(raceFR)}］")
 
     # 混戦度表示
-    try:
-        lines_out.append(
-            f"・混戦度：{race_compact_label}［上位差={race_compact_gap:.2f}］"
-        )
-    except Exception:
-        pass
-
-    _vtx_fr = float(_lfr(VTX_line) if VTX_line else 0.0)
-    _u_fr = float(_lfr(U_line) if U_line else 0.0)
-
-        # 混戦度表示
     _compact_label = globals().get("race_compact_label", "未判定")
     _compact_gap = globals().get("race_compact_gap", None)
 
@@ -4771,28 +4762,19 @@ try:
     else:
         lines_out.append(
             f"・混戦度：{_compact_label}"
-        )   
-    
+        )
+
     # VTX/U はラインFR（ズレ防止）
     _vtx_fr = float(_lfr(VTX_line) if VTX_line else 0.0)
-    _u_fr   = float(_lfr(U_line) if U_line else 0.0)
-
-    # 混戦度表示
-    try:
-        lines_out.append(
-            f"・混戦度：{race_compact_label}［上位差={race_compact_gap:.2f}］"
-        )
-    except Exception:
-        pass
+    _u_fr = float(_lfr(U_line) if U_line else 0.0)
 
     lines_out.append(f"・VTXラインFR={_vtx_fr:.3f}［{_band3_vtx(_vtx_fr)}］")
     lines_out.append(f"・逆流ラインFR={_u_fr:.3f}［{_band3_u(_u_fr)}］")
 
-        # 内訳要約（flow dbg）
+    # 内訳要約（flow dbg）
     dbg = _flow.get("dbg", {}) if isinstance(_flow, dict) else {}
-    
-    if isinstance(dbg, dict) and dbg:
 
+    if isinstance(dbg, dict) and dbg:
         bs = float(dbg.get("blend_star", 0.0) or 0.0)
         bn = float(dbg.get("blend_none", 0.0) or 0.0)
         sd = float(dbg.get("sd", 0.0) or 0.0)
