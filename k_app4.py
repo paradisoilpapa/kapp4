@@ -5470,6 +5470,10 @@ try:
                     f"軸評価：{axis_rank}［{axis_label}］"
                     f"（軸想定2着内率 {axis_rate*100:.0f}%）"
                 )
+                globals()["AXIS_EVAL_TOP_LINE"] = (
+                    f"軸評価：{axis_rank}［{axis_label}］"
+                    f"（軸想定2着内率 {axis_rate*100:.0f}%）"
+                )
 
                 try:
                     _compact_label_for_buy = str(
@@ -5529,7 +5533,25 @@ try:
         recommend_lines.append(
             f"推奨戦法：判定不可（{_e}）"
         )
-        recommend_lines.append("")
+               recommend_lines.append("")
+
+    # =====================================================
+    # 冒頭表示用：展開評価の直後に軸評価を1行だけ差し込む
+    # =====================================================
+    try:
+        _axis_top_line = globals().get("AXIS_EVAL_TOP_LINE", "")
+
+        if _axis_top_line:
+            for _i, _s in enumerate(note_sections):
+                if str(_s).startswith("展開評価："):
+                    if (
+                        _i + 1 >= len(note_sections)
+                        or str(note_sections[_i + 1]) != _axis_top_line
+                    ):
+                        note_sections.insert(_i + 1, _axis_top_line)
+                    break
+    except Exception:
+        pass
 
     note_sections.extend(recommend_lines)
     note_sections.extend(lines_out)
