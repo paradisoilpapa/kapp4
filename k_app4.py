@@ -5340,7 +5340,6 @@ try:
         recommend_lines.append(
             f"推奨戦法：{recommend_style}"
         )
-        recommend_lines.append("")
 
         # =====================================================
         # 2車複 評価1軸候補
