@@ -5539,7 +5539,7 @@ try:
 
                 recommend_lines.append("")
                 try:
-        _axis_top_line = globals().get("AXIS_EVAL_TOP_LINE", "")
+                    _axis_top_line = globals().get("AXIS_EVAL_TOP_LINE", "")
 
         if _axis_top_line:
             for _i, _s in enumerate(note_sections):
