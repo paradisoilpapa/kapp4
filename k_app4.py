@@ -5269,6 +5269,60 @@ try:
         except Exception:
             pass
 
+                # =====================================================
+        # 信頼度の最終補正：展開評価・順当度・上位差を統合
+        # =====================================================
+        try:
+            compact_label = str(globals().get("race_compact_label", ""))
+            compact_gap = globals().get("race_compact_gap", None)
+
+            def _down_conf(conf):
+                if conf == "A":
+                    return "B"
+                if conf == "B":
+                    return "C"
+                return "C"
+
+            conf_down_reasons = []
+
+            # 波乱気味＋上位差小は、信頼度を1段階下げる
+            if "波乱気味" in compact_label and compact_gap is not None:
+                if float(compact_gap) < 1.0:
+                    old_conf = confidence
+                    confidence = _down_conf(confidence)
+                    if confidence != old_conf:
+                        conf_down_reasons.append(
+                            f"波乱気味＋上位差小={float(compact_gap):.2f}"
+                        )
+
+            # 混戦＋波乱気味はB以上を出しすぎない
+            if "混戦" in tenkai_txt and "波乱気味" in compact_label:
+                if confidence in ("A", "B"):
+                    old_conf = confidence
+                    confidence = "C"
+                    if confidence != old_conf:
+                        conf_down_reasons.append("混戦＋波乱気味")
+
+            # レースFRが不利域なら、AはBへ落とす
+            if raceFR >= 0.65 and confidence == "A":
+                confidence = "B"
+                conf_down_reasons.append(f"レースFR不利域={raceFR:.3f}")
+
+            # ライン偏差大なら、B以上を1段階下げる
+            if sd >= 0.60:
+                old_conf = confidence
+                confidence = _down_conf(confidence)
+                if confidence != old_conf:
+                    conf_down_reasons.append("ライン偏差大")
+
+            if conf_down_reasons:
+                recommend_reason.append(
+                    "信頼度補正：" + "／".join(conf_down_reasons)
+                )
+
+        except Exception:
+            pass
+
         # =====================================================
         # 推奨戦法を＜短評＞の上に表示
         # =====================================================
