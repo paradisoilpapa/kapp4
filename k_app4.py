@@ -4656,15 +4656,34 @@ try:
 
             gain_m = max(0.0, (float(v_fast) - float(v_mid)) * float(t_final))
 
-            # ---- MAX_PASSES：相対距離割り（最低1回保証）----
             MAX_PASSES = int(gain_m // max(pass_m, 1e-9))
             if MAX_PASSES < 1:
                 MAX_PASSES = 1
 
-            # 333/335は最大2、その他は最大3（過剰シャッフル防止）
-            cap = 2 if bank_len <= 335 else 3
-            if MAX_PASSES > cap:
-                MAX_PASSES = cap
+# ======================================================
+# KO使用スコア差が大きいレースでは、追い抜き回数を増やす
+# ======================================================
+try:
+    _vals_sorted = sorted(
+        [float(v) for v in score_map.values()],
+        reverse=True
+    )
+    _score_spread = _vals_sorted[0] - _vals_sorted[-1] if len(_vals_sorted) >= 2 else 0.0
+except Exception:
+    _score_spread = 0.0
+
+cap = 2 if bank_len <= 335 else 3
+
+if _score_spread >= 0.20:
+    MAX_PASSES = max(MAX_PASSES, 3)
+    cap += 1
+
+if _score_spread >= 0.30:
+    MAX_PASSES = max(MAX_PASSES, 4)
+    cap += 1
+
+if MAX_PASSES > cap:
+    MAX_PASSES = cap
 
             # ---- PASS_DELTAの正規化：available_m依存を弱めて安定化 ----
             base_k = float(globals().get("ko_base_k", 0.040) or 0.040)  # 0.025〜0.060
