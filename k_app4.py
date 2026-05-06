@@ -4803,7 +4803,7 @@ try:
                         xs.remove(line_head)
                         xs.insert(target_idx, line_head)
 
-            # 3) 最下位スコア車の早出しガード
+                        # 3) 最下位スコア車の早出しガード
             # KOスコア最下位の車が3番手以内に残るのを防ぐ
             n_score = len(score_order)
 
@@ -4818,6 +4818,17 @@ try:
                             insert_pos = i + 1
 
                     xs.insert(insert_pos, bad)
+
+            # 4) KO上位車の沈みすぎガード
+            # KOスコア上位3車が5番手以下に沈むのを防ぐ
+            # ただし一気にスコア順にはせず、4番手以内まで軽く戻す
+            for good in score_order[:3]:
+                if good in xs and xs.index(good) >= 4:
+                    xs.remove(good)
+
+                    # 4番手以内の最後へ戻す
+                    target_pos = min(3, len(xs))
+                    xs.insert(target_pos, good)
 
             return xs
 
