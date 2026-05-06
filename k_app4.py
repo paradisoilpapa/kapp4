@@ -4779,7 +4779,7 @@ try:
                     xs.remove(best)
                     xs.insert(0, best)
 
-            # 2) 主戦ライン先頭ガード
+                        # 2) 主戦ライン先頭ガード
             # 例：364なら3がライン先頭。
             # 3よりスコアが低い同ライン車（例：6）が3より前にいるなら、
             # 3をその車の前まで戻す。
@@ -4802,6 +4802,22 @@ try:
                         target_idx = min(xs.index(m) for m in lower_mates_before)
                         xs.remove(line_head)
                         xs.insert(target_idx, line_head)
+
+            # 3) 最下位スコア車の早出しガード
+            # KOスコア最下位の車が3番手以内に残るのを防ぐ
+            n_score = len(score_order)
+
+            for bad in list(xs):
+                if score_rank.get(bad, 99) == n_score and xs.index(bad) <= 2:
+                    xs.remove(bad)
+
+                    # スコア5位以内の車が並んだ最後の直後へ送る
+                    insert_pos = 0
+                    for i, c in enumerate(xs):
+                        if score_rank.get(c, 99) <= 5:
+                            insert_pos = i + 1
+
+                    xs.insert(insert_pos, bad)
 
             return xs
 
