@@ -5333,163 +5333,173 @@ try:
         except Exception:
             pass
 
-        # =====================================================
+               # =====================================================
         # 推奨戦法を＜短評＞の上に表示
         # =====================================================
         recommend_lines = []
         recommend_lines.append(
-            f"推奨戦法：{recommend_style}［信頼度{confidence}］"
-        )
-        recommend_lines.append("")
-
-                # =====================================================
-        # 戦法別想定決着率 ＋ 2車複評価1軸候補
-        # ヴェロビスコアからPlackett-Luce型で推定
-        # =====================================================
-
-        def _rate_rank(p):
-            if p >= 0.40:
-                return "A"
-            if p >= 0.30:
-                return "B"
-            if p >= 0.20:
-                return "C"
-            if p >= 0.10:
-                return "D"
-            return "E"
-
-        def _safe_odds_from_prob(p):
-            if p <= 1e-12:
-                return None
-            return 1.0 / float(p)
-
-        def _style_pair_probs(seq, score_map):
-            """
-            seqの評価1を軸に、評価2位以下との2車複推定率を返す。
-            スコアを標準化して指数化し、上位2着内の組み合わせ確率を近似する。
-            """
-            xs = [int(x) for x in (seq or []) if str(x).isdigit()]
-            if len(xs) < 2:
-                return None, [], 0.0
-
-            vals = []
-            for c in xs:
-                try:
-                    vals.append(float(score_map.get(int(c), 0.0)))
-                except Exception:
-                    vals.append(0.0)
-
-            # 平均・標準偏差
-            mu = sum(vals) / max(len(vals), 1)
-            var = sum((v - mu) ** 2 for v in vals) / max(len(vals), 1)
-            sdv = var ** 0.5
-            if sdv <= 1e-9:
-                sdv = 1.0
-
-            # 温度。小さいほどスコア差を強く見る。
-            # まずは1.65で開始。暴れたら1.8〜2.0へ上げる。
-            temp = 1.65
-
-            weights = {}
-            for c, v in zip(xs, vals):
-                z = (v - mu) / (sdv * temp)
-                if z > 6:
-                    z = 6
-                if z < -6:
-                    z = -6
-                weights[int(c)] = math.exp(z)
-
-            total_w = sum(weights.values())
-            if total_w <= 1e-12:
-                return xs[0], [], 0.0
-
-            axis = xs[0]
-            wa = float(weights.get(axis, 0.0))
-            pair_rows = []
-
-            for opp in xs[1:]:
-                wb = float(weights.get(int(opp), 0.0))
-
-                # Plackett-Luce 上位2着内の無順序ペア近似
-                # P(axis→opp) + P(opp→axis)
-                p1 = (wa / total_w) * (wb / max(total_w - wa, 1e-12))
-                p2 = (wb / total_w) * (wa / max(total_w - wb, 1e-12))
-                p_pair = max(0.0, p1 + p2)
-
-                pair_rows.append((axis, int(opp), p_pair))
-
-            # 評価1軸が2着内に入る想定率 = 評価1と誰かが上位2に入る確率
-            total_axis_rate = sum(p for _, _, p in pair_rows)
-
-            return axis, pair_rows, total_axis_rate
-
-        style_seq_map = globals().get("STYLE_SEQ_MAP", {})
-
-        style_rate_rows = []
-        style_pair_map = {}
-
-        for _style in ["順流", "渦", "逆流"]:
-            _seq = style_seq_map.get(_style, [])
-            _axis, _pairs, _rate = _style_pair_probs(_seq, score_map)
-            _rank = _rate_rank(_rate)
-            style_rate_rows.append((_style, _rate, _rank))
-            style_pair_map[_style] = {
-                "axis": _axis,
-                "pairs": _pairs,
-                "rate": _rate,
-                "rank": _rank,
-                "seq": _seq,
-            }
-
-        # 戦法別想定決着率
-        recommend_lines.append("【戦法別想定決着率】")
-        for _style, _rate, _rank in style_rate_rows:
-            recommend_lines.append(
-                f"{_style}決着：{_rate*100:.0f}%［{_rank}］"
-            )
-
-        # 最も想定率が高い戦法を選出
-        try:
-            selected_style, selected_rate, selected_rank = max(
-                style_rate_rows,
-                key=lambda x: x[1]
-            )
-        except Exception:
-            selected_style, selected_rate, selected_rank = recommend_style, 0.0, confidence
-
-        recommend_lines.append(
-            f"選出結果：{selected_style}{selected_rank}"
+            f"推奨戦法：{recommend_style}"
         )
         recommend_lines.append("")
 
         # =====================================================
         # 2車複 評価1軸候補
-        # 選出戦法の評価順だけ出す
+        # 推奨戦法の評価順だけを使う
         # =====================================================
-        selected_info = style_pair_map.get(selected_style, {})
-        selected_seq = selected_info.get("seq", [])
-        selected_axis = selected_info.get("axis", None)
-        selected_pairs = selected_info.get("pairs", [])
+        try:
+            import math
 
-        if selected_axis is not None and selected_pairs:
-            recommend_lines.append("【2車複 評価1軸候補】")
-            recommend_lines.append(f"基準：{selected_style}メイン")
+            def _axis_rank(p):
+                if p >= 0.40:
+                    return "A", "買い候補強"
+                if p >= 0.30:
+                    return "B", "買い候補"
+                if p >= 0.20:
+                    return "C", "オッズ条件付き"
+                if p >= 0.10:
+                    return "D", "高配当条件"
+                return "E", "ケン寄り"
+
+            def _safe_odds_from_prob(p):
+                if p <= 1e-12:
+                    return None
+                return 1.0 / float(p)
+
+            def _style_axis_pairs(seq, score_map):
+                """
+                評価順seqの1位を軸にした2車複候補を作る。
+                推定率はPlackett-Luce型の上位2着内ペア近似。
+                """
+                xs = []
+                seen = set()
+
+                for x in (seq or []):
+                    if str(x).isdigit():
+                        c = int(x)
+                        if c not in seen:
+                            seen.add(c)
+                            xs.append(c)
+
+                if len(xs) < 2:
+                    return None, [], 0.0
+
+                vals = []
+                for c in xs:
+                    vals.append(float(score_map.get(int(c), 0.0) or 0.0))
+
+                mu = sum(vals) / max(len(vals), 1)
+                var = sum((v - mu) ** 2 for v in vals) / max(len(vals), 1)
+                sdv = var ** 0.5
+                if sdv <= 1e-9:
+                    sdv = 1.0
+
+                # 温度：小さいほどスコア差を強く見る
+                temp = 1.65
+
+                weights = {}
+                for c, v in zip(xs, vals):
+                    z = (v - mu) / (sdv * temp)
+                    z = max(-6.0, min(6.0, z))
+                    weights[int(c)] = math.exp(z)
+
+                total_w = sum(weights.values())
+                if total_w <= 1e-12:
+                    return xs[0], [], 0.0
+
+                axis = xs[0]
+                wa = float(weights.get(axis, 0.0))
+
+                pair_rows = []
+                for opp in xs[1:]:
+                    wb = float(weights.get(int(opp), 0.0))
+
+                    # 無順序2車複：P(axis→opp) + P(opp→axis)
+                    p1 = (wa / total_w) * (wb / max(total_w - wa, 1e-12))
+                    p2 = (wb / total_w) * (wa / max(total_w - wb, 1e-12))
+                    p_pair = max(0.0, p1 + p2)
+
+                    pair_rows.append((axis, int(opp), p_pair))
+
+                # 評価1軸の想定2着内率
+                axis_rate = sum(p for _, _, p in pair_rows)
+
+                return axis, pair_rows, axis_rate
+
+            style_seq_map = globals().get("STYLE_SEQ_MAP", {})
+
+            # 推奨戦法に応じた評価順を採用
+            selected_style = recommend_style
+            selected_seq = style_seq_map.get(selected_style, [])
+
+            # 保険：推奨戦法のseqが空なら順流を使う
+            if not selected_seq:
+                selected_style = "順流"
+                selected_seq = style_seq_map.get("順流", [])
+
+            axis, pair_rows, axis_rate = _style_axis_pairs(selected_seq, score_map)
+            axis_rank, axis_label = _axis_rank(axis_rate)
+
+            # 他戦法で軸率が高いものを参考表示する
+            ref_msgs = []
+            selected_fr = _style_fr_for_recommend(selected_style)
+
+            for other_style in ["順流", "渦", "逆流"]:
+                if other_style == selected_style:
+                    continue
+
+                other_seq = style_seq_map.get(other_style, [])
+                other_axis, _, other_rate = _style_axis_pairs(other_seq, score_map)
+
+                if other_axis is None:
+                    continue
+
+                # 推奨戦法より3%以上高い場合だけ参考表示
+                if other_rate >= axis_rate + 0.03:
+                    other_fr = _style_fr_for_recommend(other_style)
+
+                    if other_fr < selected_fr - 0.05:
+                        ref_msgs.append(
+                            f"{other_style}評価1位の{int(other_axis)}は軸率高め。ただし{other_style}FR低めのため参考扱い。"
+                        )
+                    else:
+                        ref_msgs.append(
+                            f"{other_style}評価1位の{int(other_axis)}も軸候補。{other_style}警戒。"
+                        )
+
+            if axis is not None and pair_rows:
+                recommend_lines.append("【2車複 評価1軸候補】")
+                recommend_lines.append(f"基準：{selected_style}メイン")
+                recommend_lines.append(
+                    f"軸評価：{axis_rank}［{axis_label}］"
+                    f"（軸想定2着内率 {axis_rate*100:.0f}%）"
+                )
+
+                if ref_msgs:
+                    recommend_lines.append("参考：" + "／".join(ref_msgs))
+
+                recommend_lines.append(
+                    "評価順：" + " → ".join(str(int(x)) for x in selected_seq)
+                )
+                recommend_lines.append(f"軸：{int(axis)}")
+
+                for a, b, p in pair_rows:
+                    odds = _safe_odds_from_prob(p)
+
+                    if odds is None:
+                        recommend_lines.append(
+                            f"{int(a)}-{int(b)}　推定率 0.0% ／ 足切り —"
+                        )
+                    else:
+                        recommend_lines.append(
+                            f"{int(a)}-{int(b)}　推定率 {p*100:.1f}% ／ 足切り {odds:.1f}倍以上"
+                        )
+
+                recommend_lines.append("")
+
+        except Exception as _e:
             recommend_lines.append(
-                "評価順：" + " → ".join(str(int(x)) for x in selected_seq)
+                f"【2車複 評価1軸候補】生成不可（{_e}）"
             )
-            recommend_lines.append(f"軸：{int(selected_axis)}")
-
-            for a, b, p in selected_pairs:
-                odds = _safe_odds_from_prob(p)
-                if odds is None:
-                    recommend_lines.append(
-                        f"{int(a)}-{int(b)}　推定率 0% ／ 足切り —"
-                    )
-                else:
-                    recommend_lines.append(
-                        f"{int(a)}-{int(b)}　推定率 {p*100:.1f}% ／ 足切り {odds:.1f}倍以上"
-                    )
-
             recommend_lines.append("")
 
         # 推奨理由は短評内に残す
