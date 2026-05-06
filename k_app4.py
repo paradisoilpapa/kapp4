@@ -5500,49 +5500,44 @@ try:
                 recommend_lines.append(f"基準：{selected_style}メイン")
                 recommend_lines.append(f"2車複想定軸：{int(axis)}")
                 
-                pair_rows_sorted = sorted(
+                                pair_rows_sorted = sorted(
                     pair_rows,
-                    key=lambda t: min(int(t[0]), int(t[1])) if max(int(t[0]), int(t[1])) == int(axis) else int(t[1])
+                    key=lambda t: int(t[1])
                 )
+
+                # =====================================================
+                # 2車複候補一覧＋絞り推奨買目
+                # 絞り推奨：推定率10%以上
+                # =====================================================
+                SHIBORI_MIN_PROB = 0.10
+                shibori_lines = []
+
                 for a, b, p in pair_rows_sorted:
                     odds = _safe_odds_from_prob(p)
-                    
+
                     if odds is None:
-                        recommend_lines.append(
-                            f"{int(a)}-{int(b)}　推定率 0.0% ／ 足切り —"
-                        )
+                        line = f"{int(a)}-{int(b)}　推定率 0.0% ／ 足切り —"
                     else:
-                        recommend_lines.append(
-                            f"{int(a)}-{int(b)}　推定率 {p*100:.1f}% ／ 足切り {odds:.1f}倍以上"
-                        )
-                        
+                        line = f"{int(a)}-{int(b)}　推定率 {p*100:.1f}% ／ 足切り {odds:.1f}倍以上"
+
+                    recommend_lines.append(line)
+
+                    # 推定率10%以上は絞り推奨へ再掲
+                    if float(p) >= SHIBORI_MIN_PROB:
+                        shibori_lines.append(line)
+
                 if ref_msgs:
                     recommend_lines.append("参考：" + "／".join(ref_msgs))
-                    
+
+                # 絞り推奨買目を別枠で表示
+                if shibori_lines:
                     recommend_lines.append("")
+                    recommend_lines.append("【絞り推奨買目】（推定率10％以上が基準）")
 
+                    for line in shibori_lines:
+                        recommend_lines.append(f"**{line}**")
 
-        except Exception as _e:
-            recommend_lines.append(
-                f"【2車複 評価1軸候補】生成不可（{_e}）"
-            )
-            recommend_lines.append("")
-
-        # 推奨理由は短評内に残す
-        lines_out.append(
-            f"・推奨理由：{'／'.join(recommend_reason)}"
-        )
-
-    except Exception as _e:
-        recommend_lines = []
-        recommend_lines.append(
-            f"推奨戦法：判定不可（{_e}）"
-        )
-        recommend_lines.append("")
-
-    # =====================================================
-    # 冒頭表示用：展開評価の直後に軸評価を1行だけ差し込む
-    # =====================================================
+                recommend_lines.append("")
     try:
         _axis_top_line = globals().get("AXIS_EVAL_TOP_LINE", "")
 
