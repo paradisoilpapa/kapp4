@@ -5538,7 +5538,7 @@ try:
                         recommend_lines.append(f"**{line}**")
 
                 recommend_lines.append("")
-    try:
+                try:
         _axis_top_line = globals().get("AXIS_EVAL_TOP_LINE", "")
 
         if _axis_top_line:
