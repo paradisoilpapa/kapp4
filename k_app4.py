@@ -4819,15 +4819,25 @@ try:
 
                     xs.insert(insert_pos, bad)
 
-            # 4) KO上位車の沈みすぎガード
-            # KOスコア上位3車が5番手以下に沈むのを防ぐ
-            # ただし一気にスコア順にはせず、4番手以内まで軽く戻す
+                        # 4) KO上位車の沈みすぎガード
+            # KOスコア上位3車が沈みすぎるのを防ぐ
+            # 1位は頭候補、2〜3位は3番手以内を目安に戻す
             for good in score_order[:3]:
-                if good in xs and xs.index(good) >= 4:
-                    xs.remove(good)
+                if good not in xs:
+                    continue
 
-                    # 4番手以内の最後へ戻す
-                    target_pos = min(3, len(xs))
+                r = score_rank.get(good, 99)
+
+                # KO2〜3位が4番手以下なら、3番手以内へ戻す
+                if r in (2, 3) and xs.index(good) >= 3:
+                    xs.remove(good)
+                    target_pos = min(2, len(xs))
+                    xs.insert(target_pos, good)
+
+                # KO1位が3番手以下なら、2番手以内へ戻す
+                elif r == 1 and xs.index(good) >= 2:
+                    xs.remove(good)
+                    target_pos = min(1, len(xs))
                     xs.insert(target_pos, good)
 
             return xs
