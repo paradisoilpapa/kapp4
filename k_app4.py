@@ -4746,12 +4746,18 @@ try:
         out_v = outs.get("渦→順流→逆流") or []
         out_u = outs.get("逆流→順流→渦") or []
 
-                # ======================================================
+        
+
+                       # ======================================================
         # 表示用ガード：
-        # KO隊列結果がスコア下位を頭に置きすぎる場合だけ補正
+        # 1) KO隊列結果がスコア下位を頭に置きすぎる場合だけ補正
+        # 2) 主戦ライン先頭が同ライン低スコア車より後ろに落ちるのを防ぐ
         # ※ _run_ko本体は触らない
         # ======================================================
-        def _display_score_guard(seq):
+        def _digits_line(x):
+            return [int(ch) for ch in str(x) if ch.isdigit()]
+
+        def _display_score_guard(seq, main_line=None):
             xs = [int(x) for x in (seq or []) if str(x).isdigit()]
             if not xs:
                 return xs
@@ -4762,6 +4768,7 @@ try:
             )
             score_rank = {c: i + 1 for i, c in enumerate(score_order)}
 
+            # 1) 先頭ガード
             # 先頭がKOスコア5位以下なら、スコア上位3台のうち
             # 元の隊列内で一番前にいる車を先頭へ上げる
             head = xs[0]
@@ -4772,12 +4779,37 @@ try:
                     xs.remove(best)
                     xs.insert(0, best)
 
+            # 2) 主戦ライン先頭ガード
+            # 例：364なら3がライン先頭。
+            # 3よりスコアが低い同ライン車（例：6）が3より前にいるなら、
+            # 3をその車の前まで戻す。
+            line_members = _digits_line(main_line)
+            if len(line_members) >= 2:
+                line_head = line_members[0]
+
+                if line_head in xs:
+                    line_head_score = float(score_map.get(line_head, 0.0))
+                    line_head_idx = xs.index(line_head)
+
+                    lower_mates_before = []
+                    for m in line_members[1:]:
+                        if m in xs:
+                            m_score = float(score_map.get(m, 0.0))
+                            if m_score < line_head_score and xs.index(m) < line_head_idx:
+                                lower_mates_before.append(m)
+
+                    if lower_mates_before:
+                        target_idx = min(xs.index(m) for m in lower_mates_before)
+                        xs.remove(line_head)
+                        xs.insert(target_idx, line_head)
+
             return xs
 
-        out_j = _display_score_guard(out_j)
-        out_v = _display_score_guard(out_v)
-        out_u = _display_score_guard(out_u)
+        out_j = _display_score_guard(out_j, FR_line)
+        out_v = _display_score_guard(out_v, VTX_line)
+        out_u = _display_score_guard(out_u, U_line)
 
+        
         note_sections.append("【順流メイン着順予想】")
         note_sections.append(_fmt_seq(out_j))
         note_sections.append("")
