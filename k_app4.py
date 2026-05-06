@@ -4676,12 +4676,11 @@ try:
             cap = 2 if bank_len <= 335 else 3
 
             if _score_spread >= 0.20:
-                MAX_PASSES = max(MAX_PASSES, 3)
+                MAX_PASSES = max(MAX_PASSES, 2)
                 cap += 1
-
-            if _score_spread >= 0.30:
-                MAX_PASSES = max(MAX_PASSES, 4)
-                cap += 1
+                
+                if _score_spread >= 0.30:
+                    MAX_PASSES = max(MAX_PASSES, 3)
 
             if MAX_PASSES > cap:
                 MAX_PASSES = cap
