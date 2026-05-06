@@ -5453,7 +5453,7 @@ try:
                 if other_axis is None:
                     continue
 
-                # 推奨戦法より3%以上高い場合だけ参考表示
+                                # 推奨戦法より3%以上高い場合だけ参考表示
                 if other_rate >= axis_rate + 0.03:
                     other_fr = _style_fr_for_recommend(other_style)
 
@@ -5471,7 +5471,27 @@ try:
                     f"軸評価：{axis_rank}［{axis_label}］"
                     f"（軸想定2着内率 {axis_rate*100:.0f}%）"
                 )
+
+                try:
+                    _compact_label_for_buy = str(
+                        globals().get("race_compact_label", "未判定")
+                    )
+                    _compact_gap_for_buy = globals().get("race_compact_gap", None)
+
+                    if _compact_gap_for_buy is not None:
+                        recommend_lines.append(
+                            f"順当度：{_compact_label_for_buy}［上位差={float(_compact_gap_for_buy):.2f}］"
+                        )
+                    else:
+                        recommend_lines.append(
+                            f"順当度：{_compact_label_for_buy}"
+                        )
+
+                except Exception:
+                    pass
+
                 recommend_lines.append("")
+
                 recommend_lines.append("【2車複 評価軸候補】")
                 recommend_lines.append(f"基準：{selected_style}メイン")
                 recommend_lines.append(f"2車複想定軸：{int(axis)}")
