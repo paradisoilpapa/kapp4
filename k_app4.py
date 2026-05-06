@@ -5481,6 +5481,7 @@ try:
                     "評価順：" + " → ".join(str(int(x)) for x in selected_seq)
                 )
                 recommend_lines.append(f"軸：{int(axis)}")
+                recommend_lines.append("2車複想定：")
 
                 for a, b, p in pair_rows:
                     odds = _safe_odds_from_prob(p)
