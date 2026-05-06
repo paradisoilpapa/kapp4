@@ -4014,6 +4014,7 @@ try:
     if venue or race_no:
         _rn = race_no if (race_no.endswith("R") or race_no == "") else f"{race_no}R"
         note_sections.append(f"{venue}{_rn}")
+        note_sections.append("")
 
     # =========================================================
     # KO母集団スコア（v_final > v_wo > scores）で統一
