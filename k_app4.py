@@ -5493,19 +5493,6 @@ try:
                     
                     recommend_lines.append("")
 
-                for a, b, p in pair_rows:
-                    odds = _safe_odds_from_prob(p)
-
-                    if odds is None:
-                        recommend_lines.append(
-                            f"{int(a)}-{int(b)}　推定率 0.0% ／ 足切り —"
-                        )
-                    else:
-                        recommend_lines.append(
-                            f"{int(a)}-{int(b)}　推定率 {p*100:.1f}% ／ 足切り {odds:.1f}倍以上"
-                        )
-
-                recommend_lines.append("")
 
         except Exception as _e:
             recommend_lines.append(
