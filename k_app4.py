@@ -5532,7 +5532,7 @@ try:
                 # 絞り推奨買目を別枠で表示
                 if shibori_lines:
                     recommend_lines.append("")
-                    recommend_lines.append("【絞り推奨買目】（推定率10％以上が基準）")
+                    recommend_lines.append("**【絞り推奨買目】（推定率10％以上が基準）**")
 
                     for line in shibori_lines:
                         recommend_lines.append(f"**{line}**")
