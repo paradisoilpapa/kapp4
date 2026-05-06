@@ -5505,7 +5505,7 @@ try:
                     key=lambda t: int(t[1])
                 )
 
-                # =====================================================
+                                # =====================================================
                 # 2車複候補一覧＋絞り推奨買目
                 # 絞り推奨：推定率10%以上
                 # =====================================================
@@ -5539,6 +5539,24 @@ try:
 
                 recommend_lines.append("")
 
+        except Exception as _e:
+            recommend_lines.append(
+                f"【2車複 評価1軸候補】生成不可（{_e}）"
+            )
+            recommend_lines.append("")
+
+        # 推奨理由は短評内に残す
+        lines_out.append(
+            f"・推奨理由：{'／'.join(recommend_reason)}"
+        )
+
+    except Exception as _e:
+        recommend_lines = []
+        recommend_lines.append(
+            f"推奨戦法：判定不可（{_e}）"
+        )
+        recommend_lines.append("")
+
     # =====================================================
     # 冒頭表示用：展開評価の直後に軸評価を1行だけ差し込む
     # =====================================================
@@ -5561,7 +5579,6 @@ try:
     note_sections.extend(recommend_lines)
     note_sections.extend(lines_out)
     note_sections.append("")
-
     globals()["note_sections"] = note_sections
 
     globals()["note_sections"] = note_sections
