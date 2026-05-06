@@ -5538,8 +5538,12 @@ try:
                         recommend_lines.append(f"**{line}**")
 
                 recommend_lines.append("")
-                try:
-                    _axis_top_line = globals().get("AXIS_EVAL_TOP_LINE", "")
+
+    # =====================================================
+    # 冒頭表示用：展開評価の直後に軸評価を1行だけ差し込む
+    # =====================================================
+    try:
+        _axis_top_line = globals().get("AXIS_EVAL_TOP_LINE", "")
 
         if _axis_top_line:
             for _i, _s in enumerate(note_sections):
@@ -5550,6 +5554,7 @@ try:
                     ):
                         note_sections.insert(_i + 1, _axis_top_line)
                     break
+
     except Exception:
         pass
 
