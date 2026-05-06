@@ -4746,6 +4746,38 @@ try:
         out_v = outs.get("渦→順流→逆流") or []
         out_u = outs.get("逆流→順流→渦") or []
 
+                # ======================================================
+        # 表示用ガード：
+        # KO隊列結果がスコア下位を頭に置きすぎる場合だけ補正
+        # ※ _run_ko本体は触らない
+        # ======================================================
+        def _display_score_guard(seq):
+            xs = [int(x) for x in (seq or []) if str(x).isdigit()]
+            if not xs:
+                return xs
+
+            score_order = sorted(
+                [int(k) for k in score_map.keys()],
+                key=lambda c: (-float(score_map.get(c, 0.0)), c)
+            )
+            score_rank = {c: i + 1 for i, c in enumerate(score_order)}
+
+            # 先頭がKOスコア5位以下なら、スコア上位3台のうち
+            # 元の隊列内で一番前にいる車を先頭へ上げる
+            head = xs[0]
+            if score_rank.get(head, 99) >= 5:
+                candidates = [c for c in score_order[:3] if c in xs]
+                if candidates:
+                    best = min(candidates, key=lambda c: xs.index(c))
+                    xs.remove(best)
+                    xs.insert(0, best)
+
+            return xs
+
+        out_j = _display_score_guard(out_j)
+        out_v = _display_score_guard(out_v)
+        out_u = _display_score_guard(out_u)
+
         note_sections.append("【順流メイン着順予想】")
         note_sections.append(_fmt_seq(out_j))
         note_sections.append("")
