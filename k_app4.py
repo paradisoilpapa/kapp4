@@ -4656,7 +4656,7 @@ try:
 
             gain_m = max(0.0, (float(v_fast) - float(v_mid)) * float(t_final))
 
-                       MAX_PASSES = int(gain_m // max(pass_m, 1e-9))
+                MAX_PASSES = int(gain_m // max(pass_m, 1e-9))
             if MAX_PASSES < 1:
                 MAX_PASSES = 1
 
