@@ -5500,7 +5500,7 @@ try:
                 recommend_lines.append(f"基準：{selected_style}メイン")
                 recommend_lines.append(f"2車複想定軸：{int(axis)}")
                 
-                                pair_rows_sorted = sorted(
+                pair_rows_sorted = sorted(
                     pair_rows,
                     key=lambda t: int(t[1])
                 )
