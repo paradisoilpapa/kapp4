@@ -5533,7 +5533,7 @@ try:
         recommend_lines.append(
             f"推奨戦法：判定不可（{_e}）"
         )
-               recommend_lines.append("")
+        recommend_lines.append("")
 
     # =====================================================
     # 冒頭表示用：展開評価の直後に軸評価を1行だけ差し込む
