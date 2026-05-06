@@ -5467,32 +5467,31 @@ try:
                         )
 
             if axis is not None and pair_rows:
-    recommend_lines.append(
-        f"軸評価：{axis_rank}［{axis_label}］"
-        f"（軸想定2着内率 {axis_rate*100:.0f}%）"
-    )
-    recommend_lines.append("")
-
-    recommend_lines.append("【2車複 評価軸候補】")
-    recommend_lines.append(f"基準：{selected_style}メイン")
-    recommend_lines.append(f"2車複想定軸：{int(axis)}")
-
-    for a, b, p in pair_rows:
-        odds = _safe_odds_from_prob(p)
-
-        if odds is None:
-            recommend_lines.append(
-                f"{int(a)}-{int(b)}　推定率 0.0% ／ 足切り —"
-            )
-        else:
-            recommend_lines.append(
-                f"{int(a)}-{int(b)}　推定率 {p*100:.1f}% ／ 足切り {odds:.1f}倍以上"
-            )
-
-    if ref_msgs:
-        recommend_lines.append("参考：" + "／".join(ref_msgs))
-
-    recommend_lines.append("")
+                recommend_lines.append(
+                    f"軸評価：{axis_rank}［{axis_label}］"
+                    f"（軸想定2着内率 {axis_rate*100:.0f}%）"
+                )
+                recommend_lines.append("")
+                recommend_lines.append("【2車複 評価軸候補】")
+                recommend_lines.append(f"基準：{selected_style}メイン")
+                recommend_lines.append(f"2車複想定軸：{int(axis)}")
+                
+                for a, b, p in pair_rows:
+                    odds = _safe_odds_from_prob(p)
+                    
+                    if odds is None:
+                        recommend_lines.append(
+                            f"{int(a)}-{int(b)}　推定率 0.0% ／ 足切り —"
+                        )
+                    else:
+                        recommend_lines.append(
+                            f"{int(a)}-{int(b)}　推定率 {p*100:.1f}% ／ 足切り {odds:.1f}倍以上"
+                        )
+                        
+                if ref_msgs:
+                    recommend_lines.append("参考：" + "／".join(ref_msgs))
+                    
+                    recommend_lines.append("")
 
                 for a, b, p in pair_rows:
                     odds = _safe_odds_from_prob(p)
