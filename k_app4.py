@@ -4171,6 +4171,8 @@ try:
     for n in active_cars:
         score_map.setdefault(int(n), 0.0)
 
+   
+
         # =========================================================
     # KO母集団スコア補正：ライン3番手以降・H0/B0の過大評価抑制
     # ※脚質名に依存しない版。「追」ではなく「マーク」扱いでも効く。
@@ -4197,6 +4199,9 @@ try:
 
     except Exception as _e:
         note_sections.append(f"※KO母集団補正エラー：{_e}")
+
+    score_map_before_last_half = dict(score_map)
+    globals()["score_map_before_last_half"] = dict(score_map_before_last_half)
 
             # =========================================================
     # ラスト半周補正：自力粘り・番手差し
