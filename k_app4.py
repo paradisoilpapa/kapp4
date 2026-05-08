@@ -5872,9 +5872,10 @@ try:
                     for a, b, p, line in shibori_items:
                         recommend_lines.append(f"**{line}**")
 
-                # =====================================================
+                                # =====================================================
                 # 仮想単勝：2車単 軸→全
                 # 競輪には単勝がないため、2車単「軸→全」を仮想単勝として扱う
+                # 評価1軸・評価2軸を表示
                 # =====================================================
                 try:
                     def _axis_win_prob(seq, score_map, axis_car):
@@ -5916,20 +5917,46 @@ try:
 
                         return float(weights.get(int(axis_car), 0.0)) / total_w
 
-                    axis_win_rate = _axis_win_prob(selected_seq, score_map, axis)
+                    def _unique_seq(seq):
+                        xs = []
+                        seen = set()
+                        for x in (seq or []):
+                            if str(x).isdigit():
+                                c = int(x)
+                                if c not in seen:
+                                    seen.add(c)
+                                    xs.append(c)
+                        return xs
 
-                    if axis_win_rate > 1e-12:
+                    _seq_unique = _unique_seq(selected_seq)
+
+                    recommend_lines.append("")
+                    recommend_lines.append("【仮想単勝：2車単 軸→全】")
+
+                    for _axis_index, _label in [(0, "評価1軸"), (1, "評価2軸")]:
+                        if _axis_index >= len(_seq_unique):
+                            continue
+
+                        _axis_car = int(_seq_unique[_axis_index])
+                        axis_win_rate = _axis_win_prob(
+                            selected_seq,
+                            score_map,
+                            _axis_car
+                        )
+
+                        if axis_win_rate <= 1e-12:
+                            continue
+
                         theoretical_odds = 1.0 / axis_win_rate
 
                         # 軸→全の点数。7車なら6点、5車なら4点、9車なら8点。
-                        n_tansho_points = max(len(selected_seq) - 1, 1)
+                        n_tansho_points = max(len(_seq_unique) - 1, 1)
 
                         # 実券として買うなら、理論必要オッズとトリガミ回避点数の大きい方を採用
                         required_min_odds = max(theoretical_odds, float(n_tansho_points))
 
                         recommend_lines.append("")
-                        recommend_lines.append("【仮想単勝：2車単 軸→全】")
-                        recommend_lines.append(f"軸：{int(axis)}")
+                        recommend_lines.append(f"{_label}：{int(_axis_car)}")
                         recommend_lines.append(
                             f"軸1着推定率：{axis_win_rate*100:.1f}%"
                         )
@@ -5940,7 +5967,7 @@ try:
                             f"実券トリガミ回避：最低{float(n_tansho_points):.1f}倍以上"
                         )
                         recommend_lines.append(
-                            f"購入推奨：軸→全の最安目が{required_min_odds:.1f}倍以上なら検討"
+                            f"購入推奨：{int(_axis_car)}→全の最安目が{required_min_odds:.1f}倍以上なら検討"
                         )
 
                 except Exception:
