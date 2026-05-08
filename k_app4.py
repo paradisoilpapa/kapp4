@@ -5750,45 +5750,126 @@ try:
 
                 recommend_lines.append("")
 
-                recommend_lines.append("【2車複 評価軸候補】")
+                                recommend_lines.append("【2車複 評価軸候補】")
                 recommend_lines.append(f"基準：{selected_style}メイン")
-                recommend_lines.append(f"2車複想定軸：{int(axis)}")
-                
-                pair_rows_sorted = sorted(
-                    pair_rows,
-                    key=lambda t: int(t[1])
-                )
+                recommend_lines.append("2車複想定軸：評価1・評価2")
 
-                                # =====================================================
+                # =====================================================
                 # 2車複候補一覧＋絞り推奨買目
-                # 絞り推奨：推定率10%以上
+                # 評価1・評価2を軸にする
+                # 候補一覧：重複を削らない
+                # 絞り推奨：推定率10%以上、かつ重複削除
                 # =====================================================
                 SHIBORI_MIN_PROB = 0.10
-                shibori_lines = []
+                shibori_items = []
+                shibori_seen = set()
 
-                for a, b, p in pair_rows_sorted:
+                def _format_nifuku_line(a, b, p):
                     odds = _safe_odds_from_prob(p)
-
                     if odds is None:
-                        line = f"{int(a)}-{int(b)}　推定率 0.0% ／ 足切り —"
-                    else:
-                        line = f"{int(a)}-{int(b)}　推定率 {p*100:.1f}% ／ 足切り {odds:.1f}倍以上"
+                        return f"{int(a)}-{int(b)}　推定率 0.0% ／ 足切り —"
+                    return f"{int(a)}-{int(b)}　推定率 {p*100:.1f}% ／ 足切り {odds:.1f}倍以上"
 
-                    recommend_lines.append(line)
+                def _make_axis_pair_rows(seq, score_map, axis_index=0):
+                    """
+                    評価順seqの axis_index 番目を軸にした2車複候補を作る。
+                    axis_index=0 → 評価1軸
+                    axis_index=1 → 評価2軸
+                    """
+                    xs = []
+                    seen = set()
 
-                    # 推定率10%以上は絞り推奨へ再掲
-                    if float(p) >= SHIBORI_MIN_PROB:
-                        shibori_lines.append(line)
+                    for x in (seq or []):
+                        if str(x).isdigit():
+                            c = int(x)
+                            if c not in seen:
+                                seen.add(c)
+                                xs.append(c)
+
+                    if len(xs) < 2 or axis_index >= len(xs):
+                        return None, [], 0.0
+
+                    vals = []
+                    for c in xs:
+                        vals.append(float(score_map.get(int(c), 0.0) or 0.0))
+
+                    mu = sum(vals) / max(len(vals), 1)
+                    var = sum((v - mu) ** 2 for v in vals) / max(len(vals), 1)
+                    sdv = var ** 0.5
+                    if sdv <= 1e-9:
+                        sdv = 1.0
+
+                    temp = 1.65
+
+                    weights = {}
+                    for c, v in zip(xs, vals):
+                        z = (v - mu) / (sdv * temp)
+                        z = max(-6.0, min(6.0, z))
+                        weights[int(c)] = math.exp(z)
+
+                    total_w = sum(weights.values())
+                    if total_w <= 1e-12:
+                        return xs[axis_index], [], 0.0
+
+                    axis2 = int(xs[axis_index])
+                    wa = float(weights.get(axis2, 0.0))
+
+                    rows = []
+                    for opp in xs:
+                        opp = int(opp)
+                        if opp == axis2:
+                            continue
+
+                        wb = float(weights.get(opp, 0.0))
+
+                        # 無順序2車複：P(axis→opp) + P(opp→axis)
+                        p1 = (wa / total_w) * (wb / max(total_w - wa, 1e-12))
+                        p2 = (wb / total_w) * (wa / max(total_w - wb, 1e-12))
+                        p_pair = max(0.0, p1 + p2)
+
+                        rows.append((axis2, opp, p_pair))
+
+                    rate = sum(p for _, _, p in rows)
+                    return axis2, rows, rate
+
+                for _axis_index, _label in [(0, "評価1軸"), (1, "評価2軸")]:
+                    _axis_car, _rows, _rate = _make_axis_pair_rows(
+                        selected_seq,
+                        score_map,
+                        axis_index=_axis_index
+                    )
+
+                    if _axis_car is None or not _rows:
+                        continue
+
+                    recommend_lines.append("")
+                    recommend_lines.append(f"{_label}：{int(_axis_car)}")
+
+                    _rows_sorted = sorted(
+                        _rows,
+                        key=lambda t: int(t[1])
+                    )
+
+                    for a, b, p in _rows_sorted:
+                        line = _format_nifuku_line(a, b, p)
+                        recommend_lines.append(line)
+
+                        if float(p) >= SHIBORI_MIN_PROB:
+                            # 絞り推奨だけは2車複なので重複削除
+                            k = tuple(sorted((int(a), int(b))))
+                            if k not in shibori_seen:
+                                shibori_seen.add(k)
+                                shibori_items.append((a, b, p, line))
 
                 if ref_msgs:
                     recommend_lines.append("参考：" + "／".join(ref_msgs))
 
                 # 絞り推奨買目を別枠で表示
-                if shibori_lines:
+                if shibori_items:
                     recommend_lines.append("")
-                    recommend_lines.append("**【絞り推奨買目】（推定率10％以上が基準）**")
+                    recommend_lines.append("**【絞り推奨買目】（推定率10％以上が基準／重複削除）**")
 
-                    for line in shibori_lines:
+                    for a, b, p, line in shibori_items:
                         recommend_lines.append(f"**{line}**")
 
                 # =====================================================
