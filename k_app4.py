@@ -4609,6 +4609,40 @@ try:
 
     note_sections.append("")
 
+            # =========================================================
+    # ラスト半周補正 表示
+    # =========================================================
+    try:
+        _lh_bonus_map = globals().get("last_half_bonus_map", {})
+        _lh_reason_map = globals().get("last_half_reason_map", {})
+
+        if isinstance(_lh_bonus_map, dict) and _lh_bonus_map:
+            note_sections.append("【ラスト半周補正】")
+
+            _lh_pairs = sorted(
+                [(int(k), float(v)) for k, v in _lh_bonus_map.items()],
+                key=lambda t: (t[0])
+            )
+
+            for _car, _bonus in _lh_pairs:
+                _reasons = _lh_reason_map.get(_car, [])
+                if not isinstance(_reasons, list):
+                    _reasons = [_reasons]
+
+                _reason_txt = "／".join(str(x) for x in _reasons if str(x).strip())
+                if not _reason_txt:
+                    _reason_txt = "補正なし"
+
+                note_sections.append(
+                    f"{_car}：補正={_bonus:+.3f}［{_reason_txt}］"
+                )
+
+            note_sections.append("")
+
+    except Exception as _e:
+        note_sections.append(f"※ラスト半周補正表示エラー：{_e}")
+        note_sections.append("")
+
     # =========================================================
     # KO使用スコア（降順）
     # =========================================================
@@ -4618,6 +4652,8 @@ try:
     )
 
     note_sections.append("【KO使用スコア（降順）】")
+
+    
     if _sc_pairs:
         for i, (n, sc) in enumerate(_sc_pairs, start=1):
             note_sections.append(f"{i}位：{n} (スコア={sc:.6f})")
