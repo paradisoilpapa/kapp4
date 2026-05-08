@@ -526,6 +526,133 @@ def role_in_line(car, line_def):
             return ['head','second','thirdplus'][idx] if idx<3 else 'thirdplus'
     return 'single'
 
+# =====================================================
+# ラスト半周補正：自力粘り・番手差し
+# =====================================================
+
+LAST_HALF_ENABLE = True
+LAST_HALF_CAP = 0.090
+
+def calc_last_half_role_bonus(
+    role: str,
+    kaku: str,
+    tenscore: float,
+    leader_tenscore: float,
+    race_avg_tenscore: float,
+    h_count: float = 0.0,
+    b_count: float = 0.0,
+):
+    """
+    ラスト半周〜ゴール前の個人戦補正。
+
+    role:
+        head / second / thirdplus / single
+
+    kaku:
+        逃 / 捲 / 差 / マ など
+
+    tenscore:
+        選手の競走得点
+
+    leader_tenscore:
+        同ライン先頭の競走得点
+        ※本人が先頭なら本人の得点でよい
+
+    race_avg_tenscore:
+        出走メンバーの平均競走得点
+    """
+
+    if not LAST_HALF_ENABLE:
+        return 0.0, []
+
+    bonus = 0.0
+    reasons = []
+
+    try:
+        role = str(role)
+        kaku = str(kaku)
+
+        tenscore = float(tenscore or 0.0)
+        leader_tenscore = float(leader_tenscore or tenscore)
+        race_avg_tenscore = float(race_avg_tenscore or 0.0)
+        h_count = float(h_count or 0.0)
+        b_count = float(b_count or 0.0)
+
+        # -------------------------------------------------
+        # 先頭：自力が強いなら残る。弱いなら消耗。
+        # -------------------------------------------------
+        if role == "head":
+
+            is_self_type = kaku in ["逃", "捲"]
+            has_active_mark = (h_count >= 1.0 or b_count >= 1.0)
+
+            # 強い自力
+            if is_self_type and tenscore >= race_avg_tenscore and has_active_mark:
+                bonus += 0.030
+                reasons.append("強い自力粘り")
+
+            # そこそこの自力
+            elif is_self_type and tenscore >= race_avg_tenscore:
+                bonus += 0.010
+                reasons.append("自力残り候補")
+
+            # 弱い自力・弱い先頭
+            elif tenscore < race_avg_tenscore:
+                bonus -= 0.030
+                reasons.append("先頭消耗")
+
+        # -------------------------------------------------
+        # 番手：強い番手は最後に差す。弱い番手は上げすぎない。
+        # -------------------------------------------------
+        elif role == "second":
+
+            bonus += 0.020
+            reasons.append("番手位置")
+
+            # 番手が先頭より得点上なら差し本命
+            if tenscore > leader_tenscore:
+                bonus += 0.050
+                reasons.append("番手差し本命")
+
+            # 番手が平均以上なら差し候補
+            elif tenscore >= race_avg_tenscore:
+                bonus += 0.030
+                reasons.append("番手差し候補")
+
+            # 番手でも弱いなら上げすぎない
+            else:
+                bonus -= 0.010
+                reasons.append("番手弱め")
+
+            # 差・マはゴール前加点
+            if kaku in ["差", "マ"]:
+                bonus += 0.020
+                reasons.append("差し脚質")
+
+        # -------------------------------------------------
+        # 3番手以降：強い差しだけ軽く突っ込み評価
+        # -------------------------------------------------
+        elif role == "thirdplus":
+
+            if tenscore >= race_avg_tenscore and kaku in ["差", "マ"]:
+                bonus += 0.020
+                reasons.append("3番手突っ込み")
+
+        # -------------------------------------------------
+        # 単騎：強い差し・捲りだけ軽く評価
+        # -------------------------------------------------
+        elif role == "single":
+
+            if tenscore >= race_avg_tenscore and kaku in ["捲", "差", "マ"]:
+                bonus += 0.010
+                reasons.append("単騎終盤脚")
+
+        bonus = clamp(bonus, -LAST_HALF_CAP, LAST_HALF_CAP)
+        return round(float(bonus), 3), reasons
+
+    except Exception as e:
+        return 0.0, [f"ラスト半周補正エラー:{e}"]
+
 
 # ==============================
 # H：最終ホーム想定ライン
