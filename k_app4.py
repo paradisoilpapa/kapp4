@@ -4198,6 +4198,88 @@ try:
     except Exception as _e:
         note_sections.append(f"※KO母集団補正エラー：{_e}")
 
+            # =========================================================
+    # ラスト半周補正：自力粘り・番手差し
+    # ※既存のKO母集団スコアに後付けする
+    # =========================================================
+    try:
+        _line_def = globals().get("line_def", {})
+        _H = globals().get("H", {})
+        _B = globals().get("B", {})
+        _kaku = globals().get("kaku", {})
+        _tenscore = globals().get("tenscore", globals().get("tenscores", {}))
+
+        # 競走得点の取り出し
+        def _get_num_from_map(_mp, _car, _default=0.0):
+            try:
+                if isinstance(_mp, dict):
+                    return float(_mp.get(int(_car), _mp.get(str(_car), _default)) or _default)
+            except Exception:
+                pass
+            return float(_default)
+
+        _race_scores = []
+        for _n in active_cars:
+            _v = _get_num_from_map(_tenscore, _n, 0.0)
+            if _v > 0:
+                _race_scores.append(_v)
+
+        _race_avg_tenscore = float(np.mean(_race_scores)) if _race_scores else 0.0
+
+        _last_half_bonus_map = {}
+        _last_half_reason_map = {}
+
+        for _n in list(score_map.keys()):
+            _car = int(_n)
+
+            _role = role_in_line(_car, _line_def) if isinstance(_line_def, dict) else "single"
+
+            # 同ライン先頭の競走得点を取る
+            _leader = _car
+            try:
+                for _gid, _mem in _line_def.items():
+                    _mem2 = [int(x) for x in _mem]
+                    if _car in _mem2 and _mem2:
+                        _leader = int(_mem2[0])
+                        break
+            except Exception:
+                _leader = _car
+
+            _car_ten = _get_num_from_map(_tenscore, _car, 0.0)
+            _leader_ten = _get_num_from_map(_tenscore, _leader, _car_ten)
+
+            _h_val = _get_num_from_map(_H, _car, 0.0)
+            _b_val = _get_num_from_map(_B, _car, 0.0)
+
+            _style = ""
+            try:
+                if isinstance(_kaku, dict):
+                    _style = str(_kaku.get(_car, _kaku.get(str(_car), "")))
+            except Exception:
+                _style = ""
+
+            _bonus, _reasons = calc_last_half_role_bonus(
+                role=_role,
+                kaku=_style,
+                tenscore=_car_ten,
+                leader_tenscore=_leader_ten,
+                race_avg_tenscore=_race_avg_tenscore,
+                h_count=_h_val,
+                b_count=_b_val,
+            )
+
+            _last_half_bonus_map[_car] = float(_bonus)
+            _last_half_reason_map[_car] = list(_reasons)
+
+            score_map[_car] = float(score_map.get(_car, 0.0)) + float(_bonus)
+
+        globals()["last_half_bonus_map"] = _last_half_bonus_map
+        globals()["last_half_reason_map"] = _last_half_reason_map
+        globals()["score_map_last_half_applied"] = dict(score_map)
+
+    except Exception as _e:
+        note_sections.append(f"※ラスト半周補正エラー：{_e}")
+
     
 
     # 0/None/NaN の床値補完
