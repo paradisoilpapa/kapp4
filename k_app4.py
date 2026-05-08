@@ -5950,10 +5950,13 @@ try:
                         theoretical_odds = 1.0 / axis_win_rate
 
                         # 軸→全の点数。7車なら6点、5車なら4点、9車なら8点。
-                        n_tansho_points = max(len(_seq_unique) - 1, 1)
+                                                n_tansho_points = max(len(_seq_unique) - 1, 1)
 
-                        # 実券として買うなら、理論必要オッズとトリガミ回避点数の大きい方を採用
-                        required_min_odds = max(theoretical_odds, float(n_tansho_points))
+                        # 2車単「軸→全」は、最安目ではなく合成オッズで見る
+                        required_composite_odds = theoretical_odds
+
+                        # 実戦では推定誤差を考えて少し上乗せ
+                        practical_composite_odds = theoretical_odds * 1.10
 
                         recommend_lines.append("")
                         recommend_lines.append(f"{_label}：{int(_axis_car)}")
@@ -5961,15 +5964,17 @@ try:
                             f"軸1着推定率：{axis_win_rate*100:.1f}%"
                         )
                         recommend_lines.append(
-                            f"理論必要オッズ：{theoretical_odds:.1f}倍以上"
+                            f"単勝換算必要オッズ：{theoretical_odds:.1f}倍以上"
                         )
                         recommend_lines.append(
-                            f"実券トリガミ回避：最低{float(n_tansho_points):.1f}倍以上"
+                            f"2車単 軸→全 必要合成オッズ：{required_composite_odds:.1f}倍以上"
                         )
                         recommend_lines.append(
-                            f"購入推奨：{int(_axis_car)}→全の最安目が{required_min_odds:.1f}倍以上なら検討"
+                            f"実戦目安：合成{practical_composite_odds:.1f}倍以上なら検討"
                         )
-
+                        recommend_lines.append(
+                            f"参考：均等買いのトリガミ回避は各目{float(n_tansho_points):.1f}倍以上"
+                        )
                 except Exception:
                     pass
 
