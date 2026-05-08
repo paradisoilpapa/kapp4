@@ -4652,31 +4652,6 @@ try:
     except Exception as _e:
         note_sections.append(f"※ラスト半周補正表示エラー：{_e}")
         note_sections.append("")
-
-            _lh_pairs = sorted(
-                [(int(k), float(v)) for k, v in _lh_bonus_map.items()],
-                key=lambda t: (t[0])
-            )
-
-            for _car, _bonus in _lh_pairs:
-                _reasons = _lh_reason_map.get(_car, [])
-                if not isinstance(_reasons, list):
-                    _reasons = [_reasons]
-
-                _reason_txt = "／".join(str(x) for x in _reasons if str(x).strip())
-                if not _reason_txt:
-                    _reason_txt = "補正なし"
-
-                note_sections.append(
-                    f"{_car}：補正={_bonus:+.3f}［{_reason_txt}］"
-                )
-
-            note_sections.append("")
-
-    except Exception as _e:
-        note_sections.append(f"※ラスト半周補正表示エラー：{_e}")
-        note_sections.append("")
-
     # =========================================================
     # KO使用スコア（降順）
     # =========================================================
