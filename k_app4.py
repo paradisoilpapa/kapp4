@@ -5750,7 +5750,7 @@ try:
 
                 recommend_lines.append("")
 
-                                recommend_lines.append("【2車複 評価軸候補】")
+                recommend_lines.append("【2車複 評価軸候補】")
                 recommend_lines.append(f"基準：{selected_style}メイン")
                 recommend_lines.append("2車複想定軸：評価1・評価2")
 
