@@ -5950,7 +5950,7 @@ try:
                         theoretical_odds = 1.0 / axis_win_rate
 
                         # 軸→全の点数。7車なら6点、5車なら4点、9車なら8点。
-                                                n_tansho_points = max(len(_seq_unique) - 1, 1)
+                        n_tansho_points = max(len(_seq_unique) - 1, 1)
 
                         # 2車単「軸→全」は、最安目ではなく合成オッズで見る
                         required_composite_odds = theoretical_odds
