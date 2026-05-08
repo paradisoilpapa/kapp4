@@ -5963,9 +5963,7 @@ try:
                         recommend_lines.append(
                             f"軸1着推定率：{axis_win_rate*100:.1f}%"
                         )
-                        recommend_lines.append(
-                            f"単勝換算必要オッズ：{theoretical_odds:.1f}倍以上"
-                        )
+                        
                         recommend_lines.append(
                             f"2車単 軸→全 必要合成オッズ：{required_composite_odds:.1f}倍以上"
                         )
