@@ -4360,13 +4360,27 @@ try:
 
 
 
-            _is_junryu_thirdplus = False
+                        _is_junryu_thirdplus = False
             try:
-                _fr_line = globals().get("FR_line", [])
-                _fr_members = [int(x) for x in (_fr_line or []) if str(x).isdigit()]
+                _zmap = globals().get("LINE_ZONE_MAP", {})
 
-                # 順流ラインの3番手以降
-                if len(_fr_members) >= 3 and _role == "thirdplus" and _car in _fr_members[2:]:
+                _line_key_for_car = ""
+                _members_for_car = []
+
+                for _gid, _mem in _line_def.items():
+                    _mem2 = [int(x) for x in _mem]
+                    if _car in _mem2:
+                        _members_for_car = _mem2
+                        _line_key_for_car = "".join(str(x) for x in _mem2)
+                        break
+
+                if (
+                    isinstance(_zmap, dict)
+                    and _zmap.get(_line_key_for_car) == "順流"
+                    and len(_members_for_car) >= 3
+                    and _role == "thirdplus"
+                    and _car in _members_for_car[2:]
+                ):
                     _is_junryu_thirdplus = True
 
             except Exception:
