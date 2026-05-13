@@ -644,9 +644,10 @@ def calc_last_half_role_bonus(
         elif role in ["head", "single"]:
             front_bonus = 0.0
 
-            if has_action_mark or is_score_upper:
+            # 上位評価がある前の選手だけ、本格加点
+            if is_score_upper:
                 front_bonus += 0.010
-                reasons.append("前で動ける候補")
+                reasons.append("前で動ける上位候補")
 
                 if race_top:
                     front_bonus += 0.010
@@ -673,6 +674,12 @@ def calc_last_half_role_bonus(
                     reasons.append("H/B行動根拠")
 
                 bonus += clamp(front_bonus, 0.0, LAST_HALF_FRONT_CAP)
+
+            # H/Bだけの先頭は、強加点しない
+            elif has_action_mark:
+                front_bonus += 0.005
+                reasons.append("H/B行動根拠のみ")
+                bonus += clamp(front_bonus, 0.0, 0.010)
 
             else:
                 if role == "head" and tenscore < race_avg_tenscore:
