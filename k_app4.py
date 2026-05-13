@@ -549,9 +549,8 @@ def _is_top_third(rank_val, top_third_limit: int) -> bool:
     """
     try:
         return int(rank_val) <= int(top_third_limit)
-    except Exception:
-        return False
-
+                except Exception:
+                _is_h_lead_thirdplus = False
 
             _bonus, _reasons = calc_last_half_role_bonus(
                 role=_role,
