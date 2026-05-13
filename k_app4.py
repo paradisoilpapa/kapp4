@@ -4387,7 +4387,7 @@ try:
                 _is_junryu_thirdplus = False
         
 
-                        _is_junryu_thirdplus = False
+                _is_junryu_thirdplus = False
             try:
                 _zmap = globals().get("LINE_ZONE_MAP", {})
 
