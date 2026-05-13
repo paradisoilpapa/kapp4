@@ -4290,7 +4290,7 @@ try:
         _last_half_bonus_map = {}
         _last_half_reason_map = {}
         
-        # -------------------------------------------------
+                # -------------------------------------------------
         # ラスト半周補正用：レース内順位マップ
         # 上位1/3判定用。7車なら3位以内。
         # -------------------------------------------------
@@ -4310,8 +4310,7 @@ try:
             _race_score_rank_map[int(_car2)] = int(_idx)
 
         # KO順位・展開順位
-        # この時点の score_map は「ラスト半周補正前」なので、
-        # 出力上の「展開スコア」と同じ母集団として扱う。
+        # この時点の score_map_before_last_half は「ラスト半周補正前」のスコア
         _ko_score_rank_map = {}
         _ko_pairs_sorted = sorted(
             [(int(k), float(v)) for k, v in score_map_before_last_half.items()],
@@ -4322,8 +4321,7 @@ try:
 
         _tenkai_score_rank_map = dict(_ko_score_rank_map)
 
-        # 後で順流・渦・逆流の上位一致を入れるための受け皿
-        # まだ作っていない場合は全員0でOK
+        # 順流・渦・逆流の複数上位は次段階用
         _scenario_top_count_map = globals().get("scenario_top_count_map", {})
         if not isinstance(_scenario_top_count_map, dict):
             _scenario_top_count_map = {}
@@ -4331,16 +4329,18 @@ try:
         for _n in list(score_map.keys()):
             _car = int(_n)
 
+            # ライン内の役割
             _role = role_in_line(_car, _line_def) if isinstance(_line_def, dict) else "single"
 
-            # 同ライン先頭の競走得点を取る
+            # 同ライン先頭の競走得点
             _leader = _car
             try:
-                for _gid, _mem in _line_def.items():
-                    _mem2 = [int(x) for x in _mem]
-                    if _car in _mem2 and _mem2:
-                        _leader = int(_mem2[0])
-                        break
+                if isinstance(_line_def, dict):
+                    for _gid, _mem in _line_def.items():
+                        _mem2 = [int(x) for x in _mem]
+                        if _car in _mem2 and _mem2:
+                            _leader = int(_mem2[0])
+                            break
             except Exception:
                 _leader = _car
 
@@ -4350,12 +4350,9 @@ try:
             _h_val = _get_num_from_map(_H, _car, 0.0)
             _b_val = _get_num_from_map(_B, _car, 0.0)
 
+            # kakuは現在の入力仕様では使わない。
+            # 関数互換用に空文字で渡す。
             _style = ""
-            try:
-                if isinstance(_kaku, dict):
-                    _style = str(_kaku.get(_car, _kaku.get(str(_car), "")))
-            except Exception:
-                _style = ""
 
             # H主導ラインの3番手以降かどうか
             _is_h_lead_thirdplus = False
@@ -4389,43 +4386,6 @@ try:
                 scenario_top_count=int(_scenario_top_count_map.get(_car, 0) or 0),
                 is_h_lead_thirdplus=_is_h_lead_thirdplus,
             )
-                
-        
-
-                
-        
-
-                        _is_h_lead_thirdplus = False
-            try:
-                _h_members = []
-                if home_top_gid is not None and isinstance(_line_def, dict):
-                    _h_members = [int(x) for x in _line_def.get(home_top_gid, [])]
-
-                if (
-                    len(_h_members) >= 3
-                    and _role == "thirdplus"
-                    and _car in _h_members[2:]
-                ):
-                    _is_h_lead_thirdplus = True
-
-            except Exception:
-                _is_h_lead_thirdplus = False
-                
-            _bonus, _reasons = calc_last_half_role_bonus(
-                role=_role,
-                kaku=_style,
-                tenscore=_car_ten,
-                leader_tenscore=_leader_ten,
-                race_avg_tenscore=_race_avg_tenscore,
-                h_count=_h_val,
-                b_count=_b_val,
-                race_score_rank=_race_score_rank_map.get(_car),
-                ko_score_rank=_ko_score_rank_map.get(_car),
-                tenkai_score_rank=_tenkai_score_rank_map.get(_car),
-                top_third_limit=_top_third_limit,
-                scenario_top_count=int(_scenario_top_count_map.get(_car, 0) or 0),
-                
-            )
 
             _last_half_bonus_map[_car] = float(_bonus)
             _last_half_reason_map[_car] = list(_reasons)
@@ -4435,64 +4395,6 @@ try:
         globals()["last_half_bonus_map"] = _last_half_bonus_map
         globals()["last_half_reason_map"] = _last_half_reason_map
         globals()["score_map_last_half_applied"] = dict(score_map)
-
-    except Exception as _e:
-        note_sections.append(f"※ラスト半周補正エラー：{_e}")
-
-    
-
-    # 0/None/NaN の床値補完
-    vals_pos = [
-        float(v) for v in score_map.values()
-        if isinstance(v, (int, float)) and float(v) > 0.0 and math.isfinite(float(v))
-    ]
-    _floor = min(vals_pos) if vals_pos else 1e-6
-    for k in list(score_map.keys()):
-        try:
-            v = float(score_map[k])
-            if (not math.isfinite(v)) or v <= 0.0:
-                score_map[k] = float(_floor)
-        except Exception:
-            score_map[k] = float(_floor)
-
-    globals()["score_map"] = score_map  # 後段参照用に保持
-
-    # =========================================================
-    # line_fr_map を確定（0.000連発対策：空/キー不一致を潰す）
-    # =========================================================
-    line_fr_map = globals().get("line_fr_map")
-    need_rebuild = (not isinstance(line_fr_map, dict)) or (len(line_fr_map) == 0)
-
-    # 既存があればキー正規化（tuple/listキー→"571"）
-    if (not need_rebuild) and isinstance(line_fr_map, dict):
-        _lfm2 = {}
-        for k, v in line_fr_map.items():
-            try:
-                if isinstance(k, (list, tuple, set)):
-                    kk = "".join(str(x) for x in k if str(x).isdigit())
-                else:
-                    kk = "".join(ch for ch in str(k) if ch.isdigit())
-                if kk:
-                    _lfm2[kk] = float(v or 0.0)
-            except Exception:
-                continue
-        line_fr_map = _lfm2
-        need_rebuild = (len(line_fr_map) == 0)
-
-    # 空なら作り直し（DEBUG出力なし）
-    if need_rebuild:
-        line_fr_map = _build_line_fr_map(all_lines, score_map, FRv if FRv > 0.0 else 1.0)
-
-    globals()["line_fr_map"] = line_fr_map
-
-    def _line_key(ln):
-        return "" if not ln else "".join(map(str, ln))
-
-    def _lfr(ln):
-        try:
-            return float(line_fr_map.get(_line_key(ln), 0.0) or 0.0)
-        except Exception:
-            return 0.0
 
     # =========================================================
     # 展開評価（share_pct は「順流ライン」基準）
