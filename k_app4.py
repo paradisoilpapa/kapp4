@@ -4473,10 +4473,7 @@ try:
 
             return None
 
-        try:
-            _h_lead_thirdplus_targets = []
-
-                    # -------------------------------------------------
+                # -------------------------------------------------
         # H主導ライン3番手以降：
         # 3着内率40%以上 ＋ そのラインが順流/渦/逆流いずれかの1着候補ライン
         # → 最低4番手評価まで床上げ
@@ -4514,9 +4511,6 @@ try:
                 return None
 
         try:
-            # ---------------------------------------------
-            # 車番からラインgidを取る
-            # ---------------------------------------------
             def _car_group_for_floor(_car_no):
                 try:
                     _car_no = int(_car_no)
@@ -4529,24 +4523,16 @@ try:
                     pass
                 return None
 
-            # ---------------------------------------------
-            # ライン表現を車番リストに直す
-            # ---------------------------------------------
             def _normalize_line_for_floor(_ln):
                 try:
                     if not _ln:
                         return []
-
                     if isinstance(_ln, (list, tuple)):
                         return [int(x) for x in _ln if str(x).isdigit()]
-
                     return [int(ch) for ch in str(_ln) if ch.isdigit()]
                 except Exception:
                     return []
 
-            # ---------------------------------------------
-            # ライン先頭車を取る
-            # ---------------------------------------------
             def _line_head_for_floor(_ln):
                 try:
                     _xs = _normalize_line_for_floor(_ln)
@@ -4554,10 +4540,6 @@ try:
                 except Exception:
                     return None
 
-            # ---------------------------------------------
-            # この時点では FR_line / VTX_line / U_line が未定義のことがあるので
-            # _flow から安全に取り直す
-            # ---------------------------------------------
             _flow_for_floor = locals().get("_flow", globals().get("_flow", {}))
             if not isinstance(_flow_for_floor, dict):
                 _flow_for_floor = {}
@@ -4566,23 +4548,17 @@ try:
             _floor_vtx_line = _normalize_line_for_floor(_flow_for_floor.get("VTX_line") or [])
             _floor_u_line = _normalize_line_for_floor(_flow_for_floor.get("U_line") or [])
 
-            # ---------------------------------------------
             # 順流・渦・逆流それぞれの1着候補ラインを集める
-            # ※3つ全部が同じラインである必要はない。
-            # ※対象車のラインがこの集合に入っていれば採用。
-            # ---------------------------------------------
+            # 3つ全部が同じラインである必要はない。
             _scenario_top_gids = set()
 
             for _ln_tmp in [_floor_fr_line, _floor_vtx_line, _floor_u_line]:
                 _head_tmp = _line_head_for_floor(_ln_tmp)
                 _gid_tmp = _car_group_for_floor(_head_tmp)
-
                 if _gid_tmp is not None:
                     _scenario_top_gids.add(_gid_tmp)
 
-            # ---------------------------------------------
-            # H主導ラインの3番手以降を対象にする
-            # ---------------------------------------------
+            # H主導ラインの3番手以降
             _h_lead_thirdplus_targets = []
 
             if home_top_gid is not None and isinstance(_line_def, dict):
@@ -4594,9 +4570,6 @@ try:
                         if int(x) in score_map
                     ]
 
-            # ---------------------------------------------
-            # 条件を満たす場合だけ、最低4番手評価まで床上げ
-            # ---------------------------------------------
             if (
                 _h_lead_thirdplus_targets
                 and _scenario_top_gids
@@ -4629,7 +4602,6 @@ try:
                         if _now_score < _floor_score:
                             score_map[_car3] = float(_floor_score)
 
-                            # 表示上の「補正」も最終スコアと整合させる
                             try:
                                 _base_before_last = float(score_map_before_last_half.get(_car3, _now_score))
                                 _last_half_bonus_map[_car3] = round(
