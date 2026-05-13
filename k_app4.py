@@ -5451,11 +5451,147 @@ try:
 
             return xs
 
-        out_j = _display_score_guard(out_j, FR_line)
+                out_j = _display_score_guard(out_j, FR_line)
         out_v = _display_score_guard(out_v, VTX_line)
         out_u = _display_score_guard(out_u, U_line)
 
-                # ======================================================
+        # ======================================================
+        # H主導ライン3番手以降：戦法別着順予想の4番手以内補正
+        #
+        # 条件：
+        # ・H主導ラインの3番手以降
+        # ・3着内率40%以上
+        # ・その車のラインが、その戦法の1着候補ラインと同じ
+        #
+        # 例：
+        # 順流1着候補ラインが516なら、516の3番手以降を順流内で4番手以内へ
+        # 渦1着候補ラインが37なら、516の3番手以降は渦では上げない
+        # ======================================================
+
+        def _top3_rate_for_display_promote(_car_no):
+            try:
+                _car_no = int(_car_no)
+
+                _x1 = globals().get("x1", {})
+                _x2 = globals().get("x2", {})
+                _x3 = globals().get("x3", {})
+                _xo = globals().get("x_out", {})
+
+                n1 = float(_x1.get(_car_no, _x1.get(str(_car_no), 0)) or 0)
+                n2 = float(_x2.get(_car_no, _x2.get(str(_car_no), 0)) or 0)
+                n3 = float(_x3.get(_car_no, _x3.get(str(_car_no), 0)) or 0)
+                no = float(_xo.get(_car_no, _xo.get(str(_car_no), 0)) or 0)
+
+                total = n1 + n2 + n3 + no
+                if total <= 0:
+                    return None
+
+                return float((n1 + n2 + n3) / total)
+
+            except Exception:
+                return None
+
+
+        def _car_gid_for_display_promote(_car_no):
+            try:
+                _car_no = int(_car_no)
+                if isinstance(line_def, dict):
+                    for _gid, _mem in line_def.items():
+                        _mem2 = [int(x) for x in _mem]
+                        if _car_no in _mem2:
+                            return _gid
+            except Exception:
+                pass
+            return None
+
+
+        def _line_head_for_display_promote(_ln):
+            try:
+                if not _ln:
+                    return None
+
+                if isinstance(_ln, (list, tuple)):
+                    _xs = [int(x) for x in _ln if str(x).isdigit()]
+                else:
+                    _xs = [int(ch) for ch in str(_ln) if ch.isdigit()]
+
+                return int(_xs[0]) if _xs else None
+
+            except Exception:
+                return None
+
+
+        def _promote_target_to_top4(_seq, _target_car):
+            """
+            対象車が5番手以下なら4番手へ移動する。
+            すでに4番手以内なら何もしない。
+            """
+            try:
+                _target_car = int(_target_car)
+                _xs = [int(x) for x in (_seq or []) if str(x).isdigit()]
+
+                if _target_car not in _xs:
+                    return _xs
+
+                _idx = _xs.index(_target_car)
+
+                # 0,1,2,3 = 4番手以内
+                if _idx <= 3:
+                    return _xs
+
+                _xs.pop(_idx)
+                _xs.insert(min(3, len(_xs)), _target_car)
+
+                return _xs
+
+            except Exception:
+                return _seq
+
+
+        try:
+            _display_promote_targets = []
+
+            # H主導ラインの3番手以降だけ対象
+            if home_top_gid is not None and isinstance(line_def, dict):
+                _h_members = [int(x) for x in line_def.get(home_top_gid, [])]
+
+                if len(_h_members) >= 3:
+                    for _car3 in _h_members[2:]:
+                        _p3 = _top3_rate_for_display_promote(_car3)
+
+                        if _p3 is not None and float(_p3) >= 0.40:
+                            _display_promote_targets.append(int(_car3))
+
+            if _display_promote_targets:
+                # 各戦法の1着候補ラインgid
+                _jun_head = _line_head_for_display_promote(FR_line)
+                _vtx_head = _line_head_for_display_promote(VTX_line)
+                _u_head = _line_head_for_display_promote(U_line)
+
+                _jun_gid = _car_gid_for_display_promote(_jun_head)
+                _vtx_gid = _car_gid_for_display_promote(_vtx_head)
+                _u_gid = _car_gid_for_display_promote(_u_head)
+
+                for _car3 in _display_promote_targets:
+                    _target_gid = _car_gid_for_display_promote(_car3)
+
+                    # 順流：対象車のラインが順流1着候補ラインなら4番手以内へ
+                    if _target_gid is not None and _target_gid == _jun_gid:
+                        out_j = _promote_target_to_top4(out_j, _car3)
+
+                    # 渦：対象車のラインが渦1着候補ラインなら4番手以内へ
+                    if _target_gid is not None and _target_gid == _vtx_gid:
+                        out_v = _promote_target_to_top4(out_v, _car3)
+
+                    # 逆流：対象車のラインが逆流1着候補ラインなら4番手以内へ
+                    if _target_gid is not None and _target_gid == _u_gid:
+                        out_u = _promote_target_to_top4(out_u, _car3)
+
+        except Exception as _e:
+            note_sections.append(f"※H主導3番手以降・戦法別4番手以内補正エラー：{_e}")
+            note_sections.append("")
+
+        # ======================================================
         # 戦法別評価順を保存
         # 後段の「戦法別想定決着率」「2車複候補」で使う
         # ======================================================
@@ -5465,7 +5601,6 @@ try:
             "逆流": [int(x) for x in (out_u or []) if str(x).isdigit()],
         }
 
-        
         note_sections.append("【順流メイン着順予想】")
         note_sections.append(_fmt_seq(out_j))
         note_sections.append("")
