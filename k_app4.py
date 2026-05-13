@@ -4308,6 +4308,38 @@ try:
             except Exception:
                 _is_h_lead_thirdplus = False
 
+            # ---------------------------------------------
+            # ラスト半周用：個人成績率
+            # x1 / x2 / x3 / x_out から
+            # 1着率・2着内率・3着内率を作る
+            # ---------------------------------------------
+            _p1_rate = None
+            _p2_rate = None
+            _p3_rate = None
+
+            try:
+                _x1 = globals().get("x1", {})
+                _x2 = globals().get("x2", {})
+                _x3 = globals().get("x3", {})
+                _xo = globals().get("x_out", {})
+
+                _n1 = float(_x1.get(_car, _x1.get(str(_car), 0)) or 0)
+                _n2 = float(_x2.get(_car, _x2.get(str(_car), 0)) or 0)
+                _n3 = float(_x3.get(_car, _x3.get(str(_car), 0)) or 0)
+                _no = float(_xo.get(_car, _xo.get(str(_car), 0)) or 0)
+
+                _total = _n1 + _n2 + _n3 + _no
+
+                if _total > 0:
+                    _p1_rate = _n1 / _total
+                    _p2_rate = (_n1 + _n2) / _total
+                    _p3_rate = (_n1 + _n2 + _n3) / _total
+
+            except Exception:
+                _p1_rate = None
+                _p2_rate = None
+                _p3_rate = None
+
             _bonus, _reasons = calc_last_half_role_bonus(
                 role=_role,
                 kaku=_style,
