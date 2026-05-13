@@ -4582,7 +4582,7 @@ try:
 
                 _rank4_car = int(_order_now[THIRDPLUS_FLOOR_RANK - 1])
                 _rank4_score = float(score_map.get(_rank4_car, 0.0))
-                _floor_score = _rank4_score - THIRDPLUS_FLOOR_EPS
+                _floor_score = _rank4_score + THIRDPLUS_FLOOR_EPS
 
                 for _car3 in _h_lead_thirdplus_targets:
                     _target_gid = _car_group_for_floor(_car3)
@@ -4613,7 +4613,7 @@ try:
 
                             _last_half_reason_map.setdefault(_car3, [])
                             _last_half_reason_map[_car3].append(
-                                f"3着内率{float(_p3)*100:.0f}%→最低4番手評価"
+                                f"3着内率{float(_p3)*100:.0f}%→4番手以内評価"
                             )
 
         except Exception as _e:
