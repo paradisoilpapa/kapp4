@@ -566,6 +566,7 @@ def calc_last_half_role_bonus(
     tenkai_score_rank=None,
     top_third_limit: int = 3,
     scenario_top_count: int = 0,
+    is_junryu_thirdplus: bool = False,
 ):
     """
     ラスト半周〜ゴール前の個人戦補正。
@@ -684,14 +685,19 @@ def calc_last_half_role_bonus(
         # -------------------------------------------------
         elif role == "thirdplus":
             third_bonus = 0.0
+            # 順流ラインの3番手以降だけ、位置取りとして薄く加点
+            if is_junryu_thirdplus:
+                third_bonus += 0.005
+                reasons.append("順流3番手以降位置")
 
+    # 上位評価がある3番手以降だけ追加
             if is_score_upper:
                 third_bonus += 0.010
-                reasons.append("3番手上位")
+                reasons.append("3番手以降上位")
 
             if race_top and (ko_top or tenkai_top):
                 third_bonus += 0.010
-                reasons.append("3番手複合上位")
+                reasons.append("3番手以降複合上位")
 
             bonus += clamp(third_bonus, 0.0, 0.020)
 
@@ -4351,6 +4357,20 @@ try:
             except Exception:
                 _style = ""
 
+
+
+
+            _is_junryu_thirdplus = False
+            try:
+                _fr_line = globals().get("FR_line", [])
+                _fr_members = [int(x) for x in (_fr_line or []) if str(x).isdigit()]
+
+    # 順流ラインの3番手以降
+               if len(_fr_members) >= 3 and _role == "thirdplus" and _car in _fr_members[2:]:
+                   _is_junryu_thirdplus = True
+    except Exception:
+        _is_junryu_thirdplus = False
+        
             _bonus, _reasons = calc_last_half_role_bonus(
                 role=_role,
                 kaku=_style,
@@ -4364,6 +4384,7 @@ try:
                 tenkai_score_rank=_tenkai_score_rank_map.get(_car),
                 top_third_limit=_top_third_limit,
                 scenario_top_count=int(_scenario_top_count_map.get(_car, 0) or 0),
+                is_junryu_thirdplus=_is_junryu_thirdplus,
             )
 
             _last_half_bonus_map[_car] = float(_bonus)
