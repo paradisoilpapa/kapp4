@@ -4476,6 +4476,46 @@ try:
         try:
             _h_lead_thirdplus_targets = []
 
+                        # -------------------------------------------------
+            # 床上げ採用条件：
+            # 順流・渦・逆流それぞれの1着候補が同ラインの時だけ
+            # ※この時点ではSTYLE_SEQ_MAPはまだ後段なので、
+            #   FR_line / VTX_line / U_line の先頭車を1着候補として見る
+            # -------------------------------------------------
+            def _car_group_for_floor(_car_no):
+                try:
+                    _car_no = int(_car_no)
+                    if isinstance(_line_def, dict):
+                        for _gid2, _mem2 in _line_def.items():
+                            _mem3 = [int(x) for x in _mem2]
+                            if _car_no in _mem3:
+                                return _gid2
+                except Exception:
+                    pass
+                return None
+
+            def _line_head_for_floor(_ln):
+                try:
+                    _xs = [int(x) for x in (_ln or []) if str(x).isdigit()]
+                    return int(_xs[0]) if _xs else None
+                except Exception:
+                    return None
+
+            _jun_head = _line_head_for_floor(FR_line)
+            _vtx_head = _line_head_for_floor(VTX_line)
+            _u_head = _line_head_for_floor(U_line)
+
+            _jun_gid = _car_group_for_floor(_jun_head)
+            _vtx_gid = _car_group_for_floor(_vtx_head)
+            _u_gid = _car_group_for_floor(_u_head)
+
+            _scenario_heads_same_line = (
+                _jun_gid is not None
+                and _vtx_gid is not None
+                and _u_gid is not None
+                and _jun_gid == _vtx_gid == _u_gid
+            )
+
             if home_top_gid is not None and isinstance(_line_def, dict):
                 _h_members = [int(x) for x in _line_def.get(home_top_gid, [])]
 
@@ -4485,7 +4525,11 @@ try:
                         if int(x) in score_map
                     ]
 
-            if _h_lead_thirdplus_targets and len(score_map) >= THIRDPLUS_FLOOR_RANK:
+            if (
+                _scenario_heads_same_line
+                and _h_lead_thirdplus_targets
+                and len(score_map) >= THIRDPLUS_FLOOR_RANK
+            ):
                 _order_now = sorted(
                     [int(x) for x in score_map.keys()],
                     key=lambda c: (-float(score_map.get(c, 0.0)), c)
