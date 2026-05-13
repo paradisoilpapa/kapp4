@@ -5451,7 +5451,7 @@ try:
 
             return xs
 
-                out_j = _display_score_guard(out_j, FR_line)
+        out_j = _display_score_guard(out_j, FR_line)
         out_v = _display_score_guard(out_v, VTX_line)
         out_u = _display_score_guard(out_u, U_line)
 
