@@ -4399,11 +4399,74 @@ try:
     except Exception as _e:
         note_sections.append(f"※ラスト半周補正エラー：{_e}")
 
-    # 0/None/NaN の床値補完
+        # 0/None/NaN の床値補完
     vals_pos = [
         float(v) for v in score_map.values()
         if isinstance(v, (int, float)) and float(v) > 0.0 and math.isfinite(float(v))
     ]
+
+    _floor = min(vals_pos) if vals_pos else 1e-6
+
+    for k in list(score_map.keys()):
+        try:
+            v = float(score_map[k])
+            if (not math.isfinite(v)) or v <= 0.0:
+                score_map[k] = float(_floor)
+        except Exception:
+            score_map[k] = float(_floor)
+
+    globals()["score_map"] = score_map  # 後段参照用に保持
+
+    # =========================================================
+    # line_fr_map を確定（_lfr 未定義事故対策）
+    # =========================================================
+    line_fr_map = globals().get("line_fr_map")
+    need_rebuild = (not isinstance(line_fr_map, dict)) or (len(line_fr_map) == 0)
+
+    # 既存があればキー正規化（tuple/listキー → "571"）
+    if (not need_rebuild) and isinstance(line_fr_map, dict):
+        _lfm2 = {}
+        for k, v in line_fr_map.items():
+            try:
+                if isinstance(k, (list, tuple, set)):
+                    kk = "".join(str(x) for x in k if str(x).isdigit())
+                else:
+                    kk = "".join(ch for ch in str(k) if ch.isdigit())
+
+                if kk:
+                    _lfm2[kk] = float(v or 0.0)
+            except Exception:
+                continue
+
+        line_fr_map = _lfm2
+        need_rebuild = (len(line_fr_map) == 0)
+
+    # 空なら作り直し
+    if need_rebuild:
+        try:
+            line_fr_map = _build_line_fr_map(
+                all_lines,
+                score_map,
+                FRv if FRv > 0.0 else 1.0
+            )
+        except Exception:
+            line_fr_map = {}
+
+    globals()["line_fr_map"] = line_fr_map
+
+    def _line_key(ln):
+        try:
+            if not ln:
+                return ""
+            return "".join(str(int(x)) for x in ln if str(x).isdigit())
+        except Exception:
+            return "".join(ch for ch in str(ln) if ch.isdigit())
+
+    def _lfr(ln):
+        try:
+            return float(line_fr_map.get(_line_key(ln), 0.0) or 0.0)
+        except Exception:
+            return 0.0
     # =========================================================
     # 展開評価（share_pct は「順流ライン」基準）
     # =========================================================
