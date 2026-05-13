@@ -688,7 +688,7 @@ def calc_last_half_role_bonus(
             third_bonus = 0.0
 
             if is_h_lead_thirdplus:
-                third_bonus += 0.005
+                third_bonus += 0.015
                 reasons.append("H主導3番手以降位置")
 
             if is_score_upper:
@@ -699,7 +699,7 @@ def calc_last_half_role_bonus(
                 third_bonus += 0.010
                 reasons.append("3番手以降複合上位")
 
-            bonus += clamp(third_bonus, 0.0, 0.020)
+            bonus += clamp(third_bonus, 0.0, 0.030)
 
         bonus = clamp(bonus, -LAST_HALF_CAP, LAST_HALF_CAP)
 
