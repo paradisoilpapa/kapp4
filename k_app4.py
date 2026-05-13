@@ -525,7 +525,6 @@ def role_in_line(car, line_def):
             idx = mem.index(car)
             return ['head','second','thirdplus'][idx] if idx<3 else 'thirdplus'
     return 'single'
-
 # =====================================================
 # ラスト半周補正：番手差し・前で動ける上位補正
 # =====================================================
@@ -538,7 +537,7 @@ LAST_HALF_CAP = 0.050
 # 番手補正の上限
 LAST_HALF_SECOND_CAP = 0.050
 
-# 先頭・単騎の自力寄り補正の上限
+# 先頭・単騎の前で動ける補正の上限
 LAST_HALF_FRONT_CAP = 0.040
 
 
@@ -549,29 +548,30 @@ def _is_top_third(rank_val, top_third_limit: int) -> bool:
     """
     try:
         return int(rank_val) <= int(top_third_limit)
-                except Exception:
-                _is_h_lead_thirdplus = False
+    except Exception:
+        return False
 
-            _bonus, _reasons = calc_last_half_role_bonus(
-                role=_role,
-                kaku=_style,
-                tenscore=_car_ten,
-                leader_tenscore=_leader_ten,
-                race_avg_tenscore=_race_avg_tenscore,
-                h_count=_h_val,
-                b_count=_b_val,
-                race_score_rank=_race_score_rank_map.get(_car),
-                ko_score_rank=_ko_score_rank_map.get(_car),
-                tenkai_score_rank=_tenkai_score_rank_map.get(_car),
-                top_third_limit=_top_third_limit,
-                scenario_top_count=int(_scenario_top_count_map.get(_car, 0) or 0),
-                is_h_lead_thirdplus=_is_h_lead_thirdplus,
-            )
+
+def calc_last_half_role_bonus(
+    role: str,
+    kaku: str,
+    tenscore: float,
+    leader_tenscore: float,
+    race_avg_tenscore: float,
+    h_count: float = 0.0,
+    b_count: float = 0.0,
+    race_score_rank=None,
+    ko_score_rank=None,
+    tenkai_score_rank=None,
+    top_third_limit: int = 3,
+    scenario_top_count: int = 0,
+    is_h_lead_thirdplus: bool = False,
+):
     """
     ラスト半周〜ゴール前の個人戦補正。
 
     kaku は受け取るだけ。
-    現在の入力仕様では使わない。
+    現在の入力仕様では判定に使わない。
 
     使用するもの：
     ・role：head / second / thirdplus / single
@@ -580,6 +580,7 @@ def _is_top_third(rank_val, top_third_limit: int) -> bool:
     ・競走得点順位
     ・KO順位
     ・展開順位
+    ・H主導ライン3番手以降
     """
 
     if not LAST_HALF_ENABLE:
@@ -678,9 +679,10 @@ def _is_top_third(rank_val, top_third_limit: int) -> bool:
                     bonus -= 0.020
                     reasons.append("先頭消耗")
 
-                # -------------------------------------------------
+        # -------------------------------------------------
         # 3番手以降：
-        # 上位評価がある場合だけ薄く加点
+        # H主導ライン3番手以降は薄く位置評価
+        # 上位評価がある場合だけ追加
         # -------------------------------------------------
         elif role == "thirdplus":
             third_bonus = 0.0
@@ -4348,17 +4350,50 @@ try:
             _h_val = _get_num_from_map(_H, _car, 0.0)
             _b_val = _get_num_from_map(_B, _car, 0.0)
 
-            _style = ""
+                        _style = ""
             try:
                 if isinstance(_kaku, dict):
                     _style = str(_kaku.get(_car, _kaku.get(str(_car), "")))
             except Exception:
                 _style = ""
 
+            # H主導ラインの3番手以降かどうか
+            _is_h_lead_thirdplus = False
+            try:
+                _h_members = []
+                if home_top_gid is not None and isinstance(_line_def, dict):
+                    _h_members = [int(x) for x in _line_def.get(home_top_gid, [])]
+
+                if (
+                    len(_h_members) >= 3
+                    and _role == "thirdplus"
+                    and _car in _h_members[2:]
+                ):
+                    _is_h_lead_thirdplus = True
+
+            except Exception:
+                _is_h_lead_thirdplus = False
+
+            _bonus, _reasons = calc_last_half_role_bonus(
+                role=_role,
+                kaku=_style,
+                tenscore=_car_ten,
+                leader_tenscore=_leader_ten,
+                race_avg_tenscore=_race_avg_tenscore,
+                h_count=_h_val,
+                b_count=_b_val,
+                race_score_rank=_race_score_rank_map.get(_car),
+                ko_score_rank=_ko_score_rank_map.get(_car),
+                tenkai_score_rank=_tenkai_score_rank_map.get(_car),
+                top_third_limit=_top_third_limit,
+                scenario_top_count=int(_scenario_top_count_map.get(_car, 0) or 0),
+                is_h_lead_thirdplus=_is_h_lead_thirdplus,
+            )
 
 
 
-                _is_junryu_thirdplus = False
+
+                
             try:
                 _zmap = globals().get("LINE_ZONE_MAP", {})
 
@@ -4379,13 +4414,13 @@ try:
                     and _role == "thirdplus"
                     and _car in _members_for_car[2:]
                 ):
-                    _is_junryu_thirdplus = True
+                    
 
             except Exception:
-                _is_junryu_thirdplus = False
+                
         
 
-                _is_junryu_thirdplus = False
+                
             try:
                 _zmap = globals().get("LINE_ZONE_MAP", {})
 
@@ -4406,10 +4441,10 @@ try:
                     and _role == "thirdplus"
                     and _car in _members_for_car[2:]
                 ):
-                    _is_junryu_thirdplus = True
+                    
 
             except Exception:
-                _is_junryu_thirdplus = False
+                
 
                         _is_h_lead_thirdplus = False
             try:
