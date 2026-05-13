@@ -4366,7 +4366,7 @@ try:
                 _fr_members = [int(x) for x in (_fr_line or []) if str(x).isdigit()]
 
     # 順流ラインの3番手以降
-               if len(_fr_members) >= 3 and _role == "thirdplus" and _car in _fr_members[2:]:
+            if len(_fr_members) >= 3 and _role == "thirdplus" and _car in _fr_members[2:]:
                    _is_junryu_thirdplus = True
     except Exception:
         _is_junryu_thirdplus = False
