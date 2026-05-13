@@ -565,22 +565,29 @@ def calc_last_half_role_bonus(
     tenkai_score_rank=None,
     top_third_limit: int = 3,
     scenario_top_count: int = 0,
-    is_h_lead_thirdplus: bool = False,
+    p1_rate=None,
+    p2_rate=None,
+    p3_rate=None,
 ):
     """
     ラスト半周〜ゴール前の個人戦補正。
 
-    kaku は受け取るだけ。
-    現在の入力仕様では判定に使わない。
+    思想：
+    ラスト半周までは団体戦。
+    ラスト半周からは個人戦。
+    そのため、位置ではなく「実際に着を取れる個人成績」で補正する。
 
     使用するもの：
-    ・role：head / second / thirdplus / single
-    ・H
-    ・B
-    ・競走得点順位
-    ・KO順位
-    ・展開順位
-    ・H主導ライン3番手以降
+    ・1着率
+    ・2着内率
+    ・3着内率
+
+    使わないもの：
+    ・番手位置だけの加点
+    ・H/Bだけの加点
+    ・自力だから加点
+    ・単騎だから加点
+    ・H主導3番手以降だから加点
     """
 
     if not LAST_HALF_ENABLE:
@@ -592,122 +599,45 @@ def calc_last_half_role_bonus(
     try:
         role = str(role)
 
-        tenscore = float(tenscore or 0.0)
-        leader_tenscore = float(leader_tenscore or tenscore)
-        race_avg_tenscore = float(race_avg_tenscore or 0.0)
-        h_count = float(h_count or 0.0)
-        b_count = float(b_count or 0.0)
+        def _rate(v):
+            try:
+                x = float(v)
+                if x > 1.0:
+                    x = x / 100.0
+                return x
+            except Exception:
+                return None
 
-        race_top = _is_top_third(race_score_rank, top_third_limit)
-        ko_top = _is_top_third(ko_score_rank, top_third_limit)
-        tenkai_top = _is_top_third(tenkai_score_rank, top_third_limit)
+        p1 = _rate(p1_rate)
+        p2 = _rate(p2_rate)
+        p3 = _rate(p3_rate)
 
-        has_action_mark = (h_count >= 1.0 or b_count >= 1.0)
-        is_score_upper = bool(race_top or ko_top or tenkai_top)
+        # ---------------------------------------------
+        # 個人戦補正
+        # ---------------------------------------------
+        if p1 is not None and p1 >= 0.20:
+            bonus += 0.020
+            reasons.append(f"1着率{p1 * 100:.0f}%以上")
 
-        # -------------------------------------------------
-        # 番手：位置＋上位根拠で最大 +0.050
-        # -------------------------------------------------
-        if role == "second":
-            second_bonus = 0.0
+        if p2 is not None and p2 >= 0.30:
+            bonus += 0.015
+            reasons.append(f"2着内率{p2 * 100:.0f}%以上")
 
-            second_bonus += 0.020
-            reasons.append("番手位置")
+        if p3 is not None and p3 >= 0.40:
+            bonus += 0.010
+            reasons.append(f"3着内率{p3 * 100:.0f}%以上")
 
-            if race_top:
-                second_bonus += 0.010
-                reasons.append("競走得点上位1/3")
+        # ---------------------------------------------
+        # 役割別上限
+        # 位置で加点はしない。
+        # ただし3番手以降だけは暴走防止で上限を低くする。
+        # ---------------------------------------------
+        if role == "thirdplus":
+            role_cap = 0.030
+        else:
+            role_cap = 0.050
 
-            if ko_top:
-                second_bonus += 0.010
-                reasons.append("KO上位1/3")
-
-            if tenkai_top:
-                second_bonus += 0.010
-                reasons.append("展開上位1/3")
-
-            if tenscore > leader_tenscore:
-                second_bonus += 0.010
-                reasons.append("番手差し根拠")
-
-            if tenscore < race_avg_tenscore and not ko_top and not tenkai_top:
-                second_bonus -= 0.010
-                reasons.append("番手弱め")
-
-            bonus += clamp(second_bonus, -0.020, LAST_HALF_SECOND_CAP)
-
-        # -------------------------------------------------
-        # ライン先頭・単騎：
-        # H/B または上位評価がある場合だけ加点
-        # 最大 +0.040
-        # -------------------------------------------------
-        elif role in ["head", "single"]:
-            front_bonus = 0.0
-
-            # 上位評価がある前の選手だけ、本格加点
-            if is_score_upper:
-                front_bonus += 0.010
-                reasons.append("前で動ける上位候補")
-
-                if race_top:
-                    front_bonus += 0.010
-                    reasons.append("競走得点上位1/3")
-
-                if ko_top:
-                    front_bonus += 0.010
-                    reasons.append("KO上位1/3")
-
-                if tenkai_top:
-                    front_bonus += 0.010
-                    reasons.append("展開上位1/3")
-
-                if int(scenario_top_count or 0) >= 2:
-                    front_bonus += 0.010
-                    reasons.append("複数シナリオ上位")
-
-                if role == "single":
-                    front_bonus += 0.005
-                    reasons.append("単騎微補正")
-
-                if has_action_mark:
-                    front_bonus += 0.005
-                    reasons.append("H/B行動根拠")
-
-                bonus += clamp(front_bonus, 0.0, LAST_HALF_FRONT_CAP)
-
-            # H/Bだけの先頭は、強加点しない
-            elif has_action_mark:
-                front_bonus += 0.005
-                reasons.append("H/B行動根拠のみ")
-                bonus += clamp(front_bonus, 0.0, 0.010)
-
-            else:
-                if role == "head" and tenscore < race_avg_tenscore:
-                    bonus -= 0.020
-                    reasons.append("先頭消耗")
-
-        # -------------------------------------------------
-        # 3番手以降：
-        # H主導ライン3番手以降は薄く位置評価
-        # 上位評価がある場合だけ追加
-        # -------------------------------------------------
-        elif role == "thirdplus":
-            third_bonus = 0.0
-
-            if is_h_lead_thirdplus:
-                third_bonus += 0.015
-                reasons.append("H主導3番手以降位置")
-
-            if is_score_upper:
-                third_bonus += 0.010
-                reasons.append("3番手以降上位")
-
-            if race_top and (ko_top or tenkai_top):
-                third_bonus += 0.010
-                reasons.append("3番手以降複合上位")
-
-            bonus += clamp(third_bonus, 0.0, 0.030)
-
+        bonus = clamp(bonus, 0.0, role_cap)
         bonus = clamp(bonus, -LAST_HALF_CAP, LAST_HALF_CAP)
 
         if not reasons:
@@ -4391,7 +4321,9 @@ try:
                 tenkai_score_rank=_tenkai_score_rank_map.get(_car),
                 top_third_limit=_top_third_limit,
                 scenario_top_count=int(_scenario_top_count_map.get(_car, 0) or 0),
-                is_h_lead_thirdplus=_is_h_lead_thirdplus,
+                p1_rate=_p1_rate,
+                p2_rate=_p2_rate,
+                p3_rate=_p3_rate,
             )
 
             _last_half_bonus_map[_car] = float(_bonus)
