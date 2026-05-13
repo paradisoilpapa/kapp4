@@ -683,14 +683,9 @@ def calc_last_half_role_bonus(
         # 3番手以降：
         # 上位評価がある場合だけ薄く加点
         # -------------------------------------------------
-        elif role == "thirdplus":
+         elif role == "thirdplus":
             third_bonus = 0.0
-            # 順流ラインの3番手以降だけ、位置取りとして薄く加点
-            if is_junryu_thirdplus:
-                third_bonus += 0.005
-                reasons.append("順流3番手以降位置")
 
-    # 上位評価がある3番手以降だけ追加
             if is_score_upper:
                 third_bonus += 0.010
                 reasons.append("3番手以降上位")
@@ -4426,7 +4421,7 @@ try:
                 tenkai_score_rank=_tenkai_score_rank_map.get(_car),
                 top_third_limit=_top_third_limit,
                 scenario_top_count=int(_scenario_top_count_map.get(_car, 0) or 0),
-                is_junryu_thirdplus=_is_junryu_thirdplus,
+                
             )
 
             _last_half_bonus_map[_car] = float(_bonus)
