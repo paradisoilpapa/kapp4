@@ -4360,7 +4360,7 @@ try:
 
 
 
-                        _is_junryu_thirdplus = False
+_is_junryu_thirdplus = False
             try:
                 _fr_line = globals().get("FR_line", [])
                 _fr_members = [int(x) for x in (_fr_line or []) if str(x).isdigit()]
