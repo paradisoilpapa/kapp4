@@ -4396,6 +4396,14 @@ try:
         globals()["last_half_reason_map"] = _last_half_reason_map
         globals()["score_map_last_half_applied"] = dict(score_map)
 
+    except Exception as _e:
+        note_sections.append(f"※ラスト半周補正エラー：{_e}")
+
+    # 0/None/NaN の床値補完
+    vals_pos = [
+        float(v) for v in score_map.values()
+        if isinstance(v, (int, float)) and float(v) > 0.0 and math.isfinite(float(v))
+    ]
     # =========================================================
     # 展開評価（share_pct は「順流ライン」基準）
     # =========================================================
