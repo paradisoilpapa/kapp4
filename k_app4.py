@@ -683,7 +683,7 @@ def calc_last_half_role_bonus(
         # 3番手以降：
         # 上位評価がある場合だけ薄く加点
         # -------------------------------------------------
-         elif role == "thirdplus":
+          elif role == "thirdplus":
             third_bonus = 0.0
 
             if is_score_upper:
