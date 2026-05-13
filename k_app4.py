@@ -4350,7 +4350,7 @@ try:
             _h_val = _get_num_from_map(_H, _car, 0.0)
             _b_val = _get_num_from_map(_B, _car, 0.0)
 
-                        _style = ""
+            _style = ""
             try:
                 if isinstance(_kaku, dict):
                     _style = str(_kaku.get(_car, _kaku.get(str(_car), "")))
