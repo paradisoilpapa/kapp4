@@ -527,7 +527,7 @@ def role_in_line(car, line_def):
     return 'single'
 
 # =====================================================
-# ラスト半周補正：番手差し・自力上位
+# ラスト半周補正：番手差し・前で動ける上位補正
 # =====================================================
 
 LAST_HALF_ENABLE = True
@@ -535,17 +535,17 @@ LAST_HALF_ENABLE = True
 # ラスト半周補正の全体上限
 LAST_HALF_CAP = 0.050
 
-# 番手差し補正の上限
+# 番手補正の上限
 LAST_HALF_SECOND_CAP = 0.050
 
-# 自力上位補正の上限
-LAST_HALF_SELF_CAP = 0.040
+# 先頭・単騎の自力寄り補正の上限
+LAST_HALF_FRONT_CAP = 0.040
 
 
 def _is_top_third(rank_val, top_third_limit: int) -> bool:
     """
     レース内上位1/3判定。
-    7車なら top_third_limit=3。
+    7車なら3位以内。
     """
     try:
         return int(rank_val) <= int(top_third_limit)
@@ -570,12 +570,16 @@ def calc_last_half_role_bonus(
     """
     ラスト半周〜ゴール前の個人戦補正。
 
-    考え方：
-    ・番手は最大 +0.050
-    ・自力上位は最大 +0.040
-    ・ラスト半周補正全体は最大 +0.050
-    ・競走得点・KOスコア・展開スコアは「重み掛け」ではなく、
-      レース内上位1/3なら +0.010 ずつ条件加点する。
+    kaku は受け取るだけ。
+    現在の入力仕様では使わない。
+
+    使用するもの：
+    ・role：head / second / thirdplus / single
+    ・H
+    ・B
+    ・競走得点順位
+    ・KO順位
+    ・展開順位
     """
 
     if not LAST_HALF_ENABLE:
@@ -586,7 +590,6 @@ def calc_last_half_role_bonus(
 
     try:
         role = str(role)
-        kaku = str(kaku)
 
         tenscore = float(tenscore or 0.0)
         leader_tenscore = float(leader_tenscore or tenscore)
@@ -594,16 +597,15 @@ def calc_last_half_role_bonus(
         h_count = float(h_count or 0.0)
         b_count = float(b_count or 0.0)
 
-        # 公式脚質・内部脚質どちらにも対応
-        is_self_type = kaku in ["逃", "捲", "両"]
-        is_sashi_type = kaku in ["差", "マ", "追"]
-
         race_top = _is_top_third(race_score_rank, top_third_limit)
         ko_top = _is_top_third(ko_score_rank, top_third_limit)
         tenkai_top = _is_top_third(tenkai_score_rank, top_third_limit)
 
+        has_action_mark = (h_count >= 1.0 or b_count >= 1.0)
+        is_score_upper = bool(race_top or ko_top or tenkai_top)
+
         # -------------------------------------------------
-        # 番手：一律+0.050ではなく分解加点
+        # 番手：位置＋上位根拠で最大 +0.050
         # -------------------------------------------------
         if role == "second":
             second_bonus = 0.0
@@ -623,99 +625,75 @@ def calc_last_half_role_bonus(
                 second_bonus += 0.010
                 reasons.append("展開上位1/3")
 
-            # 番手が先頭より得点上なら、差し根拠として薄く加点
-            # ただし上限+0.050内に収める
             if tenscore > leader_tenscore:
                 second_bonus += 0.010
                 reasons.append("番手差し根拠")
 
-            # 弱い番手は上げすぎない
             if tenscore < race_avg_tenscore and not ko_top and not tenkai_top:
                 second_bonus -= 0.010
                 reasons.append("番手弱め")
 
-            second_bonus = clamp(second_bonus, -0.020, LAST_HALF_SECOND_CAP)
-            bonus += second_bonus
+            bonus += clamp(second_bonus, -0.020, LAST_HALF_SECOND_CAP)
 
         # -------------------------------------------------
-        # 自力上位：単騎だけでなく、上位の自力選手全体を加点
-        # 対象：ライン先頭 or 単騎
+        # ライン先頭・単騎：
+        # H/B または上位評価がある場合だけ加点
+        # 最大 +0.040
         # -------------------------------------------------
-        elif role in ["head", "single"] and is_self_type:
-            self_bonus = 0.0
+        elif role in ["head", "single"]:
+            front_bonus = 0.0
 
-            self_bonus += 0.010
-            reasons.append("自力脚質")
+            if has_action_mark or is_score_upper:
+                front_bonus += 0.010
+                reasons.append("前で動ける候補")
 
-            if race_top:
-                self_bonus += 0.010
-                reasons.append("競走得点上位1/3")
+                if race_top:
+                    front_bonus += 0.010
+                    reasons.append("競走得点上位1/3")
 
-            if ko_top:
-                self_bonus += 0.010
-                reasons.append("KO上位1/3")
+                if ko_top:
+                    front_bonus += 0.010
+                    reasons.append("KO上位1/3")
 
-            if tenkai_top:
-                self_bonus += 0.010
-                reasons.append("展開上位1/3")
+                if tenkai_top:
+                    front_bonus += 0.010
+                    reasons.append("展開上位1/3")
 
-            # 後で順流・渦・逆流の順位を渡せるようにしておく
-            if int(scenario_top_count or 0) >= 2:
-                self_bonus += 0.010
-                reasons.append("複数シナリオ上位")
+                if int(scenario_top_count or 0) >= 2:
+                    front_bonus += 0.010
+                    reasons.append("複数シナリオ上位")
 
-            # 単騎はライン補助なし分の微補正
-            if role == "single":
-                self_bonus += 0.005
-                reasons.append("単騎微補正")
+                if role == "single":
+                    front_bonus += 0.005
+                    reasons.append("単騎微補正")
 
-            # H/Bのどちらかがある場合だけ、終盤で動ける根拠として薄く反映
-            if h_count >= 1.0 or b_count >= 1.0:
-                self_bonus += 0.005
-                reasons.append("H/B行動根拠")
+                if has_action_mark:
+                    front_bonus += 0.005
+                    reasons.append("H/B行動根拠")
 
-            self_bonus = clamp(self_bonus, 0.0, LAST_HALF_SELF_CAP)
-            bonus += self_bonus
+                bonus += clamp(front_bonus, 0.0, LAST_HALF_FRONT_CAP)
 
-        # -------------------------------------------------
-        # 自力ではないライン先頭：弱い先頭だけ軽く消耗扱い
-        # -------------------------------------------------
-        elif role == "head":
-            if tenscore < race_avg_tenscore and not ko_top and not tenkai_top:
-                bonus -= 0.020
-                reasons.append("先頭消耗")
+            else:
+                if role == "head" and tenscore < race_avg_tenscore:
+                    bonus -= 0.020
+                    reasons.append("先頭消耗")
 
         # -------------------------------------------------
-        # 3番手以降：強い差し・追込だけ軽く突っ込み評価
+        # 3番手以降：
+        # 上位評価がある場合だけ薄く加点
         # -------------------------------------------------
         elif role == "thirdplus":
             third_bonus = 0.0
 
-            if is_sashi_type and (race_top or ko_top or tenkai_top):
+            if is_score_upper:
                 third_bonus += 0.010
-                reasons.append("3番手突っ込み")
+                reasons.append("3番手上位")
 
-            if is_sashi_type and race_top and (ko_top or tenkai_top):
+            if race_top and (ko_top or tenkai_top):
                 third_bonus += 0.010
-                reasons.append("3番手上位差し")
+                reasons.append("3番手複合上位")
 
             bonus += clamp(third_bonus, 0.0, 0.020)
-
-        # -------------------------------------------------
-        # 単騎の差し・追込：強い場合だけ軽く評価
-        # -------------------------------------------------
-        elif role == "single":
-            single_bonus = 0.0
-
-            if is_sashi_type and (race_top or ko_top or tenkai_top):
-                single_bonus += 0.010
-                reasons.append("単騎終盤脚")
-
-            if is_sashi_type and race_top and (ko_top or tenkai_top):
-                single_bonus += 0.010
-                reasons.append("単騎上位差し")
-
-            bonus += clamp(single_bonus, 0.0, 0.020)
 
         bonus = clamp(bonus, -LAST_HALF_CAP, LAST_HALF_CAP)
 
@@ -726,117 +704,6 @@ def calc_last_half_role_bonus(
 
     except Exception as e:
         return 0.0, [f"ラスト半周補正エラー:{e}"]
-    """
-    ラスト半周〜ゴール前の個人戦補正。
-
-    role:
-        head / second / thirdplus / single
-
-    kaku:
-        逃 / 捲 / 差 / マ など
-
-    tenscore:
-        選手の競走得点
-
-    leader_tenscore:
-        同ライン先頭の競走得点
-        ※本人が先頭なら本人の得点でよい
-
-    race_avg_tenscore:
-        出走メンバーの平均競走得点
-    """
-
-    if not LAST_HALF_ENABLE:
-        return 0.0, []
-
-    bonus = 0.0
-    reasons = []
-
-    try:
-        role = str(role)
-        kaku = str(kaku)
-
-        tenscore = float(tenscore or 0.0)
-        leader_tenscore = float(leader_tenscore or tenscore)
-        race_avg_tenscore = float(race_avg_tenscore or 0.0)
-        h_count = float(h_count or 0.0)
-        b_count = float(b_count or 0.0)
-
-        # -------------------------------------------------
-        # 先頭：自力が強いなら残る。弱いなら消耗。
-        # -------------------------------------------------
-        if role == "head":
-
-            is_self_type = kaku in ["逃", "捲"]
-            has_active_mark = (h_count >= 1.0 or b_count >= 1.0)
-
-            # 強い自力
-            if is_self_type and tenscore >= race_avg_tenscore and has_active_mark:
-                bonus += 0.030
-                reasons.append("強い自力粘り")
-
-            # そこそこの自力
-            elif is_self_type and tenscore >= race_avg_tenscore:
-                bonus += 0.010
-                reasons.append("自力残り候補")
-
-            # 弱い自力・弱い先頭
-            elif tenscore < race_avg_tenscore:
-                bonus -= 0.030
-                reasons.append("先頭消耗")
-
-        # -------------------------------------------------
-        # 番手：強い番手は最後に差す。弱い番手は上げすぎない。
-        # -------------------------------------------------
-        elif role == "second":
-
-            bonus += 0.020
-            reasons.append("番手位置")
-
-            # 番手が先頭より得点上なら差し本命
-            if tenscore > leader_tenscore:
-                bonus += 0.050
-                reasons.append("番手差し本命")
-
-            # 番手が平均以上なら差し候補
-            elif tenscore >= race_avg_tenscore:
-                bonus += 0.030
-                reasons.append("番手差し候補")
-
-            # 番手でも弱いなら上げすぎない
-            else:
-                bonus -= 0.010
-                reasons.append("番手弱め")
-
-            # 差・マはゴール前加点
-            if kaku in ["差", "マ"]:
-                bonus += 0.020
-                reasons.append("差し脚質")
-
-        # -------------------------------------------------
-        # 3番手以降：強い差しだけ軽く突っ込み評価
-        # -------------------------------------------------
-        elif role == "thirdplus":
-
-            if tenscore >= race_avg_tenscore and kaku in ["差", "マ"]:
-                bonus += 0.020
-                reasons.append("3番手突っ込み")
-
-        # -------------------------------------------------
-        # 単騎：強い差し・捲りだけ軽く評価
-        # -------------------------------------------------
-        elif role == "single":
-
-            if tenscore >= race_avg_tenscore and kaku in ["捲", "差", "マ"]:
-                bonus += 0.010
-                reasons.append("単騎終盤脚")
-
-        bonus = clamp(bonus, -LAST_HALF_CAP, LAST_HALF_CAP)
-        return round(float(bonus), 3), reasons
-
-    except Exception as e:
-        return 0.0, [f"ラスト半周補正エラー:{e}"]
-
 
 # ==============================
 # H：最終ホーム想定ライン
@@ -4387,7 +4254,7 @@ try:
     score_map_before_last_half = dict(score_map)
     globals()["score_map_before_last_half"] = dict(score_map_before_last_half)
 
-            # =========================================================
+    # =========================================================
     # ラスト半周補正：自力粘り・番手差し
     # ※既存のKO母集団スコアに後付けする
     # =========================================================
