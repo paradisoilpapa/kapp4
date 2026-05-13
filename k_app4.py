@@ -615,15 +615,24 @@ def calc_last_half_role_bonus(
         # ---------------------------------------------
         # 個人戦補正
         # ---------------------------------------------
+        # 勝ち切れる個人力を強めに評価
         if p1 is not None and p1 >= 0.20:
-            bonus += 0.020
+            bonus += 0.025
             reasons.append(f"1着率{p1 * 100:.0f}%以上")
 
+        # 2着内率は評価するが、1着率より軽くする
         if p2 is not None and p2 >= 0.30:
-            bonus += 0.015
+            bonus += 0.010
             reasons.append(f"2着内率{p2 * 100:.0f}%以上")
 
-        if p3 is not None and p3 >= 0.40:
+        # 3着内率は、2着内率もある場合だけ補正
+        # 3着に残るだけの選手をラスト半周個人力として過大評価しない
+        if (
+            p3 is not None
+            and p3 >= 0.40
+            and p2 is not None
+            and p2 >= 0.30
+        ):
             bonus += 0.010
             reasons.append(f"3着内率{p3 * 100:.0f}%以上")
 
