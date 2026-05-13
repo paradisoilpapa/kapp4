@@ -553,21 +553,21 @@ def _is_top_third(rank_val, top_third_limit: int) -> bool:
         return False
 
 
-def calc_last_half_role_bonus(
-    role: str,
-    kaku: str,
-    tenscore: float,
-    leader_tenscore: float,
-    race_avg_tenscore: float,
-    h_count: float = 0.0,
-    b_count: float = 0.0,
-    race_score_rank=None,
-    ko_score_rank=None,
-    tenkai_score_rank=None,
-    top_third_limit: int = 3,
-    scenario_top_count: int = 0,
-    is_junryu_thirdplus: bool = False,
-):
+            _bonus, _reasons = calc_last_half_role_bonus(
+                role=_role,
+                kaku=_style,
+                tenscore=_car_ten,
+                leader_tenscore=_leader_ten,
+                race_avg_tenscore=_race_avg_tenscore,
+                h_count=_h_val,
+                b_count=_b_val,
+                race_score_rank=_race_score_rank_map.get(_car),
+                ko_score_rank=_ko_score_rank_map.get(_car),
+                tenkai_score_rank=_tenkai_score_rank_map.get(_car),
+                top_third_limit=_top_third_limit,
+                scenario_top_count=int(_scenario_top_count_map.get(_car, 0) or 0),
+                is_h_lead_thirdplus=_is_h_lead_thirdplus,
+            )
     """
     ラスト半周〜ゴール前の個人戦補正。
 
@@ -685,6 +685,10 @@ def calc_last_half_role_bonus(
         # -------------------------------------------------
         elif role == "thirdplus":
             third_bonus = 0.0
+
+            if is_h_lead_thirdplus:
+                third_bonus += 0.005
+                reasons.append("H主導3番手以降位置")
 
             if is_score_upper:
                 third_bonus += 0.010
@@ -4407,6 +4411,22 @@ try:
 
             except Exception:
                 _is_junryu_thirdplus = False
+
+                        _is_h_lead_thirdplus = False
+            try:
+                _h_members = []
+                if home_top_gid is not None and isinstance(_line_def, dict):
+                    _h_members = [int(x) for x in _line_def.get(home_top_gid, [])]
+
+                if (
+                    len(_h_members) >= 3
+                    and _role == "thirdplus"
+                    and _car in _h_members[2:]
+                ):
+                    _is_h_lead_thirdplus = True
+
+            except Exception:
+                _is_h_lead_thirdplus = False
                 
             _bonus, _reasons = calc_last_half_role_bonus(
                 role=_role,
