@@ -4476,12 +4476,47 @@ try:
         try:
             _h_lead_thirdplus_targets = []
 
-                        # -------------------------------------------------
-            # 床上げ採用条件：
-            # 順流・渦・逆流それぞれの1着候補が同ラインの時だけ
-            # ※この時点ではSTYLE_SEQ_MAPはまだ後段なので、
-            #   FR_line / VTX_line / U_line の先頭車を1着候補として見る
-            # -------------------------------------------------
+                    # -------------------------------------------------
+        # H主導ライン3番手以降：
+        # 3着内率40%以上 ＋ そのラインが順流/渦/逆流いずれかの1着候補ライン
+        # → 最低4番手評価まで床上げ
+        # -------------------------------------------------
+        THIRDPLUS_TOP3_RATE_MIN = 0.40
+        THIRDPLUS_FLOOR_RANK = 4
+        THIRDPLUS_FLOOR_EPS = 0.001
+
+        def _get_top3_rate_for_car(_car_no):
+            """
+            車番ごとの3着内率を取得する。
+            現在のヴェロビでは x1 / x2 / x3 / x_out から算出する。
+            """
+            try:
+                _car_no = int(_car_no)
+
+                _x1 = globals().get("x1", {})
+                _x2 = globals().get("x2", {})
+                _x3 = globals().get("x3", {})
+                _xo = globals().get("x_out", {})
+
+                n1 = float(_x1.get(_car_no, _x1.get(str(_car_no), 0)) or 0)
+                n2 = float(_x2.get(_car_no, _x2.get(str(_car_no), 0)) or 0)
+                n3 = float(_x3.get(_car_no, _x3.get(str(_car_no), 0)) or 0)
+                no = float(_xo.get(_car_no, _xo.get(str(_car_no), 0)) or 0)
+
+                total = n1 + n2 + n3 + no
+
+                if total <= 0:
+                    return None
+
+                return float((n1 + n2 + n3) / total)
+
+            except Exception:
+                return None
+
+        try:
+            # ---------------------------------------------
+            # 車番からラインgidを取る
+            # ---------------------------------------------
             def _car_group_for_floor(_car_no):
                 try:
                     _car_no = int(_car_no)
@@ -4494,27 +4529,61 @@ try:
                     pass
                 return None
 
+            # ---------------------------------------------
+            # ライン表現を車番リストに直す
+            # ---------------------------------------------
+            def _normalize_line_for_floor(_ln):
+                try:
+                    if not _ln:
+                        return []
+
+                    if isinstance(_ln, (list, tuple)):
+                        return [int(x) for x in _ln if str(x).isdigit()]
+
+                    return [int(ch) for ch in str(_ln) if ch.isdigit()]
+                except Exception:
+                    return []
+
+            # ---------------------------------------------
+            # ライン先頭車を取る
+            # ---------------------------------------------
             def _line_head_for_floor(_ln):
                 try:
-                    _xs = [int(x) for x in (_ln or []) if str(x).isdigit()]
+                    _xs = _normalize_line_for_floor(_ln)
                     return int(_xs[0]) if _xs else None
                 except Exception:
                     return None
 
-            _jun_head = _line_head_for_floor(FR_line)
-            _vtx_head = _line_head_for_floor(VTX_line)
-            _u_head = _line_head_for_floor(U_line)
+            # ---------------------------------------------
+            # この時点では FR_line / VTX_line / U_line が未定義のことがあるので
+            # _flow から安全に取り直す
+            # ---------------------------------------------
+            _flow_for_floor = locals().get("_flow", globals().get("_flow", {}))
+            if not isinstance(_flow_for_floor, dict):
+                _flow_for_floor = {}
 
-            _jun_gid = _car_group_for_floor(_jun_head)
-            _vtx_gid = _car_group_for_floor(_vtx_head)
-            _u_gid = _car_group_for_floor(_u_head)
+            _floor_fr_line = _normalize_line_for_floor(_flow_for_floor.get("FR_line") or [])
+            _floor_vtx_line = _normalize_line_for_floor(_flow_for_floor.get("VTX_line") or [])
+            _floor_u_line = _normalize_line_for_floor(_flow_for_floor.get("U_line") or [])
 
-            _scenario_heads_same_line = (
-                _jun_gid is not None
-                and _vtx_gid is not None
-                and _u_gid is not None
-                and _jun_gid == _vtx_gid == _u_gid
-            )
+            # ---------------------------------------------
+            # 順流・渦・逆流それぞれの1着候補ラインを集める
+            # ※3つ全部が同じラインである必要はない。
+            # ※対象車のラインがこの集合に入っていれば採用。
+            # ---------------------------------------------
+            _scenario_top_gids = set()
+
+            for _ln_tmp in [_floor_fr_line, _floor_vtx_line, _floor_u_line]:
+                _head_tmp = _line_head_for_floor(_ln_tmp)
+                _gid_tmp = _car_group_for_floor(_head_tmp)
+
+                if _gid_tmp is not None:
+                    _scenario_top_gids.add(_gid_tmp)
+
+            # ---------------------------------------------
+            # H主導ラインの3番手以降を対象にする
+            # ---------------------------------------------
+            _h_lead_thirdplus_targets = []
 
             if home_top_gid is not None and isinstance(_line_def, dict):
                 _h_members = [int(x) for x in _line_def.get(home_top_gid, [])]
@@ -4525,9 +4594,12 @@ try:
                         if int(x) in score_map
                     ]
 
+            # ---------------------------------------------
+            # 条件を満たす場合だけ、最低4番手評価まで床上げ
+            # ---------------------------------------------
             if (
-                _scenario_heads_same_line
-                and _h_lead_thirdplus_targets
+                _h_lead_thirdplus_targets
+                and _scenario_top_gids
                 and len(score_map) >= THIRDPLUS_FLOOR_RANK
             ):
                 _order_now = sorted(
@@ -4540,6 +4612,12 @@ try:
                 _floor_score = _rank4_score - THIRDPLUS_FLOOR_EPS
 
                 for _car3 in _h_lead_thirdplus_targets:
+                    _target_gid = _car_group_for_floor(_car3)
+
+                    # 対象車のラインが、順流/渦/逆流いずれかの1着候補ラインでなければ採用しない
+                    if _target_gid not in _scenario_top_gids:
+                        continue
+
                     _p3 = _get_top3_rate_for_car(_car3)
 
                     if _p3 is None:
