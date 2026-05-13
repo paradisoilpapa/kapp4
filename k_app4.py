@@ -4393,30 +4393,7 @@ try:
         
 
                 
-            try:
-                _zmap = globals().get("LINE_ZONE_MAP", {})
-
-                _line_key_for_car = ""
-                _members_for_car = []
-
-                for _gid, _mem in _line_def.items():
-                    _mem2 = [int(x) for x in _mem]
-                    if _car in _mem2:
-                        _members_for_car = _mem2
-                        _line_key_for_car = "".join(str(x) for x in _mem2)
-                        break
-
-                if (
-                    isinstance(_zmap, dict)
-                    and _zmap.get(_line_key_for_car) == "順流"
-                    and len(_members_for_car) >= 3
-                    and _role == "thirdplus"
-                    and _car in _members_for_car[2:]
-                ):
-                    
-
-            except Exception:
-                
+        
 
                         _is_h_lead_thirdplus = False
             try:
