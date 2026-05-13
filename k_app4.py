@@ -527,11 +527,31 @@ def role_in_line(car, line_def):
     return 'single'
 
 # =====================================================
-# ラスト半周補正：自力粘り・番手差し
+# ラスト半周補正：番手差し・自力上位
 # =====================================================
 
 LAST_HALF_ENABLE = True
-LAST_HALF_CAP = 0.090
+
+# ラスト半周補正の全体上限
+LAST_HALF_CAP = 0.050
+
+# 番手差し補正の上限
+LAST_HALF_SECOND_CAP = 0.050
+
+# 自力上位補正の上限
+LAST_HALF_SELF_CAP = 0.040
+
+
+def _is_top_third(rank_val, top_third_limit: int) -> bool:
+    """
+    レース内上位1/3判定。
+    7車なら top_third_limit=3。
+    """
+    try:
+        return int(rank_val) <= int(top_third_limit)
+    except Exception:
+        return False
+
 
 def calc_last_half_role_bonus(
     role: str,
@@ -541,7 +561,171 @@ def calc_last_half_role_bonus(
     race_avg_tenscore: float,
     h_count: float = 0.0,
     b_count: float = 0.0,
+    race_score_rank=None,
+    ko_score_rank=None,
+    tenkai_score_rank=None,
+    top_third_limit: int = 3,
+    scenario_top_count: int = 0,
 ):
+    """
+    ラスト半周〜ゴール前の個人戦補正。
+
+    考え方：
+    ・番手は最大 +0.050
+    ・自力上位は最大 +0.040
+    ・ラスト半周補正全体は最大 +0.050
+    ・競走得点・KOスコア・展開スコアは「重み掛け」ではなく、
+      レース内上位1/3なら +0.010 ずつ条件加点する。
+    """
+
+    if not LAST_HALF_ENABLE:
+        return 0.0, []
+
+    bonus = 0.0
+    reasons = []
+
+    try:
+        role = str(role)
+        kaku = str(kaku)
+
+        tenscore = float(tenscore or 0.0)
+        leader_tenscore = float(leader_tenscore or tenscore)
+        race_avg_tenscore = float(race_avg_tenscore or 0.0)
+        h_count = float(h_count or 0.0)
+        b_count = float(b_count or 0.0)
+
+        # 公式脚質・内部脚質どちらにも対応
+        is_self_type = kaku in ["逃", "捲", "両"]
+        is_sashi_type = kaku in ["差", "マ", "追"]
+
+        race_top = _is_top_third(race_score_rank, top_third_limit)
+        ko_top = _is_top_third(ko_score_rank, top_third_limit)
+        tenkai_top = _is_top_third(tenkai_score_rank, top_third_limit)
+
+        # -------------------------------------------------
+        # 番手：一律+0.050ではなく分解加点
+        # -------------------------------------------------
+        if role == "second":
+            second_bonus = 0.0
+
+            second_bonus += 0.020
+            reasons.append("番手位置")
+
+            if race_top:
+                second_bonus += 0.010
+                reasons.append("競走得点上位1/3")
+
+            if ko_top:
+                second_bonus += 0.010
+                reasons.append("KO上位1/3")
+
+            if tenkai_top:
+                second_bonus += 0.010
+                reasons.append("展開上位1/3")
+
+            # 番手が先頭より得点上なら、差し根拠として薄く加点
+            # ただし上限+0.050内に収める
+            if tenscore > leader_tenscore:
+                second_bonus += 0.010
+                reasons.append("番手差し根拠")
+
+            # 弱い番手は上げすぎない
+            if tenscore < race_avg_tenscore and not ko_top and not tenkai_top:
+                second_bonus -= 0.010
+                reasons.append("番手弱め")
+
+            second_bonus = clamp(second_bonus, -0.020, LAST_HALF_SECOND_CAP)
+            bonus += second_bonus
+
+        # -------------------------------------------------
+        # 自力上位：単騎だけでなく、上位の自力選手全体を加点
+        # 対象：ライン先頭 or 単騎
+        # -------------------------------------------------
+        elif role in ["head", "single"] and is_self_type:
+            self_bonus = 0.0
+
+            self_bonus += 0.010
+            reasons.append("自力脚質")
+
+            if race_top:
+                self_bonus += 0.010
+                reasons.append("競走得点上位1/3")
+
+            if ko_top:
+                self_bonus += 0.010
+                reasons.append("KO上位1/3")
+
+            if tenkai_top:
+                self_bonus += 0.010
+                reasons.append("展開上位1/3")
+
+            # 後で順流・渦・逆流の順位を渡せるようにしておく
+            if int(scenario_top_count or 0) >= 2:
+                self_bonus += 0.010
+                reasons.append("複数シナリオ上位")
+
+            # 単騎はライン補助なし分の微補正
+            if role == "single":
+                self_bonus += 0.005
+                reasons.append("単騎微補正")
+
+            # H/Bのどちらかがある場合だけ、終盤で動ける根拠として薄く反映
+            if h_count >= 1.0 or b_count >= 1.0:
+                self_bonus += 0.005
+                reasons.append("H/B行動根拠")
+
+            self_bonus = clamp(self_bonus, 0.0, LAST_HALF_SELF_CAP)
+            bonus += self_bonus
+
+        # -------------------------------------------------
+        # 自力ではないライン先頭：弱い先頭だけ軽く消耗扱い
+        # -------------------------------------------------
+        elif role == "head":
+            if tenscore < race_avg_tenscore and not ko_top and not tenkai_top:
+                bonus -= 0.020
+                reasons.append("先頭消耗")
+
+        # -------------------------------------------------
+        # 3番手以降：強い差し・追込だけ軽く突っ込み評価
+        # -------------------------------------------------
+        elif role == "thirdplus":
+            third_bonus = 0.0
+
+            if is_sashi_type and (race_top or ko_top or tenkai_top):
+                third_bonus += 0.010
+                reasons.append("3番手突っ込み")
+
+            if is_sashi_type and race_top and (ko_top or tenkai_top):
+                third_bonus += 0.010
+                reasons.append("3番手上位差し")
+
+            bonus += clamp(third_bonus, 0.0, 0.020)
+
+        # -------------------------------------------------
+        # 単騎の差し・追込：強い場合だけ軽く評価
+        # -------------------------------------------------
+        elif role == "single":
+            single_bonus = 0.0
+
+            if is_sashi_type and (race_top or ko_top or tenkai_top):
+                single_bonus += 0.010
+                reasons.append("単騎終盤脚")
+
+            if is_sashi_type and race_top and (ko_top or tenkai_top):
+                single_bonus += 0.010
+                reasons.append("単騎上位差し")
+
+            bonus += clamp(single_bonus, 0.0, 0.020)
+
+        bonus = clamp(bonus, -LAST_HALF_CAP, LAST_HALF_CAP)
+
+        if not reasons:
+            reasons.append("補正なし")
+
+        return round(float(bonus), 3), reasons
+
+    except Exception as e:
+        return 0.0, [f"ラスト半周補正エラー:{e}"]
     """
     ラスト半周〜ゴール前の個人戦補正。
 
@@ -4230,9 +4414,46 @@ try:
                 _race_scores.append(_v)
 
         _race_avg_tenscore = float(np.mean(_race_scores)) if _race_scores else 0.0
-
         _last_half_bonus_map = {}
         _last_half_reason_map = {}
+        
+        # -------------------------------------------------
+        # ラスト半周補正用：レース内順位マップ
+        # 上位1/3判定用。7車なら3位以内。
+        # -------------------------------------------------
+        _active_list = [int(x) for x in active_cars]
+        _top_third_limit = int(math.ceil(len(_active_list) / 3.0)) if _active_list else 3
+        _top_third_limit = max(1, _top_third_limit)
+
+        # 競走得点順位
+        _race_score_rank_map = {}
+        _ten_pairs = []
+        for _n in _active_list:
+            _v = _get_num_from_map(_tenscore, _n, 0.0)
+            _ten_pairs.append((int(_n), float(_v)))
+
+        _ten_pairs_sorted = sorted(_ten_pairs, key=lambda x: (-x[1], x[0]))
+        for _idx, (_car2, _v2) in enumerate(_ten_pairs_sorted, start=1):
+            _race_score_rank_map[int(_car2)] = int(_idx)
+
+        # KO順位・展開順位
+        # この時点の score_map は「ラスト半周補正前」なので、
+        # 出力上の「展開スコア」と同じ母集団として扱う。
+        _ko_score_rank_map = {}
+        _ko_pairs_sorted = sorted(
+            [(int(k), float(v)) for k, v in score_map_before_last_half.items()],
+            key=lambda x: (-x[1], x[0])
+        )
+        for _idx, (_car2, _v2) in enumerate(_ko_pairs_sorted, start=1):
+            _ko_score_rank_map[int(_car2)] = int(_idx)
+
+        _tenkai_score_rank_map = dict(_ko_score_rank_map)
+
+        # 後で順流・渦・逆流の上位一致を入れるための受け皿
+        # まだ作っていない場合は全員0でOK
+        _scenario_top_count_map = globals().get("scenario_top_count_map", {})
+        if not isinstance(_scenario_top_count_map, dict):
+            _scenario_top_count_map = {}
 
         for _n in list(score_map.keys()):
             _car = int(_n)
@@ -4271,6 +4492,11 @@ try:
                 race_avg_tenscore=_race_avg_tenscore,
                 h_count=_h_val,
                 b_count=_b_val,
+                race_score_rank=_race_score_rank_map.get(_car),
+                ko_score_rank=_ko_score_rank_map.get(_car),
+                tenkai_score_rank=_tenkai_score_rank_map.get(_car),
+                top_third_limit=_top_third_limit,
+                scenario_top_count=int(_scenario_top_count_map.get(_car, 0) or 0),
             )
 
             _last_half_bonus_map[_car] = float(_bonus)
