@@ -4399,6 +4399,132 @@ try:
 
             score_map[_car] = float(score_map.get(_car, 0.0)) + float(_bonus)
 
+    
+
+
+            # -------------------------------------------------
+        # H主導ライン3番手以降：3着内率40%以上なら最低4番手評価まで床上げ
+        # -------------------------------------------------
+        THIRDPLUS_TOP3_RATE_MIN = 0.40
+        THIRDPLUS_FLOOR_RANK = 4
+        THIRDPLUS_FLOOR_EPS = 0.001
+
+        def _normalize_rate_0to1(v):
+            try:
+                x = float(v)
+                if x > 1.0:
+                    x = x / 100.0
+                return x
+            except Exception:
+                return None
+
+        def _get_top3_rate_for_car(_car_no):
+            """
+            車番ごとの3着内率を取得する。
+            変数名が多少違っても拾えるように、候補名とglobals内のdictを探す。
+            値は 0.40 / 40.0 のどちらでも対応。
+            """
+            _car_no = int(_car_no)
+
+            # よくありそうな名前を優先
+            _candidate_names = [
+                "top3_rate_map",
+                "in3_rate_map",
+                "pTop3_map",
+                "ptop3_map",
+                "car_top3_rate_map",
+                "car_in3_rate_map",
+                "top3_map",
+                "in3_map",
+                "P_TOP3_MAP",
+                "IN3_RATE_MAP",
+            ]
+
+            for _name in _candidate_names:
+                _obj = globals().get(_name, None)
+                if isinstance(_obj, dict):
+                    _v = _obj.get(_car_no, _obj.get(str(_car_no), None))
+                    _r = _normalize_rate_0to1(_v)
+                    if _r is not None:
+                        return _r
+
+            # 名前が違う場合の保険：globals内の「top3 / in3 / 3着」系dictを探索
+            try:
+                for _name, _obj in globals().items():
+                    _lname = str(_name).lower()
+                    if not isinstance(_obj, dict):
+                        continue
+
+                    if not (
+                        "top3" in _lname
+                        or "in3" in _lname
+                        or "p_top3" in _lname
+                        or "3着" in str(_name)
+                        or "三着" in str(_name)
+                    ):
+                        continue
+
+                    _v = _obj.get(_car_no, _obj.get(str(_car_no), None))
+                    _r = _normalize_rate_0to1(_v)
+                    if _r is not None:
+                        return _r
+            except Exception:
+                pass
+
+            return None
+
+        try:
+            _h_lead_thirdplus_targets = []
+
+            if home_top_gid is not None and isinstance(_line_def, dict):
+                _h_members = [int(x) for x in _line_def.get(home_top_gid, [])]
+
+                if len(_h_members) >= 3:
+                    _h_lead_thirdplus_targets = [
+                        int(x) for x in _h_members[2:]
+                        if int(x) in score_map
+                    ]
+
+            if _h_lead_thirdplus_targets and len(score_map) >= THIRDPLUS_FLOOR_RANK:
+                _order_now = sorted(
+                    [int(x) for x in score_map.keys()],
+                    key=lambda c: (-float(score_map.get(c, 0.0)), c)
+                )
+
+                _rank4_car = int(_order_now[THIRDPLUS_FLOOR_RANK - 1])
+                _rank4_score = float(score_map.get(_rank4_car, 0.0))
+                _floor_score = _rank4_score - THIRDPLUS_FLOOR_EPS
+
+                for _car3 in _h_lead_thirdplus_targets:
+                    _p3 = _get_top3_rate_for_car(_car3)
+
+                    if _p3 is None:
+                        continue
+
+                    if float(_p3) >= THIRDPLUS_TOP3_RATE_MIN:
+                        _now_score = float(score_map.get(_car3, 0.0))
+
+                        if _now_score < _floor_score:
+                            score_map[_car3] = float(_floor_score)
+
+                            # 表示上の「補正」も最終スコアと整合させる
+                            try:
+                                _base_before_last = float(score_map_before_last_half.get(_car3, _now_score))
+                                _last_half_bonus_map[_car3] = round(
+                                    float(score_map[_car3]) - _base_before_last,
+                                    3
+                                )
+                            except Exception:
+                                pass
+
+                            _last_half_reason_map.setdefault(_car3, [])
+                            _last_half_reason_map[_car3].append(
+                                f"3着内率{float(_p3)*100:.0f}%→最低4番手評価"
+                            )
+
+        except Exception as _e:
+            note_sections.append(f"※H主導3番手以降床上げエラー：{_e}")
+
         globals()["last_half_bonus_map"] = _last_half_bonus_map
         globals()["last_half_reason_map"] = _last_half_reason_map
         globals()["score_map_last_half_applied"] = dict(score_map)
